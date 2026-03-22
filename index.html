@@ -42,7 +42,12 @@
   label { font-size: 11px; color: var(--text2); display: block; margin-bottom: 3px; }
   input, select { width: 100%; padding: 6px 8px; border: 1px solid var(--border2); border-radius: 5px; font-size: 12px; background: var(--bg); color: var(--text); }
   input:focus, select:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 2px rgba(26,111,186,.15); }
-  input[type="time"] { font-family: monospace; }
+  .badge-vdo { background: #f3e8ff; color: #6b21a8; border: 1px solid #d8b4fe; }
+  .fn-manual-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+  .fn-manual-day { font-size: 10px; }
+  .fn-manual-day label { font-size: 10px; color: var(--text2); margin-bottom: 2px; font-weight: 500; }
+  .fn-manual-day input { font-size: 11px; padding: 4px 5px; font-family: monospace; }
+  input[type="file"] { padding: 4px; font-size: 11px; }
 
   /* Buttons */
   button { padding: 7px 14px; border: 1px solid var(--border2); border-radius: 5px; font-size: 12px; cursor: pointer; background: var(--bg); color: var(--text); transition: background .12s; }
@@ -160,6 +165,32 @@
         <div>
           <label>Payslip total to verify ($) — optional</label>
           <input type="number" id="psTotal" placeholder="e.g. 4250.00" step="0.01">
+        </div>
+      </div>
+      <hr>
+      <!-- Fortnightly roster upload — only relevant for lines 201-210 -->
+      <div id="fnRosterSection" style="display:none;margin-bottom:12px">
+        <h3 style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--text2);margin-bottom:6px">Fortnightly roster upload <span style="color:var(--amber-text);font-weight:400;text-transform:none">(lines 201–210 only)</span></h3>
+        <p class="note" style="margin-bottom:8px">Upload the current fortnightly roster PDF/image for standby lines. The uploaded roster overrides the master roster for lines 201–210. Lines 1–22 always use the master roster.</p>
+        <div class="g2">
+          <div>
+            <label>Fortnightly roster file <span style="color:var(--text3)">(image or PDF screenshot)</span></label>
+            <input type="file" id="fnRosterFile" accept="image/*,.pdf" onchange="parseFnRoster(this)">
+          </div>
+          <div id="fnRosterStatus" style="display:flex;align-items:center;font-size:12px;color:var(--text3)">No file loaded — master roster will be used.</div>
+        </div>
+        <div id="fnRosterPreview" style="margin-top:8px;display:none">
+          <p class="note" style="margin-bottom:6px">Parsed roster — verify times below before loading:</p>
+          <div id="fnRosterTable"></div>
+          <div style="margin-top:8px;display:flex;gap:8px">
+            <button onclick="applyFnRoster()" class="primary" style="font-size:11px;padding:5px 10px">Use this roster ✓</button>
+            <button onclick="clearFnRoster()" style="font-size:11px;padding:5px 10px">Clear</button>
+          </div>
+          <p class="note" style="margin-top:6px;color:var(--amber-text)">⚑ Auto-parsing is best-effort. Always verify times before calculating pay.</p>
+        </div>
+        <div id="fnRosterManual" style="margin-top:10px">
+          <p class="note" style="margin-bottom:6px">Or enter times manually for each day (HH:MM format, leave blank for OFF/ADO):</p>
+          <div id="fnManualGrid" class="fn-manual-grid"></div>
         </div>
       </div>
       <hr>
@@ -556,9 +587,11 @@ function loadLine() {
   phs = document.getElementById('phIn').value
     .split(',').map(s => s.trim()).filter(Boolean);
 
-  // Build day state objects
+  // Build day state objects — for lines 201-210 use fnRosterOverride if set
+  const useOverride = (ln >= 201 && ln <= 210) && fnRosterOverride && fnRosterOverride.length === 14;
   days = ROSTER[ln].map((r, i) => {
-    const [rS, rE, cm, rH, diag] = r;
+    const src = useOverride ? fnRosterOverride[i] : r;
+    const [rS, rE, cm, rH, diag] = src;
     const dateObj = parseDate(dates[i]);
     return {
       date: dates[i],
@@ -570,7 +603,9 @@ function loadLine() {
       aEnd:   rE || '',
       wobod:  false,
       liftup: false,
-      km:     0
+      km:     0,
+      leaveCat: 'none',
+      vdo:    false
     };
   });
 
@@ -611,11 +646,14 @@ function renderDayList() {
     const isPH  = day.ph;
 
     // Badges
+    const hasLeave = day.leaveCat && day.leaveCat !== 'none';
+    const lcat = hasLeave ? (LEAVE_CATS[day.leaveCat] || null) : null;
     let badges = '';
-    if (isOff)      badges += '<span class="badge badge-off">OFF</span>';
-    else if (isAdo) badges += '<span class="badge badge-ado">ADO</span>';
+    if (isOff)        badges += '<span class="badge badge-off">OFF</span>';
+    else if (isAdo)   badges += '<span class="badge badge-ado">ADO</span>';
+    else if (hasLeave && lcat) badges += `<span class="badge" style="background:${lcat.color}15;color:${lcat.color};border:1px solid ${lcat.color}40">${lcat.code}</span>`;
     else {
-      if (isPH)      badges += '<span class="badge badge-ph">PH</span>';
+      if (isPH)       badges += '<span class="badge badge-ph">PH</span>';
       else if (isSun) badges += '<span class="badge badge-sun">Sun</span>';
       else if (isSat) badges += '<span class="badge badge-sat">Sat</span>';
     }
@@ -645,8 +683,22 @@ function buildDayForm(i, day, isOff, isAdo) {
   if (isOff || isAdo) {
     return `<p style="font-size:12px;color:var(--text3);padding:4px 0">${isAdo ? 'Accrued Day Off' : 'Day off'} — no pay calculated.</p>`;
   }
-  return `
-    <div class="day-inputs">
+  const hasLeave = day.leaveCat && day.leaveCat !== 'none';
+  const cat = hasLeave ? LEAVE_CATS[day.leaveCat] : null;
+
+  // Leave category panel — shown when leave is selected
+  const leavePanelHTML = hasLeave ? `
+    <div style="background:${cat.color}10;border:1px solid ${cat.color}40;border-radius:5px;padding:8px 10px;margin-bottom:8px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span style="font-size:12px;font-weight:500;color:${cat.color}">${cat.code} — ${cat.label.split('—')[1]?.trim() || cat.label}</span>
+        <span style="font-size:10px;color:var(--text3)">EA ref: ${cat.ea}</span>
+      </div>
+      <p style="font-size:11px;color:var(--text2);margin-top:4px">${cat.desc}</p>
+    </div>` : '';
+
+  // When on leave, hide shift inputs but keep leave selector visible
+  const shiftInputsHTML = hasLeave ? '' : `
+    <div class="day-inputs" style="margin-bottom:8px">
       <div>
         <label>Actual start <span style="color:var(--text3)">(roster: ${day.rStart || '—'})</span></label>
         <input type="time" id="as_${i}" value="${day.aStart}" onchange="onDayChange(${i},'aStart',this.value)">
@@ -676,7 +728,15 @@ function buildDayForm(i, day, isOff, isAdo) {
       <div style="display:flex;align-items:flex-end">
         <button class="small" onclick="useRostered(${i})">Use rostered</button>
       </div>
+    </div>`;
+
+  return `
+    ${shiftInputsHTML}
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
+      <label style="margin:0;white-space:nowrap">Leave type:</label>
+      ${buildLeaveSelector(i, day.leaveCat || 'none')}
     </div>
+    ${leavePanelHTML}
     <div id="result_${i}"></div>`;
 }
 
@@ -703,11 +763,285 @@ function useRostered(i) {
 
 function fillAllRostered() {
   days.forEach((d, i) => {
-    if (d.diag === 'OFF' || d.diag === 'ADO') return;
+    if (d.diag === 'OFF' || d.diag === 'ADO' || d.vdo) return;
     if (d.rStart) { const el = document.getElementById('as_' + i); if (el) { el.value = d.rStart; days[i].aStart = d.rStart; } }
     if (d.rEnd)   { const el = document.getElementById('ae_' + i); if (el) { el.value = d.rEnd;   days[i].aEnd   = d.rEnd;   } }
     renderDayResult(i, calcDay(days[i]));
   });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// LEAVE CATEGORIES — EA 2025
+// ═══════════════════════════════════════════════════════════════
+// Each category: { code, label, color, badgeClass, pay(day, B) → {components, flags, total} }
+
+const LEAVE_CATS = {
+  none: { code: 'none', label: '— Work shift (no leave) —', color: '', badgeClass: '' },
+
+  RDO:  { code: 'RDO',  label: 'RDO — Rostered Day Off (no pay)',
+    color: '#6b21a8', badgeClass: 'badge-vdo',
+    ea: 'Cl. 21 / roster',
+    desc: 'No pay. Rostered day off per master roster.',
+    pay: (day, B) => ({ components: [], total: 0, flags: ['RDO — no pay.'] }) },
+
+  SL:   { code: 'SL',   label: 'Sick Leave — ordinary pay for rostered shift',
+    color: '#b85c00', badgeClass: 'badge-ado',
+    ea: 'Cl. 30.4',
+    desc: 'Full pay at ordinary rate for rostered shift hours. (Cl. 30.4 — sick leave on full pay)',
+    pay: (day, B) => {
+      const hrs = day.rHrs || 8;
+      return {
+        components: [{ n: 'Sick leave — ordinary rate', ea: 'Cl. 30.4', code: '—', hrs: hrs.toFixed(2), rate: `$${B.toFixed(4)}/hr`, amount: hrs * B, cls: '' }],
+        total: hrs * B,
+        flags: [`Sick leave: ${hrs.toFixed(2)} rostered hrs at ordinary rate (Cl. 30.4).`]
+      };
+    }
+  },
+
+  CL:   { code: 'CL',   label: "Carer's Leave — ordinary pay for rostered shift",
+    color: '#b85c00', badgeClass: 'badge-ado',
+    ea: 'Cl. 30.7(b)(ix)',
+    desc: "Paid at base rate for ordinary hours. (Cl. 30.7(b)(ix) — carer's leave at base rate)",
+    pay: (day, B) => {
+      const hrs = day.rHrs || 8;
+      return {
+        components: [{ n: "Carer's leave — base rate", ea: 'Cl. 30.7(b)(ix)', code: '—', hrs: hrs.toFixed(2), rate: `$${B.toFixed(4)}/hr`, amount: hrs * B, cls: '' }],
+        total: hrs * B,
+        flags: [`Carer's leave: ${hrs.toFixed(2)} hrs at base rate (Cl. 30.7(b)(ix)).`]
+      };
+    }
+  },
+
+  PHNW: { code: 'PHNW', label: 'PHNW — Public Holiday Not Worked (8 hrs pay)',
+    color: '#145c2d', badgeClass: 'badge-ph',
+    ea: 'Cl. 31.7',
+    desc: '8 hrs ordinary pay. Employee not required to work on a public holiday due. (Cl. 31.7)',
+    pay: (day, B) => ({
+      components: [{ n: 'Public holiday not worked — 8 hrs', ea: 'Cl. 31.7', code: '—', hrs: '8.00', rate: `$${B.toFixed(4)}/hr`, amount: 8 * B, cls: '' }],
+      total: 8 * B,
+      flags: ['PHNW: 8 hrs ordinary pay — employee not required to work on due public holiday (Cl. 31.7).']
+    })
+  },
+
+  PHW:  { code: 'PHW',  label: 'PHW — Public Holiday Worked (as per EA Cl. 31.5)',
+    color: '#145c2d', badgeClass: 'badge-ph',
+    ea: 'Cl. 31.5',
+    desc: '150% loading on ordinary hours + additional day pay at ordinary rate (or day in lieu). (Cl. 31.5)',
+    pay: (day, B) => {
+      const hrs = day.rHrs || 8;
+      const loading = hrs * B * 1.5;
+      const addDay  = 8 * B;
+      return {
+        components: [
+          { n: 'PHW — 150% loading on hrs worked', ea: 'Cl. 31.5(a)', code: '—', hrs: hrs.toFixed(2), rate: '1.5× ordinary', amount: loading, cls: '' },
+          { n: 'PHW — additional day pay (ordinary)', ea: 'Cl. 31.5(b)', code: '—', hrs: '8.00', rate: `$${B.toFixed(4)}/hr`, amount: addDay, cls: '' }
+        ],
+        total: loading + addDay,
+        flags: ['PHW: 150% loading + additional 8 hr day pay (or day in lieu by election) — Cl. 31.5. Max cap = double time (Cl. 31.5 note).']
+      };
+    }
+  },
+
+  AL:   { code: 'AL',   label: 'Annual Leave — 8 hrs ordinary + leave loading',
+    color: '#1a4f7a', badgeClass: 'badge-sat',
+    ea: 'Cl. 30.1 / 30.2',
+    desc: '8 hrs ordinary pay + 20% loading (shiftworker, Cl. 30.2(a)(ii)). Non-shiftworker = 17.5%.',
+    pay: (day, B) => {
+      const hrs  = 8;
+      const base = hrs * B;
+      const load = base * 0.20; // 20% for shiftworkers (drivers qualify — Cl. 30.2(a)(ii))
+      return {
+        components: [
+          { n: 'Annual leave — 8 hrs ordinary', ea: 'Cl. 30.1', code: '—', hrs: '8.00', rate: `$${B.toFixed(4)}/hr`, amount: base, cls: '' },
+          { n: 'Annual leave loading — 20% (shiftworker)', ea: 'Cl. 30.2(a)(ii)', code: '—', hrs: '8.00', rate: '20% of ordinary', amount: load, cls: 'pen-row' }
+        ],
+        total: base + load,
+        flags: ['AL: 8 hrs ordinary + 20% loading (shiftworker rate Cl. 30.2(a)(ii)). Non-shiftworker rate = 17.5%.']
+      };
+    }
+  },
+
+  BL:   { code: 'BL',   label: 'Bereavement/Compassionate Leave — base rate pay',
+    color: '#555', badgeClass: 'badge-off',
+    ea: 'Cl. 30.8(k)(iv)',
+    desc: 'Paid at base rate for ordinary hours. Up to 5 days/shifts per occasion. (Cl. 30.8(k)(iv))',
+    pay: (day, B) => {
+      const hrs = day.rHrs || 8;
+      return {
+        components: [{ n: 'Bereavement/compassionate leave — base rate', ea: 'Cl. 30.8(k)(iv)', code: '—', hrs: hrs.toFixed(2), rate: `$${B.toFixed(4)}/hr`, amount: hrs * B, cls: '' }],
+        total: hrs * B,
+        flags: [`Bereavement leave: ${hrs.toFixed(2)} hrs at base rate (Cl. 30.8(k)(iv)). Up to 5 days per occasion.`]
+      };
+    }
+  },
+
+  JD:   { code: 'JD',   label: 'Jury Duty — Special Leave (ordinary pay)',
+    color: '#555', badgeClass: 'badge-off',
+    ea: 'Cl. 30.8(g)',
+    desc: 'Special leave at ordinary pay for time at court. Any jury fee received reduces amount payable. (Cl. 30.8(g))',
+    pay: (day, B) => {
+      const hrs = day.rHrs || 8;
+      return {
+        components: [{ n: 'Jury duty — special leave, ordinary pay', ea: 'Cl. 30.8(g)', code: '—', hrs: hrs.toFixed(2), rate: `$${B.toFixed(4)}/hr`, amount: hrs * B, cls: '' }],
+        total: hrs * B,
+        flags: ['Jury duty: ordinary pay for time at court. Jury fee received reduces amount payable (Cl. 30.8(g)).']
+      };
+    }
+  },
+
+  LWOP: { code: 'LWOP', label: 'Leave Without Pay — $0',
+    color: '#888', badgeClass: 'badge-off',
+    ea: 'Cl. 30 / EA general',
+    desc: 'Approved unpaid leave. No pay.',
+    pay: (day, B) => ({ components: [], total: 0, flags: ['Leave without pay — $0.'] })
+  },
+
+  PD:   { code: 'PD',   label: 'Picnic Day — paid day off',
+    color: '#145c2d', badgeClass: 'badge-ph',
+    ea: 'Cl. 32.1',
+    desc: '8 hrs ordinary pay. Granted once per calendar year for approved picnic day. (Cl. 32.1)',
+    pay: (day, B) => ({
+      components: [{ n: 'Picnic day — 8 hrs ordinary', ea: 'Cl. 32.1', code: '—', hrs: '8.00', rate: `$${B.toFixed(4)}/hr`, amount: 8 * B, cls: '' }],
+      total: 8 * B,
+      flags: ['Picnic day: 8 hrs ordinary pay (Cl. 32.1). Evidence of ticket required.']
+    })
+  }
+};
+
+// Build the leave category selector HTML
+function buildLeaveSelector(i, currentCat) {
+  const opts = Object.values(LEAVE_CATS).map(c =>
+    `<option value="${c.code}" ${currentCat === c.code ? 'selected' : ''}>${c.label}</option>`
+  ).join('');
+  return `<select id="lcat_${i}" onchange="setLeaveCat(${i}, this.value)" style="font-size:11px;padding:4px 6px;border-color:#d8b4fe;color:#6b21a8;width:auto;max-width:320px">${opts}</select>`;
+}
+
+function setLeaveCat(i, cat) {
+  days[i].leaveCat = cat;
+  days[i].vdo = (cat !== 'none'); // keep vdo flag in sync for skip logic
+  rebuildDayRow(i);
+  renderDayResult(i, calcDay(days[i]));
+}
+
+function rebuildDayRow(i) {
+  const day  = days[i];
+  const d    = parseDate(day.date);
+  const isOff = day.diag === 'OFF', isAdo = day.diag === 'ADO';
+  const isSat = day.dow === 6, isSun = day.dow === 0, isPH = day.ph;
+  const cat  = LEAVE_CATS[day.leaveCat] || LEAVE_CATS.none;
+  const hasLeave = day.leaveCat && day.leaveCat !== 'none';
+
+  let badges = '';
+  if (isOff)        badges = '<span class="badge badge-off">OFF</span>';
+  else if (isAdo)   badges = '<span class="badge badge-ado">ADO</span>';
+  else if (hasLeave) badges = `<span class="badge ${cat.badgeClass}" style="background:${cat.color}15;color:${cat.color};border-color:${cat.color}40">${cat.code}</span>`;
+  else {
+    if (isPH)       badges = '<span class="badge badge-ph">PH</span>';
+    else if (isSun) badges = '<span class="badge badge-sun">Sun</span>';
+    else if (isSat) badges = '<span class="badge badge-sat">Sat</span>';
+  }
+  const rosterInfo = (!isOff && !isAdo && !hasLeave)
+    ? `<span style="font-size:11px;color:var(--text3);margin-left:8px">Roster: ${day.rStart || '—'}–${day.rEnd || '—'} · ${day.diag}</span>` : '';
+
+  const row  = document.getElementById('row_' + i);
+  const body = document.getElementById('body_' + i);
+  row.querySelector('.day-header').innerHTML = `
+    <span style="min-width:140px;font-weight:500;font-size:13px">${fmtDate(d)}</span>
+    ${badges}${rosterInfo}
+    <span class="day-summary" id="sum_${i}">—</span>
+    <span class="chevron">▼</span>`;
+  row.querySelector('.day-header').onclick = () => toggleDay(i);
+  body.innerHTML = buildDayForm(i, day, isOff, isAdo);
+  body.classList.add('open');
+  row.classList.add('open');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// FORTNIGHTLY ROSTER — lines 201-210
+// ═══════════════════════════════════════════════════════════════
+let fnRosterOverride = null; // array of 14 entries or null
+
+// Show/hide upload section based on line number
+document.getElementById('lineNum').addEventListener('input', function() {
+  const ln = parseInt(this.value);
+  const sec = document.getElementById('fnRosterSection');
+  if (ln >= 201 && ln <= 210) {
+    sec.style.display = 'block';
+    buildManualGrid();
+  } else {
+    sec.style.display = 'none';
+  }
+});
+
+function buildManualGrid() {
+  const grid = document.getElementById('fnManualGrid');
+  const DW2 = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  let startVal = document.getElementById('fnStart').value;
+  if (!startVal) startVal = new Date().toISOString().slice(0,10);
+  const dates = makeFortnight(toSunday(startVal));
+  grid.innerHTML = '';
+  dates.forEach((d, i) => {
+    const dateObj = parseDate(d);
+    const label = `${DW2[dateObj.getDay()]} ${d.slice(5)}`;
+    grid.innerHTML += `<div class="fn-manual-day">
+      <label>${label}</label>
+      <input type="text" id="fnm_s_${i}" placeholder="start" style="margin-bottom:3px">
+      <input type="text" id="fnm_e_${i}" placeholder="end">
+      <select id="fnm_t_${i}" style="margin-top:3px;font-size:10px;padding:2px 3px">
+        <option value="work">Work</option>
+        <option value="OFF">OFF</option>
+        <option value="ADO">ADO</option>
+        <option value="SBY">SBY</option>
+      </select>
+    </div>`;
+  });
+  // Apply override values if already set
+  if (fnRosterOverride) {
+    fnRosterOverride.forEach((r, i) => {
+      const si = document.getElementById('fnm_s_' + i);
+      const ei = document.getElementById('fnm_e_' + i);
+      const ti = document.getElementById('fnm_t_' + i);
+      if (si) si.value = r[0] || '';
+      if (ei) ei.value = r[1] || '';
+      if (ti) ti.value = r[4] || 'work';
+    });
+  }
+}
+
+function applyFnRoster() {
+  // Read from manual grid
+  const startVal = toSunday(document.getElementById('fnStart').value);
+  const dates = makeFortnight(startVal);
+  fnRosterOverride = dates.map((d, i) => {
+    const s  = (document.getElementById('fnm_s_' + i)?.value || '').trim();
+    const e  = (document.getElementById('fnm_e_' + i)?.value || '').trim();
+    const tp = document.getElementById('fnm_t_' + i)?.value || 'work';
+    if (tp === 'OFF') return [null, null, false, 0, 'OFF'];
+    if (tp === 'ADO') return [null, null, false, 0, 'ADO'];
+    if (!s || !e)     return [null, null, false, 0, 'OFF'];
+    const sM = toMins(s), eM = toMins(e);
+    const cm = eM !== null && sM !== null && eM <= sM;
+    const hrs = cm ? toHrs(eM + 1440 - sM) : (sM !== null && eM !== null ? toHrs(eM - sM) : 0);
+    return [s, e, cm, parseFloat(hrs.toFixed(2)), tp];
+  });
+  document.getElementById('fnRosterStatus').innerHTML =
+    `<span style="color:var(--green-text)">✓ Fortnightly roster applied — ${fnRosterOverride.filter(r=>r[4]!=='OFF'&&r[4]!=='ADO').length} work days loaded. Click "Load roster line" to use.</span>`;
+}
+
+function clearFnRoster() {
+  fnRosterOverride = null;
+  document.getElementById('fnRosterStatus').textContent = 'No file loaded — master roster will be used.';
+  document.getElementById('fnRosterStatus').style.color = 'var(--text3)';
+}
+
+function parseFnRoster(input) {
+  // File upload — show preview note, let user verify via manual grid
+  if (!input.files || !input.files[0]) return;
+  const file = input.files[0];
+  document.getElementById('fnRosterStatus').innerHTML =
+    `<span style="color:var(--amber-text)">⚑ File "${file.name}" selected. Auto-parsing not available — please enter times manually in the grid below and click "Use this roster".</span>`;
+  document.getElementById('fnRosterPreview').style.display = 'none';
+  buildManualGrid();
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -720,11 +1054,21 @@ function calcDay(day) {
   if (diag === 'OFF' || diag === 'ADO') {
     return { hrs: 0, paidHrs: 0, components: [], total: 0, flags: [], isSat, isSun, isPH };
   }
+
+  const B = cfg.baseRate;
+
+  // Leave category — delegate to LEAVE_CATS pay function
+  if (day.leaveCat && day.leaveCat !== 'none') {
+    const cat = LEAVE_CATS[day.leaveCat];
+    if (cat) {
+      const result = cat.pay(day, B);
+      return { hrs: 0, paidHrs: 0, components: result.components || [], total: result.total || 0, flags: result.flags || [], isSat, isSun, isPH, isLeave: true, leaveCat: day.leaveCat };
+    }
+  }
   if (!aStart || !aEnd) {
     return { hrs: 0, paidHrs: 0, components: [], total: 0, flags: ['Enter actual times or click "Use rostered"'], isSat, isSun, isPH };
   }
 
-  const B = cfg.baseRate;
   const components = [];
   const flags = [];
 
@@ -1025,6 +1369,19 @@ function sw(name) {
 // INIT
 // ═══════════════════════════════════════════════════════════════
 buildConfigUI();
+// Rebuild manual grid when date changes
+document.getElementById('fnStart').addEventListener('change', function() {
+  const ln = parseInt(document.getElementById('lineNum').value);
+  if (ln >= 201 && ln <= 210) buildManualGrid();
+});
+// Show section on init if default line is 201-210
+(function() {
+  const ln = parseInt(document.getElementById('lineNum').value);
+  if (ln >= 201 && ln <= 210) {
+    document.getElementById('fnRosterSection').style.display = 'block';
+    buildManualGrid();
+  }
+})();
 </script>
 </body>
 </html>
