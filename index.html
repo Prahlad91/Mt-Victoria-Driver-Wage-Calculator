@@ -431,7 +431,8 @@ let cfg = {
   earlyRate: 4.84,       // Sch.4B Item 8
   addLoading: 5.69,      // Sch.4B Item 9 (flat per shift)
   wobodRate: 2.0,
-  wobodMin: 4
+  wobodMin: 4,
+  liftupRate: 1.5  // lift-up / layback rate — custom & practice (EA defers to depot)
 };
 let codes = {
   base:'', ot1:'', ot2:'', sat:'', sun:'', satOt:'',
@@ -455,7 +456,8 @@ const CFG_DEFS = [
   { k:'earlyRate',     l:'Early morning rate ($/hr)', ea:'Sch.4B Item 8' },
   { k:'addLoading',    l:'Additional loading ($/shift flat)', ea:'Sch.4B Item 9' },
   { k:'wobodRate', l:'WOBOD rate (×)',    ea:'Cl. 136' },
-  { k:'wobodMin',  l:'WOBOD min hrs',     ea:'Cl. 136' }
+  { k:'wobodMin',  l:'WOBOD min hrs',     ea:'Cl. 136' },
+  { k:'liftupRate', l:'Lift-up / Layback rate (×)', ea:'Custom & practice / Cl. 140.1' }
 ];
 const CODE_DEFS = [
   { k:'base',     l:'Ordinary time' },
@@ -680,8 +682,11 @@ function renderDayList() {
 }
 
 function buildDayForm(i, day, isOff, isAdo) {
-  if (isOff || isAdo) {
-    return `<p style="font-size:12px;color:var(--text3);padding:4px 0">${isAdo ? 'Accrued Day Off' : 'Day off'} — no pay calculated.</p>`;
+  if ((isOff || isAdo) && !day.workedOnOff) {
+    return `<div style="display:flex;align-items:center;gap:10px;padding:4px 0">
+      <p style="font-size:12px;color:var(--text3)">${isAdo ? 'Accrued Day Off' : 'Day off'} — no pay calculated.</p>
+      <button class="small" onclick="markWorkedOnOff(${i})" style="border-color:#f0a0a0;color:var(--red-text);background:var(--red-bg)">+ Worked on this day</button>
+    </div>`;
   }
   const hasLeave = day.leaveCat && day.leaveCat !== 'none';
   const cat = hasLeave ? LEAVE_CATS[day.leaveCat] : null;
@@ -697,7 +702,14 @@ function buildDayForm(i, day, isOff, isAdo) {
     </div>` : '';
 
   // When on leave, hide shift inputs but keep leave selector visible
+  const workedOnOffBanner = (isOff || isAdo) && day.workedOnOff ? `
+    <div style="background:var(--red-bg);border:1px solid #f0a0a0;border-radius:5px;padding:7px 10px;margin-bottom:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <span style="font-size:11px;color:var(--red-text);font-weight:500">⚑ Worked on ${isAdo ? 'ADO' : 'RDO/OFF'} day — WOBOD pre-selected (Cl. 136). Verify with your supervisor.</span>
+      <button class="small" onclick="unmarkWorkedOnOff(${i})" style="border-color:#f0a0a0;color:var(--red-text)">Undo</button>
+    </div>` : '';
+
   const shiftInputsHTML = hasLeave ? '' : `
+    ${workedOnOffBanner}
     <div class="day-inputs" style="margin-bottom:8px">
       <div>
         <label>Actual start <span style="color:var(--text3)">(roster: ${day.rStart || '—'})</span></label>
@@ -719,10 +731,10 @@ function buildDayForm(i, day, isOff, isAdo) {
         </select>
       </div>
       <div>
-        <label>Lift-up?</label>
-        <select id="lu_${i}" onchange="onDayChange(${i},'liftup',this.value==='1')">
-          <option value="0">No</option>
-          <option value="1"${day.liftup ? ' selected' : ''}>Yes</option>
+        <label>Cross-midnight?</label>
+        <select id="cm_${i}" onchange="onDayChange(${i},'cm',this.value==='1')">
+          <option value="0"${!day.cm ? ' selected' : ''}>No</option>
+          <option value="1"${day.cm ? ' selected' : ''}>Yes</option>
         </select>
       </div>
       <div style="display:flex;align-items:flex-end">
@@ -748,9 +760,62 @@ function toggleDay(i) {
   row.classList.toggle('open', !isOpen);
 }
 
+function markWorkedOnOff(i) {
+  days[i].workedOnOff = true;
+  days[i].wobod = true;  // Pre-flag as WOBOD since it's a book-off day
+  // Rebuild the row to show full shift entry form
+  const row  = document.getElementById('row_' + i);
+  const body = document.getElementById('body_' + i);
+  const day  = days[i];
+  const d    = parseDate(day.date);
+  const isOff = day.diag === 'OFF', isAdo = day.diag === 'ADO';
+  const isSat = day.dow === 6, isSun = day.dow === 0, isPH = day.ph;
+
+  let badges = '';
+  if (isOff)      badges = '<span class="badge badge-off">OFF</span>';
+  else if (isAdo) badges = '<span class="badge badge-ado">ADO</span>';
+  badges += '<span class="badge" style="background:var(--red-bg);color:var(--red-text);border:1px solid #f0a0a0;margin-left:2px">WORKED</span>';
+
+  row.querySelector('.day-header').innerHTML = `
+    <span style="min-width:140px;font-weight:500;font-size:13px">${fmtDate(d)}</span>
+    ${badges}
+    <span class="day-summary" id="sum_${i}">—</span>
+    <span class="chevron">▼</span>`;
+  row.querySelector('.day-header').onclick = () => toggleDay(i);
+  body.innerHTML = buildDayForm(i, day, isOff, isAdo);
+  body.classList.add('open');
+  row.classList.add('open');
+}
+
+function unmarkWorkedOnOff(i) {
+  days[i].workedOnOff = false;
+  days[i].wobod = false;
+  days[i].aStart = ''; days[i].aEnd = '';
+  // Rebuild the row back to OFF/ADO display
+  const row  = document.getElementById('row_' + i);
+  const body = document.getElementById('body_' + i);
+  const day  = days[i];
+  const d    = parseDate(day.date);
+  const isOff = day.diag === 'OFF', isAdo = day.diag === 'ADO';
+
+  let badges = '';
+  if (isOff)      badges = '<span class="badge badge-off">OFF</span>';
+  else if (isAdo) badges = '<span class="badge badge-ado">ADO</span>';
+
+  row.querySelector('.day-header').innerHTML = `
+    <span style="min-width:140px;font-weight:500;font-size:13px">${fmtDate(d)}</span>
+    ${badges}
+    <span class="day-summary" id="sum_${i}">—</span>
+    <span class="chevron">▼</span>`;
+  row.querySelector('.day-header').onclick = () => toggleDay(i);
+  body.innerHTML = buildDayForm(i, day, isOff, isAdo);
+  body.classList.add('open');
+  row.classList.add('open');
+}
+
 function onDayChange(i, key, val) {
   days[i][key] = val;
-  const result = calcDay(days[i]);
+  const result = calcDay(days[i], i);
   renderDayResult(i, result);
 }
 
@@ -758,7 +823,7 @@ function useRostered(i) {
   const d = days[i];
   if (d.rStart) { document.getElementById('as_' + i).value = d.rStart; days[i].aStart = d.rStart; }
   if (d.rEnd)   { document.getElementById('ae_' + i).value = d.rEnd;   days[i].aEnd   = d.rEnd;   }
-  renderDayResult(i, calcDay(days[i]));
+  renderDayResult(i, calcDay(days[i], i));
 }
 
 function fillAllRostered() {
@@ -766,7 +831,7 @@ function fillAllRostered() {
     if (d.diag === 'OFF' || d.diag === 'ADO' || d.vdo) return;
     if (d.rStart) { const el = document.getElementById('as_' + i); if (el) { el.value = d.rStart; days[i].aStart = d.rStart; } }
     if (d.rEnd)   { const el = document.getElementById('ae_' + i); if (el) { el.value = d.rEnd;   days[i].aEnd   = d.rEnd;   } }
-    renderDayResult(i, calcDay(days[i]));
+    renderDayResult(i, calcDay(days[i], i));
   });
 }
 
@@ -1046,12 +1111,22 @@ function parseFnRoster(input) {
 
 // ═══════════════════════════════════════════════════════════════
 // CORE CALCULATION — calcDay
+// Handles:
+//   - OFF/ADO days that were worked (WOBOD)
+//   - Leave categories
+//   - Split-shift midnight crossing: OT hours that fall on next calendar
+//     day are rated at that next day's rules (PH, Sun, Sat) — Change 2
+//   - Auto lift-up: actual start LATER than roster → layback payment
+//     for hours started late (called in late)
+//   - Auto lift-up: actual end EARLIER than roster → lift-up payment
+//     for hours released early (sent home early)  — Change 3
 // ═══════════════════════════════════════════════════════════════
-function calcDay(day) {
-  const { aStart, aEnd, km, wobod, liftup, ph, dow, rStart, cm, diag } = day;
+function calcDay(day, dayIndex) {
+  const { aStart, aEnd, km, wobod, ph, dow, rStart, rEnd, cm, diag } = day;
   const isSat = dow === 6, isSun = dow === 0, isPH = ph;
 
-  if (diag === 'OFF' || diag === 'ADO') {
+  // OFF/ADO days not worked
+  if ((diag === 'OFF' || diag === 'ADO') && !day.workedOnOff) {
     return { hrs: 0, paidHrs: 0, components: [], total: 0, flags: [], isSat, isSun, isPH };
   }
 
@@ -1065,6 +1140,7 @@ function calcDay(day) {
       return { hrs: 0, paidHrs: 0, components: result.components || [], total: result.total || 0, flags: result.flags || [], isSat, isSun, isPH, isLeave: true, leaveCat: day.leaveCat };
     }
   }
+
   if (!aStart || !aEnd) {
     return { hrs: 0, paidHrs: 0, components: [], total: 0, flags: ['Enter actual times or click "Use rostered"'], isSat, isSun, isPH };
   }
@@ -1072,17 +1148,34 @@ function calcDay(day) {
   const components = [];
   const flags = [];
 
-  // Compute actual hours
+  // ── Parse times ──────────────────────────────────────────────
   let sMin = toMins(aStart);
   let eMin = toMins(aEnd);
-  if (cm || eMin <= sMin) eMin += 1440;
+  const crossMid = day.cm || (eMin <= sMin);
+  if (crossMid) eMin += 1440;
   const actualHrs = toHrs(eMin - sMin);
-  const ordHrs    = Math.min(actualHrs, 8);
-  const otHrs     = Math.max(0, actualHrs - 8);
-  const ot1h      = Math.min(otHrs, 2);
-  const ot2h      = Math.max(0, otHrs - 2);
 
-  // KM credit
+  // ── Change 2: Split-shift midnight calculation ────────────────
+  // For cross-midnight shifts, determine how many minutes fall on
+  // the NEXT calendar day (after 00:00), and what rules apply there.
+  // Next-day rules: look up day[i+1] PH/dow if available.
+  let nextDayIsPH = false, nextDayIsSun = false, nextDayIsSat = false;
+  let minsOnNextDay = 0, minsOnShiftDay = 0;
+
+  if (crossMid) {
+    // Minutes before midnight = 1440 - sMin (if sMin < 1440)
+    // Minutes after midnight = eMin - 1440
+    minsOnNextDay  = Math.max(0, eMin - 1440);
+    minsOnShiftDay = Math.max(0, 1440 - sMin);
+    if (minsOnNextDay > 0 && dayIndex !== undefined && days[dayIndex + 1]) {
+      const nd = days[dayIndex + 1];
+      nextDayIsPH  = nd.ph;
+      nextDayIsSun = nd.dow === 0;
+      nextDayIsSat = nd.dow === 6;
+    }
+  }
+
+  // ── KM credit ─────────────────────────────────────────────────
   const kmc = km > 0 ? getKmCredit(km) : null;
   let kmCreditedHrs = null, kmBonus = 0, kmApplied = false;
   if (kmc && kmc.credited !== null) {
@@ -1093,13 +1186,39 @@ function calcDay(day) {
     flags.push('ALERT: Double shift >10 hrs — driver must be relieved at terminal on return (Cl. 146.4(f)).');
   if (kmc && kmc.is370) {
     flags.push('>370 km shift — max 4/week, relieved at terminal, 8 hr traffic cap (Cl. 146.4(g-i)).');
-    if (actualHrs > 8) flags.push(`ALERT: >370 km shift — ${actualHrs.toFixed(2)} hrs in traffic exceeds 8 hr cap. Verify unavoidable necessity (Cl. 146.4(i)).`);
+    if (actualHrs > 8) flags.push(`ALERT: >370 km — ${actualHrs.toFixed(2)} hrs in traffic exceeds 8 hr cap (Cl. 146.4(i)).`);
   }
 
-  // Shift penalty (per hour, Cl. 134.3(b) rounding)
+  // ── Change 3: Auto lift-up / layback detection ────────────────
+  // Layback  = actual start LATER than rostered start (called in later than rostered)
+  // Lift-up  = actual end EARLIER than rostered end (released early, sent home)
+  let laybackHrs = 0, liftupHrs = 0;
+  if (rStart && aStart) {
+    const rsMin = toMins(rStart), asMin = toMins(aStart);
+    if (rsMin !== null && asMin !== null && asMin > rsMin) {
+      laybackHrs = toHrs(asMin - rsMin);
+    }
+  }
+  if (rEnd && aEnd) {
+    const reMin = toMins(rEnd), aeMin = toMins(aEnd);
+    // Adjust for cross-midnight rostered end
+    let reAdj = reMin, aeAdj = aeMin;
+    const rCross = day.cm || (reAdj !== null && toMins(rStart) !== null && reAdj <= toMins(rStart));
+    if (rCross && reAdj !== null) reAdj += 1440;
+    if (crossMid && aeAdj !== null) aeAdj += 1440;
+    if (reAdj !== null && aeAdj !== null && aeAdj < reAdj) {
+      liftupHrs = toHrs(reAdj - aeAdj);
+    }
+  }
+
+  // ── Shift penalty (per hour, Cl. 134.3(b) rounding) ──────────
+  const ordHrs = Math.min(actualHrs, 8);
+  const otHrs  = Math.max(0, actualHrs - 8);
+  const ot1h   = Math.min(otHrs, 2);
+  const ot2h   = Math.max(0, otHrs - 2);
   const pen = getShiftPenalty(sMin, eMin, ordHrs, isSat, isSun, isPH, dow);
 
-  // ── Build components ──
+  // ── Build components ──────────────────────────────────────────
   if (wobod) {
     const wh = Math.max(actualHrs, cfg.wobodMin);
     components.push({ n: 'WOBOD — work on book-off day', ea: 'Cl. 136', code: codes.wobod || '—', hrs: wh.toFixed(2), rate: `${cfg.wobodRate}× ($${(B * cfg.wobodRate).toFixed(4)}/hr)`, amount: wh * B * cfg.wobodRate, cls: '' });
@@ -1110,75 +1229,112 @@ function calcDay(day) {
     const code = (isSat || isSun) ? codes.phWke : codes.phWkd;
     const phHrs = Math.max(actualHrs, kmCreditedHrs || 0);
     components.push({ n: `Public holiday — ${isSat || isSun ? 'weekend' : 'weekday'} (${rate}×)`, ea: 'Cl. 31', code: code || '—', hrs: phHrs.toFixed(2), rate: `${rate}×`, amount: phHrs * B * rate, cls: '' });
-    flags.push(`PH ${rate}× applied. Day in lieu accrues (Cl. 31). Shift penalties not payable on PH (Cl. 134.3(a)).`);
+    flags.push(`PH ${rate}× applied. Day in lieu accrues (Cl. 31).`);
 
   } else if (isSun) {
     components.push({ n: 'Sunday time — ordinary', ea: 'Cl. 133/54', code: codes.sun || '—', hrs: ordHrs.toFixed(2), rate: `${cfg.sunRate}×`, amount: ordHrs * B * cfg.sunRate, cls: '' });
     if (ot1h + ot2h > 0) {
-      const oh = ot1h + ot2h;
-      components.push({ n: 'Sunday OT (Cl. 144 — Sunday rate applies)', ea: 'Cl. 140', code: codes.sun || '—', hrs: oh.toFixed(2), rate: `${cfg.sunRate}×`, amount: oh * B * cfg.sunRate, cls: '' });
+      components.push({ n: 'Sunday OT (Cl. 144 — Sunday rate)', ea: 'Cl. 140', code: codes.sun || '—', hrs: (ot1h+ot2h).toFixed(2), rate: `${cfg.sunRate}×`, amount: (ot1h+ot2h) * B * cfg.sunRate, cls: '' });
     }
-    // No shift penalty on Sunday (Cl. 134.3(a))
 
   } else if (isSat) {
     components.push({ n: 'Saturday — ordinary', ea: 'Cl. 54/134', code: codes.sat || '—', hrs: ordHrs.toFixed(2), rate: `${cfg.satRate}×`, amount: ordHrs * B * cfg.satRate, cls: '' });
     if (ot1h + ot2h > 0) {
-      const oh = ot1h + ot2h;
-      components.push({ n: 'Saturday OT >8 hrs', ea: 'Cl. 140+Sch.4A', code: codes.satOt || '—', hrs: oh.toFixed(2), rate: `${cfg.satOt}×`, amount: oh * B * cfg.satOt, cls: '' });
+      components.push({ n: 'Saturday OT >8 hrs', ea: 'Cl. 140+Sch.4A', code: codes.satOt || '—', hrs: (ot1h+ot2h).toFixed(2), rate: `${cfg.satOt}×`, amount: (ot1h+ot2h) * B * cfg.satOt, cls: '' });
       flags.push('Saturday OT >8 hrs → double time (EA 2025 Sch. 4A).');
     }
-    // No shift penalty on Saturday (Cl. 134.3(a))
 
   } else {
-    // Weekday ordinary
-    components.push({ n: 'Ordinary time', ea: 'Sch. 4A', code: codes.base || '—', hrs: ordHrs.toFixed(2), rate: `$${B.toFixed(4)}/hr`, amount: ordHrs * B, cls: '' });
-    if (ot1h > 0) components.push({ n: 'OT — first 2 hrs', ea: 'Cl. 140.1', code: codes.ot1 || '—', hrs: ot1h.toFixed(2), rate: `${cfg.ot1}×`, amount: ot1h * B * cfg.ot1, cls: '' });
-    if (ot2h > 0) components.push({ n: 'OT — beyond 2 hrs', ea: 'Cl. 140.1', code: codes.ot2 || '—', hrs: ot2h.toFixed(2), rate: `${cfg.ot2}×`, amount: ot2h * B * cfg.ot2, cls: '' });
+    // Weekday: check if cross-midnight OT falls on PH/Sun/Sat next day
+    const ordHrsShiftDay = Math.min(toHrs(Math.min(eMin, 1440) - sMin), 8);
 
-    // Shift penalty — per hour, EA rounding
-    if (pen.penAmt > 0) {
-      const penRate = pen.shiftType === 'night' ? cfg.nightRate : pen.shiftType === 'early' ? cfg.earlyRate : cfg.afternoonRate;
-      components.push({
-        n: `${pen.penName} (${pen.penItem}) — ${pen.penHrs} hrs × $${penRate}/hr`,
-        ea: 'Sch.4B / Cl. 134.3', code: pen.penCode, hrs: pen.penHrs.toString(),
-        rate: `$${penRate}/hr · Cl.134.3(b) rounded`, amount: pen.penAmt, cls: 'pen-row'
-      });
+    if (crossMid && minsOnNextDay > 0 && (nextDayIsPH || nextDayIsSun || nextDayIsSat)) {
+      // Split pay: shift-day ordinary + next-day rate for cross-midnight portion
+      const nextDayHrs = toHrs(minsOnNextDay);
+      const shiftDayOrdHrs = Math.min(ordHrsShiftDay, 8);
+
+      components.push({ n: 'Ordinary time (shift day portion)', ea: 'Sch. 4A', code: codes.base || '—', hrs: shiftDayOrdHrs.toFixed(2), rate: `$${B.toFixed(4)}/hr`, amount: shiftDayOrdHrs * B, cls: '' });
+
+      // OT on shift-day portion (before midnight)
+      const shiftDayTotalHrs = toHrs(Math.min(eMin, 1440) - sMin);
+      const shiftDayOt = Math.max(0, shiftDayTotalHrs - 8);
+      if (shiftDayOt > 0) {
+        const sd1 = Math.min(shiftDayOt, 2), sd2 = Math.max(0, shiftDayOt - 2);
+        if (sd1 > 0) components.push({ n: 'OT — first 2 hrs (shift day)', ea: 'Cl. 140.1', code: codes.ot1 || '—', hrs: sd1.toFixed(2), rate: `${cfg.ot1}×`, amount: sd1 * B * cfg.ot1, cls: '' });
+        if (sd2 > 0) components.push({ n: 'OT — beyond 2 hrs (shift day)', ea: 'Cl. 140.1', code: codes.ot2 || '—', hrs: sd2.toFixed(2), rate: `${cfg.ot2}×`, amount: sd2 * B * cfg.ot2, cls: '' });
+      }
+
+      // Next-day portion rated at next day's rules
+      if (nextDayIsPH) {
+        const ndRate = (nextDayIsSat || nextDayIsSun) ? cfg.phWke : cfg.phWkd;
+        components.push({ n: `Cross-midnight portion — next day is PH (${ndRate}×)`, ea: 'Cl. 31', code: codes.phWkd || '—', hrs: nextDayHrs.toFixed(2), rate: `${ndRate}×`, amount: nextDayHrs * B * ndRate, cls: 'pen-row' });
+        flags.push(`⚑ Cross-midnight: ${nextDayHrs.toFixed(2)} hrs fall on a Public Holiday — rated at ${ndRate}× (Cl. 31).`);
+      } else if (nextDayIsSun) {
+        components.push({ n: 'Cross-midnight portion — next day is Sunday (2×)', ea: 'Cl. 133/54', code: codes.sun || '—', hrs: nextDayHrs.toFixed(2), rate: `${cfg.sunRate}×`, amount: nextDayHrs * B * cfg.sunRate, cls: 'pen-row' });
+        flags.push(`⚑ Cross-midnight: ${nextDayHrs.toFixed(2)} hrs fall on Sunday — rated at ${cfg.sunRate}× (Cl. 133).`);
+      } else if (nextDayIsSat) {
+        components.push({ n: 'Cross-midnight portion — next day is Saturday (1.5×)', ea: 'Cl. 54', code: codes.sat || '—', hrs: nextDayHrs.toFixed(2), rate: `${cfg.satRate}×`, amount: nextDayHrs * B * cfg.satRate, cls: 'pen-row' });
+        flags.push(`⚑ Cross-midnight: ${nextDayHrs.toFixed(2)} hrs fall on Saturday — rated at ${cfg.satRate}× (Cl. 54).`);
+      }
+
+    } else {
+      // Standard weekday — no next-day split needed
+      components.push({ n: 'Ordinary time', ea: 'Sch. 4A', code: codes.base || '—', hrs: ordHrs.toFixed(2), rate: `$${B.toFixed(4)}/hr`, amount: ordHrs * B, cls: '' });
+      if (ot1h > 0) components.push({ n: 'OT — first 2 hrs', ea: 'Cl. 140.1', code: codes.ot1 || '—', hrs: ot1h.toFixed(2), rate: `${cfg.ot1}×`, amount: ot1h * B * cfg.ot1, cls: '' });
+      if (ot2h > 0) components.push({ n: 'OT — beyond 2 hrs', ea: 'Cl. 140.1', code: codes.ot2 || '—', hrs: ot2h.toFixed(2), rate: `${cfg.ot2}×`, amount: ot2h * B * cfg.ot2, cls: '' });
     }
 
-    // Item 9 additional loading — flat per shift
+    // Shift penalty — per hour, EA rounding (Cl. 134.3)
+    if (pen.penAmt > 0) {
+      const penRate = pen.shiftType === 'night' ? cfg.nightRate : pen.shiftType === 'early' ? cfg.earlyRate : cfg.afternoonRate;
+      components.push({ n: `${pen.penName} (${pen.penItem}) — ${pen.penHrs} hrs × $${penRate}/hr`, ea: 'Sch.4B / Cl. 134.3', code: pen.penCode, hrs: pen.penHrs.toString(), rate: `$${penRate}/hr · Cl.134.3(b) rounded`, amount: pen.penAmt, cls: 'pen-row' });
+    }
     if (pen.addLoad) {
       components.push({ n: 'Additional loading (Item 9) — sign on/off 01:01–03:59', ea: 'Sch.4B / Cl. 134.4', code: codes.addLoad || '—', hrs: 'flat', rate: `$${cfg.addLoading.toFixed(2)}/shift`, amount: cfg.addLoading, cls: 'pen-row' });
     }
   }
 
-  // KM credit bonus — paid at ordinary rate, NOT in OT (Cl. 146.4(b))
+  // ── KM credit bonus (Cl. 146.4(b)) ───────────────────────────
   if (kmApplied && kmBonus > 0) {
     const bRate = isSat ? cfg.satRate : isSun ? cfg.sunRate : 1.0;
-    components.push({
-      n: `Cl. 146.4 KM credit — ${km} km → ${kmCreditedHrs} hrs credited, bonus ${kmBonus.toFixed(2)} hrs`,
-      ea: 'Cl. 146.4(a)(b)', code: codes.base || '—', hrs: kmBonus.toFixed(2),
-      rate: 'Ordinary rate — NOT included in OT (Cl. 146.4(b))',
-      amount: kmBonus * B * bRate, cls: 'km-row'
-    });
-    flags.push(`KM credit: ${km} km → ${kmCreditedHrs} hrs credited. Actual: ${actualHrs.toFixed(2)} hrs. Bonus ${kmBonus.toFixed(2)} hrs at ordinary rate, excluded from OT (Cl. 146.4(b)).`);
+    components.push({ n: `Cl. 146.4 KM credit — ${km} km → ${kmCreditedHrs} hrs, bonus ${kmBonus.toFixed(2)} hrs`, ea: 'Cl. 146.4(a)(b)', code: codes.base || '—', hrs: kmBonus.toFixed(2), rate: 'Ordinary rate — NOT included in OT (Cl. 146.4(b))', amount: kmBonus * B * bRate, cls: 'km-row' });
+    flags.push(`KM credit: ${km} km → ${kmCreditedHrs} hrs. Actual: ${actualHrs.toFixed(2)} hrs. Bonus ${kmBonus.toFixed(2)} hrs at ordinary rate (Cl. 146.4(b)).`);
   }
-  if (km > 0 && kmc && kmc.credited === null) {
-    flags.push(`${km} km < 161 — all actual time + excess travel paid normally (Cl. 146.4(c)).`);
-  }
+  if (km > 0 && kmc && kmc.credited === null) flags.push(`${km} km < 161 — all actual time paid normally (Cl. 146.4(c)).`);
 
   // Un-associated duties (Cl. 146.4(d))
   if (km >= 161 && unassocAmt > 0 && !wobod) {
     components.push({ n: 'Un-associated duties (≥161 km)', ea: 'Cl. 146.4(d) / Cl. 157.2', code: codes.unassoc || '—', hrs: '—', rate: `$${unassocAmt.toFixed(2)}/shift`, amount: unassocAmt, cls: 'km-row' });
   }
 
-  // Lift-up
-  if (liftup && rStart) {
-    const rs = toMins(rStart), as2 = toMins(aStart);
-    if (as2 !== null && rs !== null && as2 < rs) {
-      const lh = toHrs(rs - as2);
-      components.push({ n: 'Lift-up — early start (<48 hrs notice)', ea: 'Cl. 131/Sch.4B', code: codes.liftup || '—', hrs: lh.toFixed(2), rate: `OT premium (${(cfg.ot1 - 1) * 100}%)`, amount: lh * B * (cfg.ot1 - 1), cls: 'pen-row' });
-      flags.push(`Lift-up: ${lh.toFixed(2)} hrs before rostered start. OT premium applied (Cl. 131).`);
-    }
+  // ── Change 3: Layback — started LATER than rostered (called in late) ──
+  // Driver signs on later than rostered → paid for the late-start gap at lift-up/layback rate
+  if (laybackHrs > 0) {
+    components.push({
+      n: `Layback — started ${laybackHrs.toFixed(2)} hrs after roster (called in late)`,
+      ea: 'Custom & practice / Cl. 140.1',
+      code: codes.liftup || '—',
+      hrs: laybackHrs.toFixed(2),
+      rate: `${cfg.liftupRate}× (configurable — custom & practice)`,
+      amount: laybackHrs * B * cfg.liftupRate,
+      cls: 'pen-row'
+    });
+    flags.push(`Layback: actual sign-on ${aStart} vs rostered ${rStart} — ${laybackHrs.toFixed(2)} hrs later. Paid at ${cfg.liftupRate}× (custom & practice).`);
+  }
+
+  // ── Change 3: Lift-up — finished EARLIER than rostered (sent home early) ──
+  // Driver signs off earlier than rostered → paid for the early-finish gap at lift-up/layback rate
+  if (liftupHrs > 0) {
+    components.push({
+      n: `Lift-up — finished ${liftupHrs.toFixed(2)} hrs before roster (released early)`,
+      ea: 'Custom & practice / Cl. 140.1',
+      code: codes.liftup || '—',
+      hrs: liftupHrs.toFixed(2),
+      rate: `${cfg.liftupRate}× (configurable — custom & practice)`,
+      amount: liftupHrs * B * cfg.liftupRate,
+      cls: 'pen-row'
+    });
+    flags.push(`Lift-up: actual sign-off ${aEnd} vs rostered ${rEnd} — ${liftupHrs.toFixed(2)} hrs early. Paid at ${cfg.liftupRate}× (custom & practice).`);
   }
 
   if (otHrs > 0 && !wobod) flags.push(`Daily OT: ${otHrs.toFixed(2)} hrs beyond 8-hr ordinary limit (Cl. 140.1).`);
@@ -1186,7 +1342,7 @@ function calcDay(day) {
   const total   = components.reduce((s, c) => s + c.amount, 0);
   const paidHrs = kmApplied ? Math.max(actualHrs, kmCreditedHrs) : actualHrs;
 
-  return { hrs: actualHrs, paidHrs, components, total, flags, isSat, isSun, isPH, hasOt: otHrs > 0, kmApplied, kmBonus };
+  return { hrs: actualHrs, paidHrs, components, total, flags, isSat, isSun, isPH, hasOt: otHrs > 0, kmApplied, kmBonus, laybackHrs, liftupHrs };
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1243,7 +1399,7 @@ function calcAll() {
   const B   = cfg.baseRate;
 
   const results = days.map((d, i) => {
-    const r = calcDay(d);
+    const r = calcDay(d, i);
     r.day = d;
     r.idx = i;
     return r;
