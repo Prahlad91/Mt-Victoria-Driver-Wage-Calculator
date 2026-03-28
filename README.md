@@ -1,6 +1,43 @@
 # Mt Victoria Driver Wage Calculator
 
-Sydney Trains & NSW TrainLink Enterprise Agreement 2025 wage calculator for Mt Victoria intercity drivers.
+A web-based wage calculator for Mt Victoria intercity train drivers at Sydney Trains, built to the **Sydney Trains & NSW TrainLink Enterprise Agreement 2025**. It lets drivers enter their actual worked times against their rostered lines for a given fortnight and calculates their exact gross pay — including all penalties, overtime, KM credits, and allowances — so they can verify their payslip line by line.
+
+## What this app does
+
+- **Select your roster line** — all 32 Mt Victoria roster lines (lines 1–22 and 201–210) are embedded, with rostered start/end times pre-filled
+- **Set your fortnight start date** — pick any Sunday to align with your pay period
+- **Enter actual times** — input the real start and finish times for each shift
+- **Calculates your gross pay** including:
+  - Ordinary hours at your base rate
+  - Shift penalties per hour (Cl. 134.3) with EA rounding
+  - Overtime (1.5× for first 2 hours, 2.0× beyond — Cl. 140.1)
+  - Public holiday rates (weekday 1.5×, weekend 2.5× — Cl. 31)
+  - WOBOD double time with 4-hour minimum (Cl. 136)
+  - KM credits across all 26 bands (Cl. 146.4)
+  - Greater-of intercity payment rule (Cl. 157.1)
+- **Payslip variance audit** — compare calculated pay against your actual payslip with payroll code fields for line-by-line matching
+
+## 2025 Enterprise Agreement update
+
+The Sydney Trains & NSW TrainLink Enterprise Agreement 2025 was approved by the Fair Work Commission in August 2025 following a ballot in which 92% of workers voted yes. Key changes reflected in this calculator:
+
+| Change | Detail |
+|--------|--------|
+| Pay rise | 12% over 3 years |
+| Back pay | 4% back-dated to 1 May 2024 |
+| Base rate | $49.81842/hr (Sch. 4A — configurable) |
+| Effective from | 1 July 2025 |
+
+All EA 2025 clauses applied in the calculator:
+
+- **Sch. 4A** — all classification rates
+- **Sch. 4B Items 6/7/8/9** — shift penalties (per hour, Cl. 134.3(b) rounding)
+- **Cl. 134.3(a)** — penalties not payable on Sat/Sun/PH
+- **Cl. 140.1** — overtime (1.5× first 2 hrs, 2.0× beyond)
+- **Cl. 146.4(a)–(j)** — full KM credit system (all 26 bands)
+- **Cl. 157.1** — greater-of payment basis for intercity
+- **Cl. 31** — public holiday rates
+- **Cl. 136** — WOBOD double time, minimum 4 hrs
 
 ## Deploy to Vercel (2 minutes)
 
@@ -36,16 +73,11 @@ vercel
 ### Option C — GitHub + Vercel (best for ongoing updates)
 
 ```bash
-# 1. Create a GitHub repo and push this folder
-git init
-git add .
-git commit -m "Initial deploy"
-git remote add origin https://github.com/YOUR_USERNAME/wage-calc.git
-git push -u origin main
+# 1. Push this repo to GitHub (already done if you're reading this here)
 
 # 2. Connect to Vercel
 # Go to vercel.com → New Project → Import from GitHub
-# Select your repo → Deploy
+# Select this repo → Deploy
 # Auto-deploys on every push from then on
 ```
 
@@ -55,27 +87,4 @@ git push -u origin main
 |------|---------|
 | `index.html` | The complete single-file calculator app |
 | `vercel.json` | Vercel deployment configuration |
-
-## Calculator features
-
-- All 32 Mt Victoria roster lines (1–22, 201–210) embedded
-- Custom fortnight start date — any Sunday
-- Actual vs rostered times comparison
-- Shift penalties per hour (Cl. 134.3) with EA rounding
-- Full Cl. 146.4 KM credit table (all 26 bands)
-- Cl. 157.1 greater-of rule for intercity payments
-- Overtime, public holiday, WOBOD, lift-up calculations
-- Payslip variance audit
-- Payroll code fields for line-by-line matching
-
-## EA 2025 rules applied
-
-- Base rate: $49.81842/hr (configurable)
-- Sch. 4A: all classification rates
-- Sch. 4B Items 6/7/8/9: shift penalties (per hour, Cl. 134.3(b) rounding)
-- Cl. 140.1: overtime (1.5× first 2 hrs, 2.0× beyond)
-- Cl. 134.3(a): penalties not payable Sat/Sun/PH
-- Cl. 146.4(a)–(j): full KM credit system
-- Cl. 157.1: greater-of payment basis
-- Cl. 31: public holiday rates (weekday 1.5×, weekend 2.5×)
-- Cl. 136: WOBOD double time, min 4 hrs
+| `HourlyPayGrade/` | Pay grade reference data |
