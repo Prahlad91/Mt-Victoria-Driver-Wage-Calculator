@@ -42,12 +42,7 @@
   label { font-size: 11px; color: var(--text2); display: block; margin-bottom: 3px; }
   input, select { width: 100%; padding: 6px 8px; border: 1px solid var(--border2); border-radius: 5px; font-size: 12px; background: var(--bg); color: var(--text); }
   input:focus, select:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 2px rgba(26,111,186,.15); }
-  .badge-vdo { background: #f3e8ff; color: #6b21a8; border: 1px solid #d8b4fe; }
-  .fn-manual-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
-  .fn-manual-day { font-size: 10px; }
-  .fn-manual-day label { font-size: 10px; color: var(--text2); margin-bottom: 2px; font-weight: 500; }
-  .fn-manual-day input { font-size: 11px; padding: 4px 5px; font-family: monospace; }
-  input[type="file"] { padding: 4px; font-size: 11px; }
+  input[type="time"] { font-family: monospace; }
 
   /* Buttons */
   button { padding: 7px 14px; border: 1px solid var(--border2); border-radius: 5px; font-size: 12px; cursor: pointer; background: var(--bg); color: var(--text); transition: background .12s; }
@@ -134,7 +129,7 @@
     <div class="tab" onclick="sw('km')">KM Table</div>
   </div>
 
-  <!-- ═══ SETUP ═══ -->
+  <!-- SETUP -->
   <div id="pane-setup" class="pane active">
     <div class="card">
       <h2>Fortnight setup</h2>
@@ -146,7 +141,7 @@
         <div>
           <label>Fortnight start date <span style="color:var(--text3)">(Sunday)</span></label>
           <input type="date" id="fnStart" value="2025-08-10">
-          <div id="dateWarn">⚑ Not a Sunday — snapped to nearest Sunday.</div>
+          <div id="dateWarn">&#x26F1; Not a Sunday — snapped to nearest Sunday.</div>
         </div>
         <div>
           <label>Fortnight type</label>
@@ -168,33 +163,7 @@
         </div>
       </div>
       <hr>
-      <!-- Fortnightly roster upload — only relevant for lines 201-210 -->
-      <div id="fnRosterSection" style="display:none;margin-bottom:12px">
-        <h3 style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--text2);margin-bottom:6px">Fortnightly roster upload <span style="color:var(--amber-text);font-weight:400;text-transform:none">(lines 201–210 only)</span></h3>
-        <p class="note" style="margin-bottom:8px">Upload the current fortnightly roster PDF/image for standby lines. The uploaded roster overrides the master roster for lines 201–210. Lines 1–22 always use the master roster.</p>
-        <div class="g2">
-          <div>
-            <label>Fortnightly roster file <span style="color:var(--text3)">(image or PDF screenshot)</span></label>
-            <input type="file" id="fnRosterFile" accept="image/*,.pdf" onchange="parseFnRoster(this)">
-          </div>
-          <div id="fnRosterStatus" style="display:flex;align-items:center;font-size:12px;color:var(--text3)">No file loaded — master roster will be used.</div>
-        </div>
-        <div id="fnRosterPreview" style="margin-top:8px;display:none">
-          <p class="note" style="margin-bottom:6px">Parsed roster — verify times below before loading:</p>
-          <div id="fnRosterTable"></div>
-          <div style="margin-top:8px;display:flex;gap:8px">
-            <button onclick="applyFnRoster()" class="primary" style="font-size:11px;padding:5px 10px">Use this roster ✓</button>
-            <button onclick="clearFnRoster()" style="font-size:11px;padding:5px 10px">Clear</button>
-          </div>
-          <p class="note" style="margin-top:6px;color:var(--amber-text)">⚑ Auto-parsing is best-effort. Always verify times before calculating pay.</p>
-        </div>
-        <div id="fnRosterManual" style="margin-top:10px">
-          <p class="note" style="margin-bottom:6px">Or enter times manually for each day (HH:MM format, leave blank for OFF/ADO):</p>
-          <div id="fnManualGrid" class="fn-manual-grid"></div>
-        </div>
-      </div>
-      <hr>
-      <button class="primary" onclick="loadLine()">Load roster line ↗</button>
+      <button class="primary" onclick="loadLine()">Load roster line &#x2197;</button>
       <div id="linePreview">Enter a line number and start date, then click Load.</div>
       <div id="fnChips" class="fn-chips"></div>
     </div>
@@ -209,21 +178,21 @@
         <tr><td>Item 8</td><td>Early morning</td><td>Commences at or between 04:00 and 05:30</td><td>$4.84</td><td><strong>per hour</strong></td><td>Same rounding rule</td></tr>
         <tr><td>Item 9</td><td>Additional loading</td><td>Sign on/off 01:01–03:59 Mon–Fri (not PH, not OT)</td><td>$5.69</td><td>per shift (flat)</td><td>Cl. 134.4 — "paid for that Shift"</td></tr>
       </table>
-      <p class="note" style="margin-top:8px">⚑ Penalties NOT payable on Saturday, Sunday, or Public Holidays (Cl. 134.3(a)).</p>
+      <p class="note" style="margin-top:8px">&#x26F1; Penalties NOT payable on Saturday, Sunday, or Public Holidays (Cl. 134.3(a)).</p>
     </div>
   </div>
 
-  <!-- ═══ DAILY ENTRY ═══ -->
+  <!-- DAILY ENTRY -->
   <div id="pane-days" class="pane">
     <div class="toolbar">
-      <button class="primary" onclick="calcAll()">Calculate fortnight ↗</button>
+      <button class="primary" onclick="calcAll()">Calculate fortnight &#x2197;</button>
       <button onclick="fillAllRostered()">Fill all with rostered times</button>
       <span id="lineLabel"></span>
     </div>
     <div id="dayList"><p style="color:var(--text3)">Load a roster line from Setup first.</p></div>
   </div>
 
-  <!-- ═══ RESULTS ═══ -->
+  <!-- RESULTS -->
   <div id="pane-results" class="pane">
     <div class="card" id="resMetrics" style="display:none">
       <h2>Fortnight summary</h2>
@@ -243,34 +212,34 @@
     </div>
   </div>
 
-  <!-- ═══ CONFIG ═══ -->
+  <!-- CONFIG -->
   <div id="pane-config" class="pane">
     <div class="card">
       <h2>Pay rates <span class="ea-ref">(EA 2025 Sch. 4A/4B — 1 Jul 2025 rates pre-set)</span></h2>
       <div class="g3" id="cfgGrid"></div>
       <hr>
       <button onclick="saveCfg()">Save rates</button>
-      <span class="saved-msg" id="cfgSaved">Saved ✓</span>
+      <span class="saved-msg" id="cfgSaved">Saved &#x2713;</span>
     </div>
     <div class="card">
       <h2>Payroll codes <span class="ea-ref">(from your payslip — for matching only, does not affect calculations)</span></h2>
       <div class="g3" id="codeGrid"></div>
       <hr>
       <button onclick="saveCodes()">Save codes</button>
-      <span class="saved-msg" id="codeSaved">Saved ✓</span>
+      <span class="saved-msg" id="codeSaved">Saved &#x2713;</span>
     </div>
     <div class="card">
-      <h2>Un-associated duties <span class="ea-ref">(Cl. 146.4(d) / Cl. 157.2 — for shifts ≥161 km)</span></h2>
-      <p class="note" style="margin-bottom:8px">Duties not directly associated with train operations (road review, pilot prep, etc.) are paid additionally for ≥161 km shifts. Enter the flat amount per shift from your payslip.</p>
+      <h2>Un-associated duties <span class="ea-ref">(Cl. 146.4(d) / Cl. 157.2 — for shifts &#x2265;161 km)</span></h2>
+      <p class="note" style="margin-bottom:8px">Duties not directly associated with train operations (road review, pilot prep, etc.) are paid additionally for &#x2265;161 km shifts. Enter the flat amount per shift from your payslip.</p>
       <div class="g3">
-        <div><label>$ per shift (≥161 km)</label><input type="number" step="0.01" id="unassocAmt" value="0"></div>
+        <div><label>$ per shift (&#x2265;161 km)</label><input type="number" step="0.01" id="unassocAmt" value="0"></div>
         <div><label>Payroll code</label><input type="text" id="unassocCode" placeholder="code from payslip"></div>
-        <div style="display:flex;align-items:flex-end"><button onclick="saveUA()">Save</button><span class="saved-msg" id="uaSaved">Saved ✓</span></div>
+        <div style="display:flex;align-items:flex-end"><button onclick="saveUA()">Save</button><span class="saved-msg" id="uaSaved">Saved &#x2713;</span></div>
       </div>
     </div>
   </div>
 
-  <!-- ═══ KM TABLE ═══ -->
+  <!-- KM TABLE -->
   <div id="pane-km" class="pane">
     <div class="card">
       <h2>Cl. 146.4(a) — Intercity Train Crew Kilometreage Payments <span class="ea-ref">(EA 2025 — exact text)</span></h2>
@@ -279,9 +248,9 @@
         <strong>Cl. 157.1:</strong> Drivers paid the GREATER of (a) scheduled shift time OR (b) km-credited hrs + un-associated work time.
       </p>
       <table>
-        <tr><th>KM range (≥ to &lt;)</th><th>Hrs credited</th><th>Special conditions</th></tr>
+        <tr><th>KM range (&#x2265; to &lt;)</th><th>Hrs credited</th><th>Special conditions</th></tr>
         <tr><td>&lt; 161 km</td><td>Actual time</td><td>Cl. 146.4(c) — all actual time + excess travel paid normally</td></tr>
-        <tr><td>161 – 193</td><td>5.0</td><td rowspan="2">Cl. 146.4(d): additional duties paid for ≥161 km shifts</td></tr>
+        <tr><td>161 – 193</td><td>5.0</td><td rowspan="2">Cl. 146.4(d): additional duties paid for &#x2265;161 km shifts</td></tr>
         <tr><td>193 – 225</td><td>6.0</td></tr>
         <tr><td>225 – 257</td><td>7.0</td><td></td></tr>
         <tr><td>257 – 290</td><td>8.0</td><td>Cl. 146.4(e)(f): double — round trip, min 30 min meal at turnaround, relieved if &gt;10 hrs</td></tr>
@@ -289,7 +258,7 @@
         <tr><td>322 – 338</td><td>10.0</td><td></td></tr>
         <tr><td>338 – 354</td><td>10.5</td><td></td></tr>
         <tr><td>354 – 370</td><td>11.0</td><td></td></tr>
-        <tr><td>370 – 386</td><td>11.5</td><td>Cl. 146.4(g)(h)(i): ≥370 km — max 4 shifts/week, relieved at terminal, 8 hr traffic cap</td></tr>
+        <tr><td>370 – 386</td><td>11.5</td><td>Cl. 146.4(g)(h)(i): &#x2265;370 km — max 4 shifts/week, relieved at terminal, 8 hr traffic cap</td></tr>
         <tr><td>386 – 402</td><td>12.0</td><td></td></tr>
         <tr><td>402 – 418</td><td>12.5</td><td></td></tr>
         <tr><td>418 – 435</td><td>13.0</td><td></td></tr>
@@ -310,12 +279,9 @@
       </table>
     </div>
   </div>
-</div><!-- /app -->
+</div>
 
 <script>
-// ═══════════════════════════════════════════════════════════════
-// HELPERS
-// ═══════════════════════════════════════════════════════════════
 const DW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
@@ -355,16 +321,12 @@ function makeFortnight(start) {
   return dates;
 }
 
-// EA Cl. 134.3(b) rounding: <30 min disregarded, 30-59 min = 1 hr
 function roundHrsEA(hrs) {
   const whole = Math.floor(hrs);
   const fracMins = (hrs - whole) * 60;
   return fracMins < 30 ? whole : whole + 1;
 }
 
-// ═══════════════════════════════════════════════════════════════
-// KM CREDIT TABLE — Cl. 146.4(a) exact from EA 2025
-// ═══════════════════════════════════════════════════════════════
 const KM_BANDS = [
   [0,161,null],[161,193,5],[193,225,6],[225,257,7],[257,290,8],[290,322,9],
   [322,338,10],[338,354,10.5],[354,370,11],[370,386,11.5],[386,402,12],
@@ -378,61 +340,47 @@ function getKmCredit(km) {
   for (const [lo, hi, cr] of KM_BANDS) {
     if (km >= lo && km < hi) return { credited: cr, isDouble: km >= 257, is370: km >= 370 };
   }
-  // Extension: same construction +0.5hr per 16km above 644
   const extra = Math.ceil((km - 644) / 16);
   return { credited: 19.5 + extra * 0.5, isDouble: true, is370: true };
 }
 
-// ═══════════════════════════════════════════════════════════════
-// SHIFT PENALTY — Per hour, Cl. 134.3(a)(b)
-// ═══════════════════════════════════════════════════════════════
 function getShiftPenalty(sMin, eMin, ordHrs, isSat, isSun, isPH, dow) {
-  // Cl. 134.3(a): NOT payable on Sat, Sun, or PH
   if (isSat || isSun || isPH) {
     return { penAmt: 0, penName: '', penCode: '', penItem: '', penHrs: 0, shiftType: null, addLoad: false };
   }
-
-  // Cl. 134.1 definitions
   let shiftType = null;
-  if (sMin >= 1080 || sMin < 240)       shiftType = 'night';      // 18:00–03:59
-  else if (sMin >= 240 && sMin <= 330)  shiftType = 'early';      // 04:00–05:30
-  else if (sMin < 1080 && eMin > 1080)  shiftType = 'afternoon';  // before 18:00 → after 18:00
+  if (sMin >= 1080 || sMin < 240)       shiftType = 'night';
+  else if (sMin >= 240 && sMin <= 330)  shiftType = 'early';
+  else if (sMin < 1080 && eMin > 1080)  shiftType = 'afternoon';
 
-  const rateMap  = { night: cfg.nightRate,     early: cfg.earlyRate,     afternoon: cfg.afternoonRate };
-  const itemMap  = { night: 'Item 7 Sch.4B',   early: 'Item 8 Sch.4B',   afternoon: 'Item 6 Sch.4B' };
-  const nameMap  = { night: 'Night shift',      early: 'Early morning',   afternoon: 'Afternoon shift' };
-  const codeMap  = { night: codes.night,        early: codes.early,       afternoon: codes.afternoon };
+  const rateMap  = { night: cfg.nightRate, early: cfg.earlyRate, afternoon: cfg.afternoonRate };
+  const itemMap  = { night: 'Item 7 Sch.4B', early: 'Item 8 Sch.4B', afternoon: 'Item 6 Sch.4B' };
+  const nameMap  = { night: 'Night shift', early: 'Early morning', afternoon: 'Afternoon shift' };
+  const codeMap  = { night: codes.night, early: codes.early, afternoon: codes.afternoon };
 
   let penAmt = 0, penHrs = 0, penName = '', penCode = '', penItem = '';
   if (shiftType) {
-    penHrs = roundHrsEA(ordHrs);  // Cl. 134.3(b) rounding
+    penHrs = roundHrsEA(ordHrs);
     penAmt = penHrs * rateMap[shiftType];
     penName = nameMap[shiftType];
     penCode = codeMap[shiftType] || '—';
     penItem = itemMap[shiftType];
   }
-
-  // Item 9: sign on/off 01:01–03:59, Mon–Fri only, not PH, not OT shift
   const addLoad = !isPH && dow >= 1 && dow <= 5 && sMin >= 61 && sMin <= 239;
-
   return { penAmt, penName, penCode, penItem, penHrs, shiftType, addLoad };
 }
 
-// ═══════════════════════════════════════════════════════════════
-// CONFIG & CODES
-// ═══════════════════════════════════════════════════════════════
 let cfg = {
-  baseRate: 49.81842,    // Base hourly rate — enter your actual rate from payslip
+  baseRate: 49.81842,
   ot1: 1.5, ot2: 2.0,
   satRate: 1.5, sunRate: 2.0, satOt: 2.0,
   phWkd: 1.5, phWke: 2.5,
-  afternoonRate: 4.84,   // Sch.4B Item 6
-  nightRate: 5.69,       // Sch.4B Item 7
-  earlyRate: 4.84,       // Sch.4B Item 8
-  addLoading: 5.69,      // Sch.4B Item 9 (flat per shift)
+  afternoonRate: 4.84,
+  nightRate: 5.69,
+  earlyRate: 4.84,
+  addLoading: 5.69,
   wobodRate: 2.0,
-  wobodMin: 4,
-  liftupRate: 1.5  // lift-up / layback rate — custom & practice (EA defers to depot)
+  wobodMin: 4
 };
 let codes = {
   base:'', ot1:'', ot2:'', sat:'', sun:'', satOt:'',
@@ -444,20 +392,19 @@ let unassocAmt = 0;
 
 const CFG_DEFS = [
   { k:'baseRate', l:'Base hourly rate ($/hr)', ea:'Your payslip rate' },
-  { k:'ot1',  l:'OT rate 1 (×)',         ea:'Cl. 140.1' },
-  { k:'ot2',  l:'OT rate 2 (×)',         ea:'Cl. 140.1' },
-  { k:'satRate', l:'Saturday (×)',        ea:'Cl. 54/134' },
-  { k:'sunRate', l:'Sunday (×)',          ea:'Cl. 133/54' },
-  { k:'satOt',   l:'Saturday OT >8 hrs (×)', ea:'Cl. 140' },
-  { k:'phWkd',   l:'PH weekday (×)',      ea:'Cl. 31' },
-  { k:'phWke',   l:'PH weekend (×)',      ea:'Cl. 31' },
+  { k:'ot1',  l:'OT rate 1 (x)',         ea:'Cl. 140.1' },
+  { k:'ot2',  l:'OT rate 2 (x)',         ea:'Cl. 140.1' },
+  { k:'satRate', l:'Saturday (x)',        ea:'Cl. 54/134' },
+  { k:'sunRate', l:'Sunday (x)',          ea:'Cl. 133/54' },
+  { k:'satOt',   l:'Saturday OT >8 hrs (x)', ea:'Cl. 140' },
+  { k:'phWkd',   l:'PH weekday (x)',      ea:'Cl. 31' },
+  { k:'phWke',   l:'PH weekend (x)',      ea:'Cl. 31' },
   { k:'afternoonRate', l:'Afternoon rate ($/hr)',     ea:'Sch.4B Item 6' },
   { k:'nightRate',     l:'Night rate ($/hr)',         ea:'Sch.4B Item 7' },
   { k:'earlyRate',     l:'Early morning rate ($/hr)', ea:'Sch.4B Item 8' },
   { k:'addLoading',    l:'Additional loading ($/shift flat)', ea:'Sch.4B Item 9' },
-  { k:'wobodRate', l:'WOBOD rate (×)',    ea:'Cl. 136' },
-  { k:'wobodMin',  l:'WOBOD min hrs',     ea:'Cl. 136' },
-  { k:'liftupRate', l:'Lift-up / Layback rate (×)', ea:'Custom & practice / Cl. 140.1' }
+  { k:'wobodRate', l:'WOBOD rate (x)',    ea:'Cl. 136' },
+  { k:'wobodMin',  l:'WOBOD min hrs',     ea:'Cl. 136' }
 ];
 const CODE_DEFS = [
   { k:'base',     l:'Ordinary time' },
@@ -473,7 +420,7 @@ const CODE_DEFS = [
   { k:'early',    l:'Early morning' },
   { k:'addLoad',  l:'Additional loading' },
   { k:'wobod',    l:'WOBOD' },
-  { k:'liftup',   l:'Lift-up' },
+  { k:'liftup',   l:'Lift-up / Layback / Buildup' },
   { k:'unassoc',  l:'Un-associated duties' }
 ];
 
@@ -518,11 +465,6 @@ function flash(id) {
   setTimeout(() => { el.style.display = 'none'; }, 2000);
 }
 
-// ═══════════════════════════════════════════════════════════════
-// MASTER ROSTER DATA (Lines 1–22, 201–210)
-// ═══════════════════════════════════════════════════════════════
-// Format per day: [start, end, crossMidnight, rosteredHrs, diagram]
-// null start/end = OFF or ADO
 const ROSTER = {
 1: [[null,null,false,0,"OFF"],["00:51","09:18",false,8.45,"3151 SMB"],["02:00","10:00",false,8.00,"SBY"],["01:10","10:08",false,8.97,"3153"],["01:52","11:21",false,9.48,"3154 SMB"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],["01:00","09:00",false,8.00,"3152 SBY"],["01:10","10:08",false,8.97,"3153"],["04:00","12:00",false,8.00,"SBY"],["05:00","13:00",false,8.00,"SBY"],["02:42","11:41",false,8.98,"3156"],["04:43","12:58",false,8.25,"3652"]],
 2: [[null,null,false,0,"OFF"],[null,null,false,0,"ADO"],["03:36","12:41",false,9.08,"3158 RK"],["05:00","13:00",false,8.00,"SBY"],["02:42","11:41",false,8.98,"3156"],["01:52","11:21",false,9.48,"3154 SMB"],["03:35","12:07",false,8.53,"3651"],["05:43","13:31",false,7.80,"3654 SMB"],["09:32","17:41",false,8.15,"3160"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],["01:00","09:00",false,8.00,"3152 SBY"],["00:51","09:18",false,8.45,"3151 SMB"],[null,null,false,0,"OFF"]],
@@ -558,23 +500,15 @@ const ROSTER = {
 210: [[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],["04:00","12:00",false,8.00,"SBY"],["04:00","12:00",false,8.00,"SBY"],["04:00","12:00",false,8.00,"SBY"],["04:00","12:00",false,8.00,"SBY"],["10:00","18:00",false,8.00,"SBY"],["10:00","18:00",false,8.00,"SBY"],["10:00","18:00",false,8.00,"SBY"],["10:00","18:00",false,8.00,"SBY"],["10:00","18:00",false,8.00,"SBY"],[null,null,false,0,"ADO"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"]]
 };
 
-// ═══════════════════════════════════════════════════════════════
-// STATE
-// ═══════════════════════════════════════════════════════════════
-let days = [];      // array of 14 day-state objects
-let phs  = [];      // public holiday date strings
+let days = [];
+let phs  = [];
 
-// ═══════════════════════════════════════════════════════════════
-// LOAD ROSTER LINE
-// ═══════════════════════════════════════════════════════════════
 function loadLine() {
   const ln = parseInt(document.getElementById('lineNum').value);
   if (!ROSTER[ln]) {
-    document.getElementById('linePreview').innerHTML = '<span style="color:var(--red)">Line not found. Valid: 1–22, 201–210.</span>';
+    document.getElementById('linePreview').innerHTML = '<span style="color:var(--red)">Line not found. Valid: 1-22, 201-210.</span>';
     return;
   }
-
-  // Date handling
   let raw = document.getElementById('fnStart').value;
   const snapped = toSunday(raw);
   const warn = document.getElementById('dateWarn');
@@ -584,16 +518,11 @@ function loadLine() {
   } else {
     warn.style.display = 'none';
   }
-
   const dates = makeFortnight(snapped);
-  phs = document.getElementById('phIn').value
-    .split(',').map(s => s.trim()).filter(Boolean);
+  phs = document.getElementById('phIn').value.split(',').map(s => s.trim()).filter(Boolean);
 
-  // Build day state objects — for lines 201-210 use fnRosterOverride if set
-  const useOverride = (ln >= 201 && ln <= 210) && fnRosterOverride && fnRosterOverride.length === 14;
   days = ROSTER[ln].map((r, i) => {
-    const src = useOverride ? fnRosterOverride[i] : r;
-    const [rS, rE, cm, rH, diag] = src;
+    const [rS, rE, cm, rH, diag] = r;
     const dateObj = parseDate(dates[i]);
     return {
       date: dates[i],
@@ -604,21 +533,18 @@ function loadLine() {
       aStart: rS || '',
       aEnd:   rE || '',
       wobod:  false,
-      liftup: false,
-      km:     0,
-      leaveCat: 'none',
-      vdo:    false
+      km:     0
     };
   });
 
   const workDays = days.filter(d => d.diag !== 'OFF' && d.diag !== 'ADO').length;
   const adoDays  = days.filter(d => d.diag === 'ADO').length;
   const endDate  = parseDate(dates[13]);
+  const fnTypeLabel = adoDays > 0 ? 'SHORT fortnight (ADO present — payout this period)' : 'LONG fortnight (no ADO — accruing)';
 
   document.getElementById('linePreview').innerHTML =
-    `<strong>Line ${ln} loaded.</strong> Fortnight: <strong>${fmtDateShort(parseDate(snapped))}</strong> → <strong>${fmtDateShort(endDate)}</strong> &nbsp;·&nbsp; ${workDays} work days &nbsp;·&nbsp; ${adoDays} ADOs`;
+    `<strong>Line ${ln} loaded.</strong> Fortnight: <strong>${fmtDateShort(parseDate(snapped))}</strong> &rarr; <strong>${fmtDateShort(endDate)}</strong> &nbsp;&middot;&nbsp; ${workDays} work days &nbsp;&middot;&nbsp; ${adoDays} ADO &nbsp;&middot;&nbsp; <span style="color:${adoDays>0?'var(--amber-text)':'var(--blue-text)'}">${fnTypeLabel}</span>`;
 
-  // Date chips
   document.getElementById('fnChips').innerHTML = dates.map((d, i) => {
     const day = days[i];
     const cls = day.diag === 'ADO' ? 'ado' : day.diag !== 'OFF' ? 'work' : '';
@@ -626,15 +552,12 @@ function loadLine() {
   }).join('');
 
   document.getElementById('lineLabel').textContent =
-    `Line ${ln} · ${fmtDateShort(parseDate(snapped))} – ${fmtDateShort(endDate)}`;
+    `Line ${ln} &middot; ${fmtDateShort(parseDate(snapped))} - ${fmtDateShort(endDate)}`;
 
   renderDayList();
   sw('days');
 }
 
-// ═══════════════════════════════════════════════════════════════
-// RENDER DAY LIST
-// ═══════════════════════════════════════════════════════════════
 function renderDayList() {
   const container = document.getElementById('dayList');
   container.innerHTML = '';
@@ -647,13 +570,9 @@ function renderDayList() {
     const isSun = day.dow === 0;
     const isPH  = day.ph;
 
-    // Badges
-    const hasLeave = day.leaveCat && day.leaveCat !== 'none';
-    const lcat = hasLeave ? (LEAVE_CATS[day.leaveCat] || null) : null;
     let badges = '';
-    if (isOff)        badges += '<span class="badge badge-off">OFF</span>';
-    else if (isAdo)   badges += '<span class="badge badge-ado">ADO</span>';
-    else if (hasLeave && lcat) badges += `<span class="badge" style="background:${lcat.color}15;color:${lcat.color};border:1px solid ${lcat.color}40">${lcat.code}</span>`;
+    if (isOff)       badges += '<span class="badge badge-off">OFF</span>';
+    else if (isAdo)  badges += '<span class="badge badge-ado">ADO</span>';
     else {
       if (isPH)       badges += '<span class="badge badge-ph">PH</span>';
       else if (isSun) badges += '<span class="badge badge-sun">Sun</span>';
@@ -672,7 +591,7 @@ function renderDayList() {
         <span style="min-width:140px;font-weight:500;font-size:13px">${fmtDate(d)}</span>
         ${badges}${rosterInfo}
         <span class="day-summary" id="sum_${i}">—</span>
-        <span class="chevron">▼</span>
+        <span class="chevron">&#x25BC;</span>
       </div>
       <div class="day-body" id="body_${i}">
         ${buildDayForm(i, day, isOff, isAdo)}
@@ -682,35 +601,24 @@ function renderDayList() {
 }
 
 function buildDayForm(i, day, isOff, isAdo) {
-  if ((isOff || isAdo) && !day.workedOnOff) {
-    return `<div style="display:flex;align-items:center;gap:10px;padding:4px 0">
-      <p style="font-size:12px;color:var(--text3)">${isAdo ? 'Accrued Day Off' : 'Day off'} — no pay calculated.</p>
-      <button class="small" onclick="markWorkedOnOff(${i})" style="border-color:#f0a0a0;color:var(--red-text);background:var(--red-bg)">+ Worked on this day</button>
-    </div>`;
+  if ((isOff || isAdo) && !day.manualDiag) {
+    const typeLabel = isAdo ? 'Accrued Day Off (ADO)' : 'Day off / RDO';
+    return `
+      <div style="padding:4px 0">
+        <p style="font-size:12px;color:var(--text3);margin-bottom:10px">${typeLabel} — no ordinary pay.</p>
+        <div style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap">
+          <div>
+            <label style="font-size:11px;color:var(--text2)">Manual diagram / schedule number <span style="color:var(--text3)">(shift swap or day-off work)</span></label>
+            <input type="text" id="mdiag_${i}" placeholder="e.g. 3158 or 7" value="${day.manualDiagInput || ''}" style="width:180px"
+              onchange="setManualDiag(${i}, this.value)">
+          </div>
+          <button class="small primary" onclick="applyManualDiag(${i})">Load diagram &#x2197;</button>
+          <button class="small" onclick="markWorkedOnOff(${i})" style="border-color:#f0a0a0;color:var(--red-text);background:var(--red-bg)">+ Worked (no diagram)</button>
+        </div>
+      </div>`;
   }
-  const hasLeave = day.leaveCat && day.leaveCat !== 'none';
-  const cat = hasLeave ? LEAVE_CATS[day.leaveCat] : null;
-
-  // Leave category panel — shown when leave is selected
-  const leavePanelHTML = hasLeave ? `
-    <div style="background:${cat.color}10;border:1px solid ${cat.color}40;border-radius:5px;padding:8px 10px;margin-bottom:8px">
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <span style="font-size:12px;font-weight:500;color:${cat.color}">${cat.code} — ${cat.label.split('—')[1]?.trim() || cat.label}</span>
-        <span style="font-size:10px;color:var(--text3)">EA ref: ${cat.ea}</span>
-      </div>
-      <p style="font-size:11px;color:var(--text2);margin-top:4px">${cat.desc}</p>
-    </div>` : '';
-
-  // When on leave, hide shift inputs but keep leave selector visible
-  const workedOnOffBanner = (isOff || isAdo) && day.workedOnOff ? `
-    <div style="background:var(--red-bg);border:1px solid #f0a0a0;border-radius:5px;padding:7px 10px;margin-bottom:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-      <span style="font-size:11px;color:var(--red-text);font-weight:500">⚑ Worked on ${isAdo ? 'ADO' : 'RDO/OFF'} day — WOBOD pre-selected (Cl. 136). Verify with your supervisor.</span>
-      <button class="small" onclick="unmarkWorkedOnOff(${i})" style="border-color:#f0a0a0;color:var(--red-text)">Undo</button>
-    </div>` : '';
-
-  const shiftInputsHTML = hasLeave ? '' : `
-    ${workedOnOffBanner}
-    <div class="day-inputs" style="margin-bottom:8px">
+  return `
+    <div class="day-inputs">
       <div>
         <label>Actual start <span style="color:var(--text3)">(roster: ${day.rStart || '—'})</span></label>
         <input type="time" id="as_${i}" value="${day.aStart}" onchange="onDayChange(${i},'aStart',this.value)">
@@ -740,15 +648,7 @@ function buildDayForm(i, day, isOff, isAdo) {
       <div style="display:flex;align-items:flex-end">
         <button class="small" onclick="useRostered(${i})">Use rostered</button>
       </div>
-    </div>`;
-
-  return `
-    ${shiftInputsHTML}
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
-      <label style="margin:0;white-space:nowrap">Leave type:</label>
-      ${buildLeaveSelector(i, day.leaveCat || 'none')}
     </div>
-    ${leavePanelHTML}
     <div id="result_${i}"></div>`;
 }
 
@@ -760,62 +660,78 @@ function toggleDay(i) {
   row.classList.toggle('open', !isOpen);
 }
 
-function markWorkedOnOff(i) {
-  days[i].workedOnOff = true;
-  days[i].wobod = true;  // Pre-flag as WOBOD since it's a book-off day
-  // Rebuild the row to show full shift entry form
-  const row  = document.getElementById('row_' + i);
-  const body = document.getElementById('body_' + i);
+function setManualDiag(i, val) {
+  days[i].manualDiagInput = val;
+}
+
+function applyManualDiag(i) {
+  const diagInput = (document.getElementById('mdiag_' + i)?.value || '').trim();
+  if (!diagInput) { alert('Enter a diagram / schedule number first.'); return; }
+
+  const lineNum = parseInt(diagInput);
+  let matchedRoster = null;
+  if (!isNaN(lineNum) && ROSTER[lineNum]) {
+    matchedRoster = ROSTER[lineNum][i];
+  } else {
+    for (const [ln, rosterArr] of Object.entries(ROSTER)) {
+      for (const entry of rosterArr) {
+        if (entry[4] && entry[4].toLowerCase().includes(diagInput.toLowerCase()) && entry[0]) {
+          matchedRoster = entry;
+          break;
+        }
+      }
+      if (matchedRoster) break;
+    }
+  }
+
+  const day = days[i];
+  day.manualDiag = diagInput;
+  day.manualDiagInput = diagInput;
+
+  if (matchedRoster && matchedRoster[0]) {
+    day.rStart = matchedRoster[0];
+    day.rEnd   = matchedRoster[1];
+    day.cm     = matchedRoster[2];
+    day.rHrs   = matchedRoster[3];
+    day.diag   = matchedRoster[4] + ' [manual]';
+    day.aStart = matchedRoster[0];
+    day.aEnd   = matchedRoster[1];
+  } else {
+    day.rStart = ''; day.rEnd = ''; day.cm = false; day.rHrs = 8;
+    day.diag   = diagInput + ' [manual]';
+    day.aStart = ''; day.aEnd = '';
+  }
+  day.workedOnOff = true;
+  rebuildDayRowManual(i);
+}
+
+function rebuildDayRowManual(i) {
   const day  = days[i];
   const d    = parseDate(day.date);
-  const isOff = day.diag === 'OFF', isAdo = day.diag === 'ADO';
-  const isSat = day.dow === 6, isSun = day.dow === 0, isPH = day.ph;
-
-  let badges = '';
-  if (isOff)      badges = '<span class="badge badge-off">OFF</span>';
-  else if (isAdo) badges = '<span class="badge badge-ado">ADO</span>';
-  badges += '<span class="badge" style="background:var(--red-bg);color:var(--red-text);border:1px solid #f0a0a0;margin-left:2px">WORKED</span>';
-
+  const row  = document.getElementById('row_' + i);
+  const body = document.getElementById('body_' + i);
+  const manualBadge = `<span class="badge" style="background:#f3e8ff;color:#6b21a8;border:1px solid #d8b4fe">${day.diag}</span>`;
   row.querySelector('.day-header').innerHTML = `
     <span style="min-width:140px;font-weight:500;font-size:13px">${fmtDate(d)}</span>
-    ${badges}
+    ${manualBadge}
+    <span style="font-size:11px;color:var(--text3);margin-left:8px">Manual diagram — ${day.rStart || 'enter times'}</span>
     <span class="day-summary" id="sum_${i}">—</span>
-    <span class="chevron">▼</span>`;
+    <span class="chevron">&#x25BC;</span>`;
   row.querySelector('.day-header').onclick = () => toggleDay(i);
-  body.innerHTML = buildDayForm(i, day, isOff, isAdo);
+  body.innerHTML = buildDayForm(i, day, false, false);
   body.classList.add('open');
   row.classList.add('open');
 }
 
-function unmarkWorkedOnOff(i) {
-  days[i].workedOnOff = false;
-  days[i].wobod = false;
-  days[i].aStart = ''; days[i].aEnd = '';
-  // Rebuild the row back to OFF/ADO display
-  const row  = document.getElementById('row_' + i);
-  const body = document.getElementById('body_' + i);
-  const day  = days[i];
-  const d    = parseDate(day.date);
-  const isOff = day.diag === 'OFF', isAdo = day.diag === 'ADO';
-
-  let badges = '';
-  if (isOff)      badges = '<span class="badge badge-off">OFF</span>';
-  else if (isAdo) badges = '<span class="badge badge-ado">ADO</span>';
-
-  row.querySelector('.day-header').innerHTML = `
-    <span style="min-width:140px;font-weight:500;font-size:13px">${fmtDate(d)}</span>
-    ${badges}
-    <span class="day-summary" id="sum_${i}">—</span>
-    <span class="chevron">▼</span>`;
-  row.querySelector('.day-header').onclick = () => toggleDay(i);
-  body.innerHTML = buildDayForm(i, day, isOff, isAdo);
-  body.classList.add('open');
-  row.classList.add('open');
+function markWorkedOnOff(i) {
+  days[i].manualDiag = 'WORKED';
+  days[i].workedOnOff = true;
+  rebuildDayRowManual(i);
 }
 
 function onDayChange(i, key, val) {
   days[i][key] = val;
-  const result = calcDay(days[i], i);
+  const result = calcDay(days[i]);
   renderDayResult(i, result);
 }
 
@@ -823,321 +739,47 @@ function useRostered(i) {
   const d = days[i];
   if (d.rStart) { document.getElementById('as_' + i).value = d.rStart; days[i].aStart = d.rStart; }
   if (d.rEnd)   { document.getElementById('ae_' + i).value = d.rEnd;   days[i].aEnd   = d.rEnd;   }
-  renderDayResult(i, calcDay(days[i], i));
+  renderDayResult(i, calcDay(days[i]));
 }
 
 function fillAllRostered() {
   days.forEach((d, i) => {
-    if (d.diag === 'OFF' || d.diag === 'ADO' || d.vdo) return;
+    if (d.diag === 'OFF' || d.diag === 'ADO') return;
     if (d.rStart) { const el = document.getElementById('as_' + i); if (el) { el.value = d.rStart; days[i].aStart = d.rStart; } }
     if (d.rEnd)   { const el = document.getElementById('ae_' + i); if (el) { el.value = d.rEnd;   days[i].aEnd   = d.rEnd;   } }
-    renderDayResult(i, calcDay(days[i], i));
+    renderDayResult(i, calcDay(days[i]));
   });
-}
-
-// ═══════════════════════════════════════════════════════════════
-// LEAVE CATEGORIES — EA 2025
-// ═══════════════════════════════════════════════════════════════
-// Each category: { code, label, color, badgeClass, pay(day, B) → {components, flags, total} }
-
-const LEAVE_CATS = {
-  none: { code: 'none', label: '— Work shift (no leave) —', color: '', badgeClass: '' },
-
-  RDO:  { code: 'RDO',  label: 'RDO — Rostered Day Off (no pay)',
-    color: '#6b21a8', badgeClass: 'badge-vdo',
-    ea: 'Cl. 21 / roster',
-    desc: 'No pay. Rostered day off per master roster.',
-    pay: (day, B) => ({ components: [], total: 0, flags: ['RDO — no pay.'] }) },
-
-  SL:   { code: 'SL',   label: 'Sick Leave — ordinary pay for rostered shift',
-    color: '#b85c00', badgeClass: 'badge-ado',
-    ea: 'Cl. 30.4',
-    desc: 'Full pay at ordinary rate for rostered shift hours. (Cl. 30.4 — sick leave on full pay)',
-    pay: (day, B) => {
-      const hrs = day.rHrs || 8;
-      return {
-        components: [{ n: 'Sick leave — ordinary rate', ea: 'Cl. 30.4', code: '—', hrs: hrs.toFixed(2), rate: `$${B.toFixed(4)}/hr`, amount: hrs * B, cls: '' }],
-        total: hrs * B,
-        flags: [`Sick leave: ${hrs.toFixed(2)} rostered hrs at ordinary rate (Cl. 30.4).`]
-      };
-    }
-  },
-
-  CL:   { code: 'CL',   label: "Carer's Leave — ordinary pay for rostered shift",
-    color: '#b85c00', badgeClass: 'badge-ado',
-    ea: 'Cl. 30.7(b)(ix)',
-    desc: "Paid at base rate for ordinary hours. (Cl. 30.7(b)(ix) — carer's leave at base rate)",
-    pay: (day, B) => {
-      const hrs = day.rHrs || 8;
-      return {
-        components: [{ n: "Carer's leave — base rate", ea: 'Cl. 30.7(b)(ix)', code: '—', hrs: hrs.toFixed(2), rate: `$${B.toFixed(4)}/hr`, amount: hrs * B, cls: '' }],
-        total: hrs * B,
-        flags: [`Carer's leave: ${hrs.toFixed(2)} hrs at base rate (Cl. 30.7(b)(ix)).`]
-      };
-    }
-  },
-
-  PHNW: { code: 'PHNW', label: 'PHNW — Public Holiday Not Worked (8 hrs pay)',
-    color: '#145c2d', badgeClass: 'badge-ph',
-    ea: 'Cl. 31.7',
-    desc: '8 hrs ordinary pay. Employee not required to work on a public holiday due. (Cl. 31.7)',
-    pay: (day, B) => ({
-      components: [{ n: 'Public holiday not worked — 8 hrs', ea: 'Cl. 31.7', code: '—', hrs: '8.00', rate: `$${B.toFixed(4)}/hr`, amount: 8 * B, cls: '' }],
-      total: 8 * B,
-      flags: ['PHNW: 8 hrs ordinary pay — employee not required to work on due public holiday (Cl. 31.7).']
-    })
-  },
-
-  PHW:  { code: 'PHW',  label: 'PHW — Public Holiday Worked (as per EA Cl. 31.5)',
-    color: '#145c2d', badgeClass: 'badge-ph',
-    ea: 'Cl. 31.5',
-    desc: '150% loading on ordinary hours + additional day pay at ordinary rate (or day in lieu). (Cl. 31.5)',
-    pay: (day, B) => {
-      const hrs = day.rHrs || 8;
-      const loading = hrs * B * 1.5;
-      const addDay  = 8 * B;
-      return {
-        components: [
-          { n: 'PHW — 150% loading on hrs worked', ea: 'Cl. 31.5(a)', code: '—', hrs: hrs.toFixed(2), rate: '1.5× ordinary', amount: loading, cls: '' },
-          { n: 'PHW — additional day pay (ordinary)', ea: 'Cl. 31.5(b)', code: '—', hrs: '8.00', rate: `$${B.toFixed(4)}/hr`, amount: addDay, cls: '' }
-        ],
-        total: loading + addDay,
-        flags: ['PHW: 150% loading + additional 8 hr day pay (or day in lieu by election) — Cl. 31.5. Max cap = double time (Cl. 31.5 note).']
-      };
-    }
-  },
-
-  AL:   { code: 'AL',   label: 'Annual Leave — 8 hrs ordinary + leave loading',
-    color: '#1a4f7a', badgeClass: 'badge-sat',
-    ea: 'Cl. 30.1 / 30.2',
-    desc: '8 hrs ordinary pay + 20% loading (shiftworker, Cl. 30.2(a)(ii)). Non-shiftworker = 17.5%.',
-    pay: (day, B) => {
-      const hrs  = 8;
-      const base = hrs * B;
-      const load = base * 0.20; // 20% for shiftworkers (drivers qualify — Cl. 30.2(a)(ii))
-      return {
-        components: [
-          { n: 'Annual leave — 8 hrs ordinary', ea: 'Cl. 30.1', code: '—', hrs: '8.00', rate: `$${B.toFixed(4)}/hr`, amount: base, cls: '' },
-          { n: 'Annual leave loading — 20% (shiftworker)', ea: 'Cl. 30.2(a)(ii)', code: '—', hrs: '8.00', rate: '20% of ordinary', amount: load, cls: 'pen-row' }
-        ],
-        total: base + load,
-        flags: ['AL: 8 hrs ordinary + 20% loading (shiftworker rate Cl. 30.2(a)(ii)). Non-shiftworker rate = 17.5%.']
-      };
-    }
-  },
-
-  BL:   { code: 'BL',   label: 'Bereavement/Compassionate Leave — base rate pay',
-    color: '#555', badgeClass: 'badge-off',
-    ea: 'Cl. 30.8(k)(iv)',
-    desc: 'Paid at base rate for ordinary hours. Up to 5 days/shifts per occasion. (Cl. 30.8(k)(iv))',
-    pay: (day, B) => {
-      const hrs = day.rHrs || 8;
-      return {
-        components: [{ n: 'Bereavement/compassionate leave — base rate', ea: 'Cl. 30.8(k)(iv)', code: '—', hrs: hrs.toFixed(2), rate: `$${B.toFixed(4)}/hr`, amount: hrs * B, cls: '' }],
-        total: hrs * B,
-        flags: [`Bereavement leave: ${hrs.toFixed(2)} hrs at base rate (Cl. 30.8(k)(iv)). Up to 5 days per occasion.`]
-      };
-    }
-  },
-
-  JD:   { code: 'JD',   label: 'Jury Duty — Special Leave (ordinary pay)',
-    color: '#555', badgeClass: 'badge-off',
-    ea: 'Cl. 30.8(g)',
-    desc: 'Special leave at ordinary pay for time at court. Any jury fee received reduces amount payable. (Cl. 30.8(g))',
-    pay: (day, B) => {
-      const hrs = day.rHrs || 8;
-      return {
-        components: [{ n: 'Jury duty — special leave, ordinary pay', ea: 'Cl. 30.8(g)', code: '—', hrs: hrs.toFixed(2), rate: `$${B.toFixed(4)}/hr`, amount: hrs * B, cls: '' }],
-        total: hrs * B,
-        flags: ['Jury duty: ordinary pay for time at court. Jury fee received reduces amount payable (Cl. 30.8(g)).']
-      };
-    }
-  },
-
-  LWOP: { code: 'LWOP', label: 'Leave Without Pay — $0',
-    color: '#888', badgeClass: 'badge-off',
-    ea: 'Cl. 30 / EA general',
-    desc: 'Approved unpaid leave. No pay.',
-    pay: (day, B) => ({ components: [], total: 0, flags: ['Leave without pay — $0.'] })
-  },
-
-  PD:   { code: 'PD',   label: 'Picnic Day — paid day off',
-    color: '#145c2d', badgeClass: 'badge-ph',
-    ea: 'Cl. 32.1',
-    desc: '8 hrs ordinary pay. Granted once per calendar year for approved picnic day. (Cl. 32.1)',
-    pay: (day, B) => ({
-      components: [{ n: 'Picnic day — 8 hrs ordinary', ea: 'Cl. 32.1', code: '—', hrs: '8.00', rate: `$${B.toFixed(4)}/hr`, amount: 8 * B, cls: '' }],
-      total: 8 * B,
-      flags: ['Picnic day: 8 hrs ordinary pay (Cl. 32.1). Evidence of ticket required.']
-    })
-  }
-};
-
-// Build the leave category selector HTML
-function buildLeaveSelector(i, currentCat) {
-  const opts = Object.values(LEAVE_CATS).map(c =>
-    `<option value="${c.code}" ${currentCat === c.code ? 'selected' : ''}>${c.label}</option>`
-  ).join('');
-  return `<select id="lcat_${i}" onchange="setLeaveCat(${i}, this.value)" style="font-size:11px;padding:4px 6px;border-color:#d8b4fe;color:#6b21a8;width:auto;max-width:320px">${opts}</select>`;
-}
-
-function setLeaveCat(i, cat) {
-  days[i].leaveCat = cat;
-  days[i].vdo = (cat !== 'none'); // keep vdo flag in sync for skip logic
-  rebuildDayRow(i);
-  renderDayResult(i, calcDay(days[i]));
-}
-
-function rebuildDayRow(i) {
-  const day  = days[i];
-  const d    = parseDate(day.date);
-  const isOff = day.diag === 'OFF', isAdo = day.diag === 'ADO';
-  const isSat = day.dow === 6, isSun = day.dow === 0, isPH = day.ph;
-  const cat  = LEAVE_CATS[day.leaveCat] || LEAVE_CATS.none;
-  const hasLeave = day.leaveCat && day.leaveCat !== 'none';
-
-  let badges = '';
-  if (isOff)        badges = '<span class="badge badge-off">OFF</span>';
-  else if (isAdo)   badges = '<span class="badge badge-ado">ADO</span>';
-  else if (hasLeave) badges = `<span class="badge ${cat.badgeClass}" style="background:${cat.color}15;color:${cat.color};border-color:${cat.color}40">${cat.code}</span>`;
-  else {
-    if (isPH)       badges = '<span class="badge badge-ph">PH</span>';
-    else if (isSun) badges = '<span class="badge badge-sun">Sun</span>';
-    else if (isSat) badges = '<span class="badge badge-sat">Sat</span>';
-  }
-  const rosterInfo = (!isOff && !isAdo && !hasLeave)
-    ? `<span style="font-size:11px;color:var(--text3);margin-left:8px">Roster: ${day.rStart || '—'}–${day.rEnd || '—'} · ${day.diag}</span>` : '';
-
-  const row  = document.getElementById('row_' + i);
-  const body = document.getElementById('body_' + i);
-  row.querySelector('.day-header').innerHTML = `
-    <span style="min-width:140px;font-weight:500;font-size:13px">${fmtDate(d)}</span>
-    ${badges}${rosterInfo}
-    <span class="day-summary" id="sum_${i}">—</span>
-    <span class="chevron">▼</span>`;
-  row.querySelector('.day-header').onclick = () => toggleDay(i);
-  body.innerHTML = buildDayForm(i, day, isOff, isAdo);
-  body.classList.add('open');
-  row.classList.add('open');
-}
-
-// ═══════════════════════════════════════════════════════════════
-// FORTNIGHTLY ROSTER — lines 201-210
-// ═══════════════════════════════════════════════════════════════
-let fnRosterOverride = null; // array of 14 entries or null
-
-// Show/hide upload section based on line number
-document.getElementById('lineNum').addEventListener('input', function() {
-  const ln = parseInt(this.value);
-  const sec = document.getElementById('fnRosterSection');
-  if (ln >= 201 && ln <= 210) {
-    sec.style.display = 'block';
-    buildManualGrid();
-  } else {
-    sec.style.display = 'none';
-  }
-});
-
-function buildManualGrid() {
-  const grid = document.getElementById('fnManualGrid');
-  const DW2 = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-  let startVal = document.getElementById('fnStart').value;
-  if (!startVal) startVal = new Date().toISOString().slice(0,10);
-  const dates = makeFortnight(toSunday(startVal));
-  grid.innerHTML = '';
-  dates.forEach((d, i) => {
-    const dateObj = parseDate(d);
-    const label = `${DW2[dateObj.getDay()]} ${d.slice(5)}`;
-    grid.innerHTML += `<div class="fn-manual-day">
-      <label>${label}</label>
-      <input type="text" id="fnm_s_${i}" placeholder="start" style="margin-bottom:3px">
-      <input type="text" id="fnm_e_${i}" placeholder="end">
-      <select id="fnm_t_${i}" style="margin-top:3px;font-size:10px;padding:2px 3px">
-        <option value="work">Work</option>
-        <option value="OFF">OFF</option>
-        <option value="ADO">ADO</option>
-        <option value="SBY">SBY</option>
-      </select>
-    </div>`;
-  });
-  // Apply override values if already set
-  if (fnRosterOverride) {
-    fnRosterOverride.forEach((r, i) => {
-      const si = document.getElementById('fnm_s_' + i);
-      const ei = document.getElementById('fnm_e_' + i);
-      const ti = document.getElementById('fnm_t_' + i);
-      if (si) si.value = r[0] || '';
-      if (ei) ei.value = r[1] || '';
-      if (ti) ti.value = r[4] || 'work';
-    });
-  }
-}
-
-function applyFnRoster() {
-  // Read from manual grid
-  const startVal = toSunday(document.getElementById('fnStart').value);
-  const dates = makeFortnight(startVal);
-  fnRosterOverride = dates.map((d, i) => {
-    const s  = (document.getElementById('fnm_s_' + i)?.value || '').trim();
-    const e  = (document.getElementById('fnm_e_' + i)?.value || '').trim();
-    const tp = document.getElementById('fnm_t_' + i)?.value || 'work';
-    if (tp === 'OFF') return [null, null, false, 0, 'OFF'];
-    if (tp === 'ADO') return [null, null, false, 0, 'ADO'];
-    if (!s || !e)     return [null, null, false, 0, 'OFF'];
-    const sM = toMins(s), eM = toMins(e);
-    const cm = eM !== null && sM !== null && eM <= sM;
-    const hrs = cm ? toHrs(eM + 1440 - sM) : (sM !== null && eM !== null ? toHrs(eM - sM) : 0);
-    return [s, e, cm, parseFloat(hrs.toFixed(2)), tp];
-  });
-  document.getElementById('fnRosterStatus').innerHTML =
-    `<span style="color:var(--green-text)">✓ Fortnightly roster applied — ${fnRosterOverride.filter(r=>r[4]!=='OFF'&&r[4]!=='ADO').length} work days loaded. Click "Load roster line" to use.</span>`;
-}
-
-function clearFnRoster() {
-  fnRosterOverride = null;
-  document.getElementById('fnRosterStatus').textContent = 'No file loaded — master roster will be used.';
-  document.getElementById('fnRosterStatus').style.color = 'var(--text3)';
-}
-
-function parseFnRoster(input) {
-  // File upload — show preview note, let user verify via manual grid
-  if (!input.files || !input.files[0]) return;
-  const file = input.files[0];
-  document.getElementById('fnRosterStatus').innerHTML =
-    `<span style="color:var(--amber-text)">⚑ File "${file.name}" selected. Auto-parsing not available — please enter times manually in the grid below and click "Use this roster".</span>`;
-  document.getElementById('fnRosterPreview').style.display = 'none';
-  buildManualGrid();
 }
 
 // ═══════════════════════════════════════════════════════════════
 // CORE CALCULATION — calcDay
-// Handles:
-//   - OFF/ADO days that were worked (WOBOD)
-//   - Leave categories
-//   - Split-shift midnight crossing: OT hours that fall on next calendar
-//     day are rated at that next day's rules (PH, Sun, Sat) — Change 2
-//   - Auto lift-up: actual start LATER than roster → layback payment
-//     for hours started late (called in late)
-//   - Auto lift-up: actual end EARLIER than roster → lift-up payment
-//     for hours released early (sent home early)  — Change 3
 // ═══════════════════════════════════════════════════════════════
-function calcDay(day, dayIndex) {
+function calcDay(day) {
   const { aStart, aEnd, km, wobod, ph, dow, rStart, rEnd, cm, diag } = day;
   const isSat = dow === 6, isSun = dow === 0, isPH = ph;
 
-  // OFF/ADO days not worked
-  if ((diag === 'OFF' || diag === 'ADO') && !day.workedOnOff) {
+  // OFF days — no pay
+  if (diag === 'OFF') {
     return { hrs: 0, paidHrs: 0, components: [], total: 0, flags: [], isSat, isSun, isPH };
   }
 
-  const B = cfg.baseRate;
-
-  // Leave category — delegate to LEAVE_CATS pay function
-  if (day.leaveCat && day.leaveCat !== 'none') {
-    const cat = LEAVE_CATS[day.leaveCat];
-    if (cat) {
-      const result = cat.pay(day, B);
-      return { hrs: 0, paidHrs: 0, components: result.components || [], total: result.total || 0, flags: result.flags || [], isSat, isSun, isPH, isLeave: true, leaveCat: day.leaveCat };
+  // ADO day — paid at ordinary rate for 8 hrs in SHORT fortnight only
+  // Short fortnight = fortnight that contains an ADO day (roster shows ADO in these 14 days)
+  // Long fortnight = no ADO in these 14 days; ADO accruing, payout in next fortnight
+  if (diag === 'ADO') {
+    const isShortFortnight = day.isShortFortnight;
+    if (isShortFortnight) {
+      const B2 = cfg.baseRate;
+      const adoPay = 8 * B2;
+      return {
+        hrs: 8, paidHrs: 8,
+        components: [{ n: 'ADO — accrued day off pay (8 hrs ordinary)', ea: 'Cl. 120 / ADO accrual', code: codes.base || '—', hrs: '8.00', rate: `$${B2.toFixed(4)}/hr`, amount: adoPay, cls: 'km-row' }],
+        total: adoPay,
+        flags: ['ADO paid out — short fortnight (ADO falls in this pay period). 8 hrs at ordinary rate.'],
+        isSat, isSun, isPH, isAdo: true
+      };
+    } else {
+      return { hrs: 0, paidHrs: 0, components: [], total: 0, flags: ['ADO accruing — long fortnight (payout falls in next fortnight).'], isSat, isSun, isPH, isAdo: true };
     }
   }
 
@@ -1145,37 +787,19 @@ function calcDay(day, dayIndex) {
     return { hrs: 0, paidHrs: 0, components: [], total: 0, flags: ['Enter actual times or click "Use rostered"'], isSat, isSun, isPH };
   }
 
+  const B = cfg.baseRate;
   const components = [];
   const flags = [];
 
-  // ── Parse times ──────────────────────────────────────────────
   let sMin = toMins(aStart);
   let eMin = toMins(aEnd);
-  const crossMid = day.cm || (eMin <= sMin);
-  if (crossMid) eMin += 1440;
+  if (cm || eMin <= sMin) eMin += 1440;
   const actualHrs = toHrs(eMin - sMin);
+  const ordHrs    = Math.min(actualHrs, 8);
+  const otHrs     = Math.max(0, actualHrs - 8);
+  const ot1h      = Math.min(otHrs, 2);
+  const ot2h      = Math.max(0, otHrs - 2);
 
-  // ── Change 2: Split-shift midnight calculation ────────────────
-  // For cross-midnight shifts, determine how many minutes fall on
-  // the NEXT calendar day (after 00:00), and what rules apply there.
-  // Next-day rules: look up day[i+1] PH/dow if available.
-  let nextDayIsPH = false, nextDayIsSun = false, nextDayIsSat = false;
-  let minsOnNextDay = 0, minsOnShiftDay = 0;
-
-  if (crossMid) {
-    // Minutes before midnight = 1440 - sMin (if sMin < 1440)
-    // Minutes after midnight = eMin - 1440
-    minsOnNextDay  = Math.max(0, eMin - 1440);
-    minsOnShiftDay = Math.max(0, 1440 - sMin);
-    if (minsOnNextDay > 0 && dayIndex !== undefined && days[dayIndex + 1]) {
-      const nd = days[dayIndex + 1];
-      nextDayIsPH  = nd.ph;
-      nextDayIsSun = nd.dow === 0;
-      nextDayIsSat = nd.dow === 6;
-    }
-  }
-
-  // ── KM credit ─────────────────────────────────────────────────
   const kmc = km > 0 ? getKmCredit(km) : null;
   let kmCreditedHrs = null, kmBonus = 0, kmApplied = false;
   if (kmc && kmc.credited !== null) {
@@ -1186,155 +810,128 @@ function calcDay(day, dayIndex) {
     flags.push('ALERT: Double shift >10 hrs — driver must be relieved at terminal on return (Cl. 146.4(f)).');
   if (kmc && kmc.is370) {
     flags.push('>370 km shift — max 4/week, relieved at terminal, 8 hr traffic cap (Cl. 146.4(g-i)).');
-    if (actualHrs > 8) flags.push(`ALERT: >370 km — ${actualHrs.toFixed(2)} hrs in traffic exceeds 8 hr cap (Cl. 146.4(i)).`);
+    if (actualHrs > 8) flags.push(`ALERT: >370 km shift — ${actualHrs.toFixed(2)} hrs in traffic exceeds 8 hr cap. Verify unavoidable necessity (Cl. 146.4(i)).`);
   }
 
-  // ── Change 3: Auto lift-up / layback detection ────────────────
-  // Layback  = actual start LATER than rostered start (called in later than rostered)
-  // Lift-up  = actual end EARLIER than rostered end (released early, sent home)
-  let laybackHrs = 0, liftupHrs = 0;
-  if (rStart && aStart) {
-    const rsMin = toMins(rStart), asMin = toMins(aStart);
-    if (rsMin !== null && asMin !== null && asMin > rsMin) {
-      laybackHrs = toHrs(asMin - rsMin);
-    }
-  }
-  if (rEnd && aEnd) {
-    const reMin = toMins(rEnd), aeMin = toMins(aEnd);
-    // Adjust for cross-midnight rostered end
-    let reAdj = reMin, aeAdj = aeMin;
-    const rCross = day.cm || (reAdj !== null && toMins(rStart) !== null && reAdj <= toMins(rStart));
-    if (rCross && reAdj !== null) reAdj += 1440;
-    if (crossMid && aeAdj !== null) aeAdj += 1440;
-    if (reAdj !== null && aeAdj !== null && aeAdj < reAdj) {
-      liftupHrs = toHrs(reAdj - aeAdj);
-    }
-  }
-
-  // ── Shift penalty (per hour, Cl. 134.3(b) rounding) ──────────
-  const ordHrs = Math.min(actualHrs, 8);
-  const otHrs  = Math.max(0, actualHrs - 8);
-  const ot1h   = Math.min(otHrs, 2);
-  const ot2h   = Math.max(0, otHrs - 2);
   const pen = getShiftPenalty(sMin, eMin, ordHrs, isSat, isSun, isPH, dow);
 
-  // ── Build components ──────────────────────────────────────────
   if (wobod) {
     const wh = Math.max(actualHrs, cfg.wobodMin);
-    components.push({ n: 'WOBOD — work on book-off day', ea: 'Cl. 136', code: codes.wobod || '—', hrs: wh.toFixed(2), rate: `${cfg.wobodRate}× ($${(B * cfg.wobodRate).toFixed(4)}/hr)`, amount: wh * B * cfg.wobodRate, cls: '' });
+    components.push({ n: 'WOBOD — work on book-off day', ea: 'Cl. 136', code: codes.wobod || '—', hrs: wh.toFixed(2), rate: `${cfg.wobodRate}x ($${(B * cfg.wobodRate).toFixed(4)}/hr)`, amount: wh * B * cfg.wobodRate, cls: '' });
     flags.push(`WOBOD: double time, min ${cfg.wobodMin} hrs (Cl. 136).`);
 
   } else if (isPH) {
     const rate = (isSat || isSun) ? cfg.phWke : cfg.phWkd;
     const code = (isSat || isSun) ? codes.phWke : codes.phWkd;
     const phHrs = Math.max(actualHrs, kmCreditedHrs || 0);
-    components.push({ n: `Public holiday — ${isSat || isSun ? 'weekend' : 'weekday'} (${rate}×)`, ea: 'Cl. 31', code: code || '—', hrs: phHrs.toFixed(2), rate: `${rate}×`, amount: phHrs * B * rate, cls: '' });
-    flags.push(`PH ${rate}× applied. Day in lieu accrues (Cl. 31).`);
+    components.push({ n: `Public holiday — ${isSat || isSun ? 'weekend' : 'weekday'} (${rate}x)`, ea: 'Cl. 31', code: code || '—', hrs: phHrs.toFixed(2), rate: `${rate}x`, amount: phHrs * B * rate, cls: '' });
+    flags.push(`PH ${rate}x applied. Day in lieu accrues (Cl. 31). Shift penalties not payable on PH (Cl. 134.3(a)).`);
 
   } else if (isSun) {
-    components.push({ n: 'Sunday time — ordinary', ea: 'Cl. 133/54', code: codes.sun || '—', hrs: ordHrs.toFixed(2), rate: `${cfg.sunRate}×`, amount: ordHrs * B * cfg.sunRate, cls: '' });
+    components.push({ n: 'Sunday time — ordinary', ea: 'Cl. 133/54', code: codes.sun || '—', hrs: ordHrs.toFixed(2), rate: `${cfg.sunRate}x`, amount: ordHrs * B * cfg.sunRate, cls: '' });
     if (ot1h + ot2h > 0) {
-      components.push({ n: 'Sunday OT (Cl. 144 — Sunday rate)', ea: 'Cl. 140', code: codes.sun || '—', hrs: (ot1h+ot2h).toFixed(2), rate: `${cfg.sunRate}×`, amount: (ot1h+ot2h) * B * cfg.sunRate, cls: '' });
+      const oh = ot1h + ot2h;
+      components.push({ n: 'Sunday OT (Cl. 144 — Sunday rate applies)', ea: 'Cl. 140', code: codes.sun || '—', hrs: oh.toFixed(2), rate: `${cfg.sunRate}x`, amount: oh * B * cfg.sunRate, cls: '' });
     }
 
   } else if (isSat) {
-    components.push({ n: 'Saturday — ordinary', ea: 'Cl. 54/134', code: codes.sat || '—', hrs: ordHrs.toFixed(2), rate: `${cfg.satRate}×`, amount: ordHrs * B * cfg.satRate, cls: '' });
+    components.push({ n: 'Saturday — ordinary', ea: 'Cl. 54/134', code: codes.sat || '—', hrs: ordHrs.toFixed(2), rate: `${cfg.satRate}x`, amount: ordHrs * B * cfg.satRate, cls: '' });
     if (ot1h + ot2h > 0) {
-      components.push({ n: 'Saturday OT >8 hrs', ea: 'Cl. 140+Sch.4A', code: codes.satOt || '—', hrs: (ot1h+ot2h).toFixed(2), rate: `${cfg.satOt}×`, amount: (ot1h+ot2h) * B * cfg.satOt, cls: '' });
-      flags.push('Saturday OT >8 hrs → double time (EA 2025 Sch. 4A).');
+      const oh = ot1h + ot2h;
+      components.push({ n: 'Saturday OT >8 hrs', ea: 'Cl. 140+Sch.4A', code: codes.satOt || '—', hrs: oh.toFixed(2), rate: `${cfg.satOt}x`, amount: oh * B * cfg.satOt, cls: '' });
+      flags.push('Saturday OT >8 hrs — double time (EA 2025 Sch. 4A).');
     }
 
   } else {
-    // Weekday: check if cross-midnight OT falls on PH/Sun/Sat next day
-    const ordHrsShiftDay = Math.min(toHrs(Math.min(eMin, 1440) - sMin), 8);
-
-    if (crossMid && minsOnNextDay > 0 && (nextDayIsPH || nextDayIsSun || nextDayIsSat)) {
-      // Split pay: shift-day ordinary + next-day rate for cross-midnight portion
-      const nextDayHrs = toHrs(minsOnNextDay);
-      const shiftDayOrdHrs = Math.min(ordHrsShiftDay, 8);
-
-      components.push({ n: 'Ordinary time (shift day portion)', ea: 'Sch. 4A', code: codes.base || '—', hrs: shiftDayOrdHrs.toFixed(2), rate: `$${B.toFixed(4)}/hr`, amount: shiftDayOrdHrs * B, cls: '' });
-
-      // OT on shift-day portion (before midnight)
-      const shiftDayTotalHrs = toHrs(Math.min(eMin, 1440) - sMin);
-      const shiftDayOt = Math.max(0, shiftDayTotalHrs - 8);
-      if (shiftDayOt > 0) {
-        const sd1 = Math.min(shiftDayOt, 2), sd2 = Math.max(0, shiftDayOt - 2);
-        if (sd1 > 0) components.push({ n: 'OT — first 2 hrs (shift day)', ea: 'Cl. 140.1', code: codes.ot1 || '—', hrs: sd1.toFixed(2), rate: `${cfg.ot1}×`, amount: sd1 * B * cfg.ot1, cls: '' });
-        if (sd2 > 0) components.push({ n: 'OT — beyond 2 hrs (shift day)', ea: 'Cl. 140.1', code: codes.ot2 || '—', hrs: sd2.toFixed(2), rate: `${cfg.ot2}×`, amount: sd2 * B * cfg.ot2, cls: '' });
-      }
-
-      // Next-day portion rated at next day's rules
-      if (nextDayIsPH) {
-        const ndRate = (nextDayIsSat || nextDayIsSun) ? cfg.phWke : cfg.phWkd;
-        components.push({ n: `Cross-midnight portion — next day is PH (${ndRate}×)`, ea: 'Cl. 31', code: codes.phWkd || '—', hrs: nextDayHrs.toFixed(2), rate: `${ndRate}×`, amount: nextDayHrs * B * ndRate, cls: 'pen-row' });
-        flags.push(`⚑ Cross-midnight: ${nextDayHrs.toFixed(2)} hrs fall on a Public Holiday — rated at ${ndRate}× (Cl. 31).`);
-      } else if (nextDayIsSun) {
-        components.push({ n: 'Cross-midnight portion — next day is Sunday (2×)', ea: 'Cl. 133/54', code: codes.sun || '—', hrs: nextDayHrs.toFixed(2), rate: `${cfg.sunRate}×`, amount: nextDayHrs * B * cfg.sunRate, cls: 'pen-row' });
-        flags.push(`⚑ Cross-midnight: ${nextDayHrs.toFixed(2)} hrs fall on Sunday — rated at ${cfg.sunRate}× (Cl. 133).`);
-      } else if (nextDayIsSat) {
-        components.push({ n: 'Cross-midnight portion — next day is Saturday (1.5×)', ea: 'Cl. 54', code: codes.sat || '—', hrs: nextDayHrs.toFixed(2), rate: `${cfg.satRate}×`, amount: nextDayHrs * B * cfg.satRate, cls: 'pen-row' });
-        flags.push(`⚑ Cross-midnight: ${nextDayHrs.toFixed(2)} hrs fall on Saturday — rated at ${cfg.satRate}× (Cl. 54).`);
-      }
-
-    } else {
-      // Standard weekday — no next-day split needed
-      components.push({ n: 'Ordinary time', ea: 'Sch. 4A', code: codes.base || '—', hrs: ordHrs.toFixed(2), rate: `$${B.toFixed(4)}/hr`, amount: ordHrs * B, cls: '' });
-      if (ot1h > 0) components.push({ n: 'OT — first 2 hrs', ea: 'Cl. 140.1', code: codes.ot1 || '—', hrs: ot1h.toFixed(2), rate: `${cfg.ot1}×`, amount: ot1h * B * cfg.ot1, cls: '' });
-      if (ot2h > 0) components.push({ n: 'OT — beyond 2 hrs', ea: 'Cl. 140.1', code: codes.ot2 || '—', hrs: ot2h.toFixed(2), rate: `${cfg.ot2}×`, amount: ot2h * B * cfg.ot2, cls: '' });
-    }
-
-    // Shift penalty — per hour, EA rounding (Cl. 134.3)
+    components.push({ n: 'Ordinary time', ea: 'Sch. 4A', code: codes.base || '—', hrs: ordHrs.toFixed(2), rate: `$${B.toFixed(4)}/hr`, amount: ordHrs * B, cls: '' });
+    if (ot1h > 0) components.push({ n: 'OT — first 2 hrs', ea: 'Cl. 140.1', code: codes.ot1 || '—', hrs: ot1h.toFixed(2), rate: `${cfg.ot1}x`, amount: ot1h * B * cfg.ot1, cls: '' });
+    if (ot2h > 0) components.push({ n: 'OT — beyond 2 hrs', ea: 'Cl. 140.1', code: codes.ot2 || '—', hrs: ot2h.toFixed(2), rate: `${cfg.ot2}x`, amount: ot2h * B * cfg.ot2, cls: '' });
     if (pen.penAmt > 0) {
       const penRate = pen.shiftType === 'night' ? cfg.nightRate : pen.shiftType === 'early' ? cfg.earlyRate : cfg.afternoonRate;
-      components.push({ n: `${pen.penName} (${pen.penItem}) — ${pen.penHrs} hrs × $${penRate}/hr`, ea: 'Sch.4B / Cl. 134.3', code: pen.penCode, hrs: pen.penHrs.toString(), rate: `$${penRate}/hr · Cl.134.3(b) rounded`, amount: pen.penAmt, cls: 'pen-row' });
+      components.push({ n: `${pen.penName} (${pen.penItem}) — ${pen.penHrs} hrs x $${penRate}/hr`, ea: 'Sch.4B / Cl. 134.3', code: pen.penCode, hrs: pen.penHrs.toString(), rate: `$${penRate}/hr · Cl.134.3(b) rounded`, amount: pen.penAmt, cls: 'pen-row' });
     }
     if (pen.addLoad) {
-      components.push({ n: 'Additional loading (Item 9) — sign on/off 01:01–03:59', ea: 'Sch.4B / Cl. 134.4', code: codes.addLoad || '—', hrs: 'flat', rate: `$${cfg.addLoading.toFixed(2)}/shift`, amount: cfg.addLoading, cls: 'pen-row' });
+      components.push({ n: 'Additional loading (Item 9) — sign on/off 01:01-03:59', ea: 'Sch.4B / Cl. 134.4', code: codes.addLoad || '—', hrs: 'flat', rate: `$${cfg.addLoading.toFixed(2)}/shift`, amount: cfg.addLoading, cls: 'pen-row' });
     }
   }
 
-  // ── KM credit bonus (Cl. 146.4(b)) ───────────────────────────
   if (kmApplied && kmBonus > 0) {
     const bRate = isSat ? cfg.satRate : isSun ? cfg.sunRate : 1.0;
-    components.push({ n: `Cl. 146.4 KM credit — ${km} km → ${kmCreditedHrs} hrs, bonus ${kmBonus.toFixed(2)} hrs`, ea: 'Cl. 146.4(a)(b)', code: codes.base || '—', hrs: kmBonus.toFixed(2), rate: 'Ordinary rate — NOT included in OT (Cl. 146.4(b))', amount: kmBonus * B * bRate, cls: 'km-row' });
-    flags.push(`KM credit: ${km} km → ${kmCreditedHrs} hrs. Actual: ${actualHrs.toFixed(2)} hrs. Bonus ${kmBonus.toFixed(2)} hrs at ordinary rate (Cl. 146.4(b)).`);
+    components.push({ n: `Cl. 146.4 KM credit — ${km} km -> ${kmCreditedHrs} hrs credited, bonus ${kmBonus.toFixed(2)} hrs`, ea: 'Cl. 146.4(a)(b)', code: codes.base || '—', hrs: kmBonus.toFixed(2), rate: 'Ordinary rate — NOT included in OT (Cl. 146.4(b))', amount: kmBonus * B * bRate, cls: 'km-row' });
+    flags.push(`KM credit: ${km} km -> ${kmCreditedHrs} hrs credited. Actual: ${actualHrs.toFixed(2)} hrs. Bonus ${kmBonus.toFixed(2)} hrs at ordinary rate, excluded from OT (Cl. 146.4(b)).`);
   }
-  if (km > 0 && kmc && kmc.credited === null) flags.push(`${km} km < 161 — all actual time paid normally (Cl. 146.4(c)).`);
-
-  // Un-associated duties (Cl. 146.4(d))
+  if (km > 0 && kmc && kmc.credited === null) {
+    flags.push(`${km} km < 161 — all actual time + excess travel paid normally (Cl. 146.4(c)).`);
+  }
   if (km >= 161 && unassocAmt > 0 && !wobod) {
-    components.push({ n: 'Un-associated duties (≥161 km)', ea: 'Cl. 146.4(d) / Cl. 157.2', code: codes.unassoc || '—', hrs: '—', rate: `$${unassocAmt.toFixed(2)}/shift`, amount: unassocAmt, cls: 'km-row' });
+    components.push({ n: 'Un-associated duties (>=161 km)', ea: 'Cl. 146.4(d) / Cl. 157.2', code: codes.unassoc || '—', hrs: '—', rate: `$${unassocAmt.toFixed(2)}/shift`, amount: unassocAmt, cls: 'km-row' });
   }
 
-  // ── Change 3: Layback — started LATER than rostered (called in late) ──
-  // Driver signs on later than rostered → paid for the late-start gap at lift-up/layback rate
-  if (laybackHrs > 0) {
-    components.push({
-      n: `Layback — started ${laybackHrs.toFixed(2)} hrs after roster (called in late)`,
-      ea: 'Custom & practice / Cl. 140.1',
-      code: codes.liftup || '—',
-      hrs: laybackHrs.toFixed(2),
-      rate: `${cfg.liftupRate}× (configurable — custom & practice)`,
-      amount: laybackHrs * B * cfg.liftupRate,
-      cls: 'pen-row'
-    });
-    flags.push(`Layback: actual sign-on ${aStart} vs rostered ${rStart} — ${laybackHrs.toFixed(2)} hrs later. Paid at ${cfg.liftupRate}× (custom & practice).`);
+  // ── Lift-up / Layback / Buildup ─────────────────────────────────────────────
+  // Rule (EA-correct): gap hours are paid at ordinary rate if total shift <= 8 hrs,
+  // or at the applicable OT rate for hours beyond 8. Rate depends on shift day type.
+  // Auto-detected from actual vs rostered times — no manual toggle required.
+  //
+  // Lift-up / buildup = driver started BEFORE rostered start (early sign-on)
+  // Layback / extend  = driver finished AFTER rostered end (late sign-off)
+
+  let liftupGapHrs = 0;
+  let laybackGapHrs = 0;
+
+  if (rStart && aStart) {
+    const rsMin = toMins(rStart), asMin = toMins(aStart);
+    if (rsMin !== null && asMin !== null && asMin < rsMin) {
+      liftupGapHrs = toHrs(rsMin - asMin);
+    }
+  }
+  if (rEnd && aEnd) {
+    let reMin = toMins(rEnd), aeMin2 = toMins(aEnd);
+    if (cm || (reMin !== null && toMins(rStart) !== null && reMin <= toMins(rStart))) { if (reMin !== null) reMin += 1440; }
+    if (cm || (aeMin2 !== null && toMins(aStart) !== null && aeMin2 <= toMins(aStart))) { if (aeMin2 !== null) aeMin2 += 1440; }
+    if (reMin !== null && aeMin2 !== null && aeMin2 > reMin) {
+      laybackGapHrs = toHrs(aeMin2 - reMin);
+    }
   }
 
-  // ── Change 3: Lift-up — finished EARLIER than rostered (sent home early) ──
-  // Driver signs off earlier than rostered → paid for the early-finish gap at lift-up/layback rate
-  if (liftupHrs > 0) {
-    components.push({
-      n: `Lift-up — finished ${liftupHrs.toFixed(2)} hrs before roster (released early)`,
-      ea: 'Custom & practice / Cl. 140.1',
-      code: codes.liftup || '—',
-      hrs: liftupHrs.toFixed(2),
-      rate: `${cfg.liftupRate}× (configurable — custom & practice)`,
-      amount: liftupHrs * B * cfg.liftupRate,
-      cls: 'pen-row'
-    });
-    flags.push(`Lift-up: actual sign-off ${aEnd} vs rostered ${rEnd} — ${liftupHrs.toFixed(2)} hrs early. Paid at ${cfg.liftupRate}× (custom & practice).`);
+  function calcGapPay(gapHrs, gapLabel, eaRef) {
+    if (gapHrs <= 0) return;
+    const ordRemainder = Math.max(0, 8 - (actualHrs - gapHrs));
+    const gapOrdHrs = Math.min(gapHrs, ordRemainder);
+    const gapOtHrs  = Math.max(0, gapHrs - gapOrdHrs);
+    const gapOt1h   = Math.min(gapOtHrs, 2);
+    const gapOt2h   = Math.max(0, gapOtHrs - 2);
+
+    if (gapOrdHrs > 0) {
+      let ordRate, ordMult;
+      if (wobod)      { ordRate = cfg.wobodRate; ordMult = `${cfg.wobodRate}x (WOBOD)`; }
+      else if (isPH)  { const r = (isSat||isSun)?cfg.phWke:cfg.phWkd; ordRate=r; ordMult=`${r}x PH`; }
+      else if (isSun) { ordRate = cfg.sunRate; ordMult = `${cfg.sunRate}x Sun`; }
+      else if (isSat) { ordRate = cfg.satRate; ordMult = `${cfg.satRate}x Sat`; }
+      else            { ordRate = 1.0; ordMult = `ordinary ($${B.toFixed(4)}/hr)`; }
+      components.push({ n: `${gapLabel} — ordinary rate (${gapOrdHrs.toFixed(2)} hrs within 8-hr limit)`, ea: eaRef, code: codes.liftup || '—', hrs: gapOrdHrs.toFixed(2), rate: ordMult, amount: gapOrdHrs * B * ordRate, cls: 'pen-row' });
+    }
+    if (gapOt1h > 0) {
+      let r1, m1;
+      if (isPH)       { const r=(isSat||isSun)?cfg.phWke:cfg.phWkd; r1=r; m1=`${r}x PH`; }
+      else if (isSun) { r1=cfg.sunRate; m1=`${cfg.sunRate}x Sun`; }
+      else if (isSat) { r1=cfg.satOt;  m1=`${cfg.satOt}x Sat OT`; }
+      else            { r1=cfg.ot1;    m1=`${cfg.ot1}x OT (first 2 hrs)`; }
+      components.push({ n: `${gapLabel} — OT rate (first 2 hrs beyond 8)`, ea: eaRef, code: codes.liftup || '—', hrs: gapOt1h.toFixed(2), rate: m1, amount: gapOt1h * B * r1, cls: 'pen-row' });
+    }
+    if (gapOt2h > 0) {
+      let r2, m2;
+      if (isPH)       { const r=(isSat||isSun)?cfg.phWke:cfg.phWkd; r2=r; m2=`${r}x PH`; }
+      else if (isSun) { r2=cfg.sunRate; m2=`${cfg.sunRate}x Sun`; }
+      else if (isSat) { r2=cfg.satOt;  m2=`${cfg.satOt}x Sat OT`; }
+      else            { r2=cfg.ot2;    m2=`${cfg.ot2}x OT (beyond 2 hrs)`; }
+      components.push({ n: `${gapLabel} — OT rate (beyond 2 hrs)`, ea: eaRef, code: codes.liftup || '—', hrs: gapOt2h.toFixed(2), rate: m2, amount: gapOt2h * B * r2, cls: 'pen-row' });
+    }
+    flags.push(`${gapLabel}: ${gapHrs.toFixed(2)} hrs — ${gapOrdHrs.toFixed(2)} at ordinary, ${gapOtHrs.toFixed(2)} at OT rate (Cl. 140.1 / EA 2025).`);
+  }
+
+  if (!wobod) {
+    calcGapPay(liftupGapHrs,  'Lift-up / buildup (started before rostered)', 'Cl. 131 / Cl. 140.1');
+    calcGapPay(laybackGapHrs, 'Layback / extend (finished after rostered)',   'Cl. 131 / Cl. 140.1');
   }
 
   if (otHrs > 0 && !wobod) flags.push(`Daily OT: ${otHrs.toFixed(2)} hrs beyond 8-hr ordinary limit (Cl. 140.1).`);
@@ -1342,7 +939,7 @@ function calcDay(day, dayIndex) {
   const total   = components.reduce((s, c) => s + c.amount, 0);
   const paidHrs = kmApplied ? Math.max(actualHrs, kmCreditedHrs) : actualHrs;
 
-  return { hrs: actualHrs, paidHrs, components, total, flags, isSat, isSun, isPH, hasOt: otHrs > 0, kmApplied, kmBonus, laybackHrs, liftupHrs };
+  return { hrs: actualHrs, paidHrs, components, total, flags, isSat, isSun, isPH, hasOt: otHrs > 0, kmApplied, kmBonus };
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1353,9 +950,15 @@ function renderDayResult(i, res) {
   const sum = document.getElementById('sum_' + i);
   if (!el) return;
 
-  if (!res || res.hrs === 0) {
+  if (!res || (res.hrs === 0 && !res.isAdo)) {
     el.innerHTML = `<p style="font-size:11px;color:var(--text3)">${res && res.flags && res.flags.length ? res.flags[0] : 'No hours entered.'}</p>`;
     sum.textContent = '—';
+    sum.className = 'day-summary';
+    return;
+  }
+  if (res.isAdo && res.total === 0) {
+    el.innerHTML = `<div class="alert alert-info" style="font-size:11px">${res.flags[0] || 'ADO accruing.'}</div>`;
+    sum.textContent = 'ADO accruing';
     sum.className = 'day-summary';
     return;
   }
@@ -1381,11 +984,11 @@ function renderDayResult(i, res) {
 
   res.flags.forEach(f => {
     const cls = f.includes('ALERT') ? 'err' : '';
-    html += `<span class="flag-chip ${cls}">${f.includes('ALERT') ? '🚨' : '⚑'} ${f}</span>`;
+    html += `<span class="flag-chip ${cls}">${f.includes('ALERT') ? '&#x1F6A8;' : '&#x26F1;'} ${f}</span>`;
   });
 
   el.innerHTML = html;
-  sum.textContent = `${res.hrs.toFixed(1)}h → $${res.total.toFixed(2)}`;
+  sum.textContent = `${res.hrs.toFixed(1)}h -> $${res.total.toFixed(2)}`;
   sum.className = `day-summary${(res.hasOt || res.isPH || res.kmApplied) ? ' has-pay' : ''}`;
 }
 
@@ -1398,36 +1001,39 @@ function calcAll() {
   const fnT = parseFloat(document.getElementById('fnType').value);
   const B   = cfg.baseRate;
 
+  // Detect short vs long fortnight
+  // Short = this fortnight contains an ADO day (ADO payout happens this period)
+  // Long  = no ADO day in these 14 days (ADO accruing, payout next fortnight)
+  const adoDayCount = days.filter(d => d.diag === 'ADO').length;
+  const isShortFortnight = adoDayCount > 0;
+  days.forEach(d => { d.isShortFortnight = isShortFortnight; });
+
   const results = days.map((d, i) => {
-    const r = calcDay(d, i);
+    const r = calcDay(d);
     r.day = d;
     r.idx = i;
     return r;
   });
 
-  // Render each day
   results.forEach(r => renderDayResult(r.idx, r));
 
-  // Totals
   let totHrs = 0, totPay = 0, totOtHrs = 0, totKmBonus = 0;
   results.forEach(r => {
     totHrs     += r.hrs || 0;
     totPay     += r.total || 0;
-    if (r.hasOt)    totOtHrs  += Math.max(0, (r.hrs || 0) - 8);
+    if (r.hasOt)     totOtHrs   += Math.max(0, (r.hrs || 0) - 8);
     if (r.kmApplied) totKmBonus += r.kmBonus || 0;
   });
   const fnOtHrs = Math.max(0, totHrs - fnT);
 
-  // ── Metrics ──
   document.getElementById('resMetrics').style.display = 'block';
   document.getElementById('metricsGrid').innerHTML = `
     <div class="metric"><div class="val">$${totPay.toFixed(2)}</div><div class="lbl">Calculated gross pay</div></div>
     <div class="metric"><div class="val">${totHrs.toFixed(2)}</div><div class="lbl">Actual hours worked</div></div>
     <div class="metric"><div class="val">${totOtHrs.toFixed(2)}</div><div class="lbl">Daily OT hours</div></div>
-    <div class="metric"><div class="val">${fnOtHrs > 0 ? fnOtHrs.toFixed(2) + ' ⚑' : totKmBonus > 0 ? totKmBonus.toFixed(2) + ' KM' : '—'}</div>
+    <div class="metric"><div class="val">${fnOtHrs > 0 ? fnOtHrs.toFixed(2) + ' &#x26F1;' : totKmBonus > 0 ? totKmBonus.toFixed(2) + ' KM' : '—'}</div>
       <div class="lbl">${fnOtHrs > 0 ? `FN OT hrs (${fnT}h threshold)` : totKmBonus > 0 ? 'KM credit bonus hrs' : 'No threshold breach'}</div></div>`;
 
-  // ── 14-day table ──
   document.getElementById('res14day').style.display = 'block';
   let tbl = `<table>
     <tr><th>Date</th><th>Diagram</th><th>Type</th><th>Rostered</th><th>Actual</th><th>KMs</th><th>Hrs</th><th class="text-right">Pay</th></tr>`;
@@ -1456,7 +1062,6 @@ function calcAll() {
   </tr></table>`;
   document.getElementById('res14dayInner').innerHTML = tbl;
 
-  // ── Component totals ──
   const compMap = {};
   results.forEach(r => {
     if (!r.components) return;
@@ -1479,7 +1084,6 @@ function calcAll() {
   ct += `<tr class="total-row"><td colspan="3"><strong>Gross total</strong></td><td class="text-right"><strong>$${totPay.toFixed(2)}</strong></td></tr></table>`;
   document.getElementById('resCompInner').innerHTML = ct;
 
-  // ── Audit flags ──
   const audits = [];
   const psT = parseFloat(document.getElementById('psTotal').value);
   if (!isNaN(psT) && psT > 0) {
@@ -1494,12 +1098,18 @@ function calcAll() {
     audits.push(`<div class="alert alert-err">Fortnight OT: total hours (${totHrs.toFixed(2)}) exceed ${fnT}-hr threshold by <strong>${fnOtHrs.toFixed(2)} hrs</strong>. A fortnight OT line should appear on your payslip (Cl. 140.1).</div>`);
   }
   if (totKmBonus > 0) {
-    audits.push(`<div class="alert alert-info">ℹ Cl. 146.4 KM credits applied: ${totKmBonus.toFixed(2)} bonus hrs this fortnight (paid at ordinary rate, excluded from OT threshold — Cl. 146.4(b)).</div>`);
+    audits.push(`<div class="alert alert-info">&#x2139; Cl. 146.4 KM credits applied: ${totKmBonus.toFixed(2)} bonus hrs this fortnight (paid at ordinary rate, excluded from OT threshold — Cl. 146.4(b)).</div>`);
+  }
+  if (isShortFortnight) {
+    const adoPay = 8 * cfg.baseRate;
+    audits.push(`<div class="alert alert-ok">ADO payout included — <strong>short fortnight</strong>. 8 hrs ordinary = <strong>$${adoPay.toFixed(2)}</strong> included in gross total.</div>`);
+  } else {
+    audits.push(`<div class="alert alert-info">&#x2139; <strong>Long fortnight</strong> — no ADO this period. ADO accruing; payout falls in the fortnight containing the ADO day.</div>`);
   }
   results.forEach(r => {
     if (!r.flags) return;
     r.flags.filter(f => f.includes('ALERT')).forEach(f => {
-      audits.push(`<div class="alert alert-err">🚨 <strong>${fmtDateShort(parseDate(r.day.date))}:</strong> ${f}</div>`);
+      audits.push(`<div class="alert alert-err">&#x1F6A8; <strong>${fmtDateShort(parseDate(r.day.date))}:</strong> ${f}</div>`);
     });
   });
 
@@ -1511,9 +1121,6 @@ function calcAll() {
   sw('results');
 }
 
-// ═══════════════════════════════════════════════════════════════
-// TAB SWITCHING
-// ═══════════════════════════════════════════════════════════════
 function sw(name) {
   const names = ['setup', 'days', 'results', 'config', 'km'];
   document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', names[i] === name));
@@ -1521,23 +1128,7 @@ function sw(name) {
   document.getElementById('pane-' + name).classList.add('active');
 }
 
-// ═══════════════════════════════════════════════════════════════
-// INIT
-// ═══════════════════════════════════════════════════════════════
 buildConfigUI();
-// Rebuild manual grid when date changes
-document.getElementById('fnStart').addEventListener('change', function() {
-  const ln = parseInt(document.getElementById('lineNum').value);
-  if (ln >= 201 && ln <= 210) buildManualGrid();
-});
-// Show section on init if default line is 201-210
-(function() {
-  const ln = parseInt(document.getElementById('lineNum').value);
-  if (ln >= 201 && ln <= 210) {
-    document.getElementById('fnRosterSection').style.display = 'block';
-    buildManualGrid();
-  }
-})();
 </script>
 </body>
 </html>
