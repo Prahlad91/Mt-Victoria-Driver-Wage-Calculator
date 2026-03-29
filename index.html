@@ -1,1 +1,688 @@
-# read from file
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mt Victoria Driver Wage Calculator — EA 2025</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #ffffff; --bg2: #f5f5f5; --bg3: #ebebeb;
+    --text: #1a1a1a; --text2: #555; --text3: #888;
+    --border: #ddd; --border2: #ccc;
+    --blue: #1a6fba; --blue-bg: #e8f2fb; --blue-text: #1a4f7a;
+    --green: #1a7a3c; --green-bg: #e6f5ec; --green-text: #145c2d;
+    --amber: #b85c00; --amber-bg: #fef3e2; --amber-text: #7a3d00;
+    --red: #b71c1c; --red-bg: #fdecea; --red-text: #7f1212;
+    --info-bg: #dbeafe; --info-text: #1e40af;
+  }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 13px; color: var(--text); background: var(--bg2); }
+  .app { max-width: 1100px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 18px; font-weight: 600; margin-bottom: 4px; }
+  .subtitle { font-size: 11px; color: var(--text3); margin-bottom: 16px; }
+  .tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 12px; }
+  .tab { padding: 7px 14px; border: 1px solid var(--border); border-radius: 6px; font-size: 12px; cursor: pointer; background: var(--bg); color: var(--text2); transition: all .15s; }
+  .tab:hover { background: var(--bg2); }
+  .tab.active { background: var(--blue-bg); border-color: var(--blue); color: var(--blue-text); font-weight: 500; }
+  .pane { display: none; } .pane.active { display: block; }
+  .card { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; margin-bottom: 12px; }
+  .card h2 { font-size: 14px; font-weight: 600; margin-bottom: 10px; }
+  .card h3 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--text2); margin-bottom: 8px; }
+  .g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .g3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  .g4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  label { font-size: 11px; color: var(--text2); display: block; margin-bottom: 3px; }
+  input, select { width: 100%; padding: 6px 8px; border: 1px solid var(--border2); border-radius: 5px; font-size: 12px; background: var(--bg); color: var(--text); }
+  input:focus, select:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 2px rgba(26,111,186,.15); }
+  input[type="time"] { font-family: monospace; }
+  button { padding: 7px 14px; border: 1px solid var(--border2); border-radius: 5px; font-size: 12px; cursor: pointer; background: var(--bg); color: var(--text); transition: background .12s; }
+  button:hover { background: var(--bg2); }
+  button.primary { background: var(--blue-bg); border-color: var(--blue); color: var(--blue-text); font-weight: 500; }
+  button.primary:hover { background: #cce0f5; }
+  button.small { padding: 4px 8px; font-size: 11px; }
+  .day-row { border: 1px solid var(--border); border-radius: 6px; margin-bottom: 6px; overflow: hidden; }
+  .day-header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg2); cursor: pointer; user-select: none; }
+  .day-header:hover { background: var(--bg3); }
+  .day-body { padding: 10px 12px; display: none; border-top: 1px solid var(--border); }
+  .day-body.open { display: block; }
+  .day-inputs { display: grid; grid-template-columns: 1fr 1fr 100px 90px 90px auto; gap: 8px; align-items: end; margin-bottom: 8px; }
+  .badge { display: inline-block; font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 4px; margin-left: 4px; }
+  .badge-off { background: var(--bg3); color: var(--text3); border: 1px solid var(--border); }
+  .badge-ado { background: #fff8e6; color: #7a5c00; border: 1px solid #e8d080; }
+  .badge-sat { background: var(--amber-bg); color: var(--amber-text); }
+  .badge-sun { background: var(--red-bg); color: var(--red-text); }
+  .badge-ph  { background: var(--green-bg); color: var(--green-text); }
+  .day-summary { margin-left: auto; font-size: 11px; color: var(--text3); white-space: nowrap; }
+  .day-summary.has-pay { color: var(--blue-text); font-weight: 500; }
+  .chevron { font-size: 10px; color: var(--text3); margin-left: 6px; transition: transform .2s; }
+  .day-row.open .chevron { transform: rotate(180deg); }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--border2); color: var(--text2); font-weight: 500; font-size: 11px; }
+  td { padding: 5px 6px; border-bottom: 1px solid var(--border); }
+  tr:last-child td { border-bottom: none; }
+  tr.total-row td { font-weight: 600; background: var(--bg2); }
+  tr.km-row td { color: var(--blue-text); font-style: italic; }
+  tr.pen-row td { color: var(--amber-text); }
+  .text-right { text-align: right; }
+  .metric { background: var(--bg2); border-radius: 6px; padding: 10px 12px; text-align: center; }
+  .metric .val { font-size: 22px; font-weight: 600; color: var(--text); }
+  .metric .lbl { font-size: 10px; color: var(--text3); margin-top: 2px; }
+  .alert { padding: 8px 12px; border-radius: 6px; font-size: 12px; margin-top: 6px; line-height: 1.5; }
+  .alert-ok   { background: var(--green-bg); border: 1px solid #8fcca8; color: var(--green-text); }
+  .alert-warn { background: var(--amber-bg); border: 1px solid #e8b86d; color: var(--amber-text); }
+  .alert-err  { background: var(--red-bg);   border: 1px solid #f0a0a0; color: var(--red-text); }
+  .alert-info { background: var(--info-bg);  border: 1px solid #93c5fd; color: var(--info-text); }
+  hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
+  .note { font-size: 11px; color: var(--text3); margin-top: 4px; line-height: 1.5; }
+  .flag-chip { display: inline-block; font-size: 10px; padding: 2px 6px; background: var(--amber-bg); color: var(--amber-text); border-radius: 3px; margin: 2px 3px 2px 0; }
+  .flag-chip.err { background: var(--red-bg); color: var(--red-text); }
+  code { font-family: 'Courier New', monospace; font-size: 11px; background: var(--bg2); padding: 1px 4px; border-radius: 3px; border: 1px solid var(--border); }
+  .ea-ref { font-size: 10px; color: var(--text3); margin-left: 4px; }
+  .saved-msg { font-size: 11px; color: var(--green-text); margin-left: 8px; display: none; }
+  .fn-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+  .fn-chip { font-size: 10px; padding: 3px 7px; border-radius: 4px; border: 1px solid var(--border); color: var(--text3); background: var(--bg); }
+  .fn-chip.work { background: var(--info-bg); border-color: #93c5fd; color: var(--info-text); }
+  .fn-chip.ado  { background: var(--amber-bg); border-color: #e8b86d; color: var(--amber-text); }
+  #dateWarn { font-size: 11px; color: var(--red-text); margin-top: 3px; display: none; }
+  #linePreview { font-size: 12px; color: var(--text2); margin-top: 8px; padding: 8px 10px; background: var(--bg2); border-radius: 5px; line-height: 1.6; }
+  .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-bottom: 10px; }
+  #lineLabel { font-size: 11px; color: var(--text3); }
+  @media (max-width: 700px) {
+    .g2, .g3, .g4 { grid-template-columns: 1fr; }
+    .day-inputs { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>Mt Victoria Driver Wage Calculator</h1>
+  <div class="subtitle">Sydney Trains &amp; NSW TrainLink Enterprise Agreement 2025 &middot; All rules sourced directly from EA text</div>
+
+  <div class="tabs">
+    <div class="tab active" onclick="sw('setup')">Setup</div>
+    <div class="tab" onclick="sw('days')">Daily Entry</div>
+    <div class="tab" onclick="sw('results')">Results</div>
+    <div class="tab" onclick="sw('config')">Rates &amp; Codes</div>
+    <div class="tab" onclick="sw('km')">KM Table</div>
+  </div>
+
+  <div id="pane-setup" class="pane active">
+    <div class="card">
+      <h2>Fortnight setup</h2>
+      <div class="g3">
+        <div><label>Roster line (1&ndash;22 or 201&ndash;210)</label><input type="number" id="lineNum" value="1" min="1" max="210"></div>
+        <div>
+          <label>Fortnight start date <span style="color:var(--text3)">(Sunday)</span></label>
+          <input type="date" id="fnStart" value="2025-08-10">
+          <div id="dateWarn">&#x26F1; Not a Sunday &mdash; snapped to nearest Sunday.</div>
+        </div>
+        <div><label>Fortnight type</label><select id="fnType"><option value="72">Short &mdash; 72 hrs threshold</option><option value="76" selected>Long &mdash; 76 hrs threshold</option></select></div>
+      </div>
+      <hr>
+      <div class="g2">
+        <div><label>Public holidays (yyyy-mm-dd, comma-separated)</label><input type="text" id="phIn" placeholder="e.g. 2025-08-11, 2025-12-25"></div>
+        <div><label>Payslip total to verify ($) &mdash; optional</label><input type="number" id="psTotal" placeholder="e.g. 4250.00" step="0.01"></div>
+      </div>
+      <hr>
+      <button class="primary" onclick="loadLine()">Load roster line &#x2197;</button>
+      <div id="linePreview">Enter a line number and start date, then click Load.</div>
+      <div id="fnChips" class="fn-chips"></div>
+    </div>
+    <div class="card">
+      <h3>Shift penalty rules &mdash; Cl. 134.3 (EA 2025)</h3>
+      <table>
+        <tr><th>Item</th><th>Shift type</th><th>Definition (Cl. 134.1)</th><th>Rate (1 Jul 25)</th><th>Unit</th><th>Note</th></tr>
+        <tr><td>Base rate</td><td>Ordinary time</td><td>All weekday ordinary hours</td><td>$49.81842</td><td>per hour</td><td>Enter your actual rate in Rates &amp; Codes tab</td></tr>
+        <tr><td>Item 6</td><td>Afternoon</td><td>Commences before AND concludes after 18:00</td><td>$4.84</td><td><strong>per hour</strong></td><td>Cl. 134.3(b) rounding: &lt;30 min disregarded; 30&ndash;59 min = 1 hr</td></tr>
+        <tr><td>Item 7</td><td>Night</td><td>Commences at or between 18:00 and 03:59</td><td>$5.69</td><td><strong>per hour</strong></td><td>Same rounding rule</td></tr>
+        <tr><td>Item 8</td><td>Early morning</td><td>Commences at or between 04:00 and 05:30</td><td>$4.84</td><td><strong>per hour</strong></td><td>Same rounding rule</td></tr>
+        <tr><td>Item 9</td><td>Additional loading</td><td>Sign on/off 01:01&ndash;03:59 Mon&ndash;Fri (not PH, not OT)</td><td>$5.69</td><td>per shift (flat)</td><td>Cl. 134.4 &mdash; &quot;paid for that Shift&quot;</td></tr>
+      </table>
+      <p class="note" style="margin-top:8px">&#x26F1; Penalties NOT payable on Saturday, Sunday, or Public Holidays (Cl. 134.3(a)).</p>
+    </div>
+  </div>
+
+  <div id="pane-days" class="pane">
+    <div class="toolbar">
+      <button class="primary" onclick="calcAll()">Calculate fortnight &#x2197;</button>
+      <button onclick="fillAllRostered()">Fill all with rostered times</button>
+      <span id="lineLabel"></span>
+    </div>
+    <div id="dayList"><p style="color:var(--text3)">Load a roster line from Setup first.</p></div>
+  </div>
+
+  <div id="pane-results" class="pane">
+    <div class="card" id="resMetrics" style="display:none"><h2>Fortnight summary</h2><div class="g4" id="metricsGrid"></div></div>
+    <div class="card" id="res14day" style="display:none"><h2>14-day breakdown</h2><div id="res14dayInner"></div></div>
+    <div class="card" id="resComp" style="display:none"><h2>Component totals &mdash; payslip matching</h2><div id="resCompInner"></div></div>
+    <div class="card" id="resAudit" style="display:none"><h2>Audit flags</h2><div id="resAuditInner"></div></div>
+  </div>
+
+  <div id="pane-config" class="pane">
+    <div class="card">
+      <h2>Pay rates <span class="ea-ref">(EA 2025 Sch. 4A/4B &mdash; 1 Jul 2025 rates pre-set)</span></h2>
+      <div class="g3" id="cfgGrid"></div>
+      <hr><button onclick="saveCfg()">Save rates</button><span class="saved-msg" id="cfgSaved">Saved &#x2713;</span>
+    </div>
+    <div class="card">
+      <h2>Payroll codes <span class="ea-ref">(from your payslip &mdash; for matching only)</span></h2>
+      <div class="g3" id="codeGrid"></div>
+      <hr><button onclick="saveCodes()">Save codes</button><span class="saved-msg" id="codeSaved">Saved &#x2713;</span>
+    </div>
+    <div class="card">
+      <h2>Un-associated duties <span class="ea-ref">(Cl. 146.4(d) / Cl. 157.2 &mdash; for shifts &ge;161 km)</span></h2>
+      <p class="note" style="margin-bottom:8px">Duties not directly associated with train operations paid additionally for &ge;161 km shifts.</p>
+      <div class="g3">
+        <div><label>$ per shift (&ge;161 km)</label><input type="number" step="0.01" id="unassocAmt" value="0"></div>
+        <div><label>Payroll code</label><input type="text" id="unassocCode" placeholder="code from payslip"></div>
+        <div style="display:flex;align-items:flex-end"><button onclick="saveUA()">Save</button><span class="saved-msg" id="uaSaved">Saved &#x2713;</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="pane-km" class="pane">
+    <div class="card">
+      <h2>Cl. 146.4(a) &mdash; Intercity Train Crew Kilometreage Payments <span class="ea-ref">(EA 2025)</span></h2>
+      <p class="note" style="margin-bottom:10px"><strong>Cl. 146.4(b):</strong> Time credited in excess of time worked stands alone &mdash; NOT included in OT computation.<br><strong>Cl. 157.1:</strong> Drivers paid the GREATER of (a) scheduled shift time OR (b) km-credited hrs + un-associated work time.</p>
+      <table>
+        <tr><th>KM range (&ge; to &lt;)</th><th>Hrs credited</th><th>Special conditions</th></tr>
+        <tr><td>&lt; 161 km</td><td>Actual time</td><td>Cl. 146.4(c) &mdash; all actual time + excess travel paid normally</td></tr>
+        <tr><td>161 &ndash; 193</td><td>5.0</td><td rowspan="2">Cl. 146.4(d): additional duties paid for &ge;161 km shifts</td></tr>
+        <tr><td>193 &ndash; 225</td><td>6.0</td></tr>
+        <tr><td>225 &ndash; 257</td><td>7.0</td><td></td></tr>
+        <tr><td>257 &ndash; 290</td><td>8.0</td><td>Cl. 146.4(e)(f): double &mdash; round trip, min 30 min meal, relieved if &gt;10 hrs</td></tr>
+        <tr><td>290 &ndash; 322</td><td>9.0</td><td></td></tr>
+        <tr><td>322 &ndash; 338</td><td>10.0</td><td></td></tr>
+        <tr><td>338 &ndash; 354</td><td>10.5</td><td></td></tr>
+        <tr><td>354 &ndash; 370</td><td>11.0</td><td></td></tr>
+        <tr><td>370 &ndash; 386</td><td>11.5</td><td>Cl. 146.4(g)(h)(i): &ge;370 km &mdash; max 4/week, relieved at terminal, 8 hr traffic cap</td></tr>
+        <tr><td>386 &ndash; 402</td><td>12.0</td><td></td></tr>
+        <tr><td>402 &ndash; 418</td><td>12.5</td><td></td></tr>
+        <tr><td>418 &ndash; 435</td><td>13.0</td><td></td></tr>
+        <tr><td>435 &ndash; 451</td><td>13.5</td><td></td></tr>
+        <tr><td>451 &ndash; 467</td><td>14.0</td><td></td></tr>
+        <tr><td>467 &ndash; 483</td><td>14.5</td><td></td></tr>
+        <tr><td>483 &ndash; 499</td><td>15.0</td><td></td></tr>
+        <tr><td>499 &ndash; 515</td><td>15.5</td><td></td></tr>
+        <tr><td>515 &ndash; 531</td><td>16.0</td><td></td></tr>
+        <tr><td>531 &ndash; 547</td><td>16.5</td><td></td></tr>
+        <tr><td>547 &ndash; 563</td><td>17.0</td><td></td></tr>
+        <tr><td>563 &ndash; 579</td><td>17.5</td><td></td></tr>
+        <tr><td>579 &ndash; 595</td><td>18.0</td><td></td></tr>
+        <tr><td>595 &ndash; 612</td><td>18.5</td><td></td></tr>
+        <tr><td>612 &ndash; 628</td><td>19.0</td><td></td></tr>
+        <tr><td>628 &ndash; 644</td><td>19.5</td><td></td></tr>
+        <tr><td>644+</td><td>+0.5 hr per 16 km</td><td>Same construction (Cl. 146.4(a) note)</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+const DW=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const MN=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function parseDate(s){const[y,m,d]=s.split('-').map(Number);return new Date(y,m-1,d);}
+function dateStr(d){return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
+function fmtDate(d){return`${DW[d.getDay()]} ${d.getDate()} ${MN[d.getMonth()]} ${d.getFullYear()}`;}
+function fmtDateShort(d){return`${DW[d.getDay()]} ${d.getDate()} ${MN[d.getMonth()]}`;}
+function toMins(t){if(!t)return null;const[h,m]=t.split(':').map(Number);return h*60+m;}
+function toHrs(m){return m/60;}
+function toSunday(s){const d=parseDate(s);const dow=d.getDay();if(dow===0)return s;d.setDate(d.getDate()-dow);return dateStr(d);}
+function makeFortnight(start){const dates=[];const base=parseDate(start);for(let i=0;i<14;i++){const d=new Date(base);d.setDate(d.getDate()+i);dates.push(dateStr(d));}return dates;}
+function roundHrsEA(hrs){const whole=Math.floor(hrs);const fracMins=(hrs-whole)*60;return fracMins<30?whole:whole+1;}
+
+const KM_BANDS=[[0,161,null],[161,193,5],[193,225,6],[225,257,7],[257,290,8],[290,322,9],[322,338,10],[338,354,10.5],[354,370,11],[370,386,11.5],[386,402,12],[402,418,12.5],[418,435,13],[435,451,13.5],[451,467,14],[467,483,14.5],[483,499,15],[499,515,15.5],[515,531,16],[531,547,16.5],[547,563,17],[563,579,17.5],[579,595,18],[595,612,18.5],[612,628,19],[628,644,19.5]];
+function getKmCredit(km){if(km<=0)return{credited:null,isDouble:false,is370:false};for(const[lo,hi,cr]of KM_BANDS){if(km>=lo&&km<hi)return{credited:cr,isDouble:km>=257,is370:km>=370};}const extra=Math.ceil((km-644)/16);return{credited:19.5+extra*0.5,isDouble:true,is370:true};}
+
+function getShiftPenalty(sMin,eMin,ordHrs,isSat,isSun,isPH,dow){
+  if(isSat||isSun||isPH)return{penAmt:0,penName:'',penCode:'',penItem:'',penHrs:0,shiftType:null,addLoad:false};
+  let shiftType=null;
+  if(sMin>=1080||sMin<240)shiftType='night';
+  else if(sMin>=240&&sMin<=330)shiftType='early';
+  else if(sMin<1080&&eMin>1080)shiftType='afternoon';
+  const rateMap={night:cfg.nightRate,early:cfg.earlyRate,afternoon:cfg.afternoonRate};
+  const itemMap={night:'Item 7 Sch.4B',early:'Item 8 Sch.4B',afternoon:'Item 6 Sch.4B'};
+  const nameMap={night:'Night shift',early:'Early morning',afternoon:'Afternoon shift'};
+  const codeMap={night:codes.night,early:codes.early,afternoon:codes.afternoon};
+  let penAmt=0,penHrs=0,penName='',penCode='',penItem='';
+  if(shiftType){penHrs=roundHrsEA(ordHrs);penAmt=penHrs*rateMap[shiftType];penName=nameMap[shiftType];penCode=codeMap[shiftType]||'\u2014';penItem=itemMap[shiftType];}
+  const addLoad=!isPH&&dow>=1&&dow<=5&&sMin>=61&&sMin<=239;
+  return{penAmt,penName,penCode,penItem,penHrs,shiftType,addLoad};
+}
+
+let cfg={baseRate:49.81842,ot1:1.5,ot2:2.0,satRate:1.5,sunRate:2.0,satOt:2.0,phWkd:1.5,phWke:2.5,afternoonRate:4.84,nightRate:5.69,earlyRate:4.84,addLoading:5.69,wobodRate:2.0,wobodMin:4};
+let codes={base:'',ot1:'',ot2:'',sat:'',sun:'',satOt:'',phWkd:'',phWke:'',afternoon:'',night:'',early:'',addLoad:'',wobod:'',liftup:'',unassoc:''};
+let unassocAmt=0;
+
+const CFG_DEFS=[
+  {k:'baseRate',l:'Base hourly rate ($/hr)',ea:'Your payslip rate'},
+  {k:'ot1',l:'OT rate 1 (x)',ea:'Cl. 140.1'},{k:'ot2',l:'OT rate 2 (x)',ea:'Cl. 140.1'},
+  {k:'satRate',l:'Saturday (x)',ea:'Cl. 54/134'},{k:'sunRate',l:'Sunday (x)',ea:'Cl. 133/54'},
+  {k:'satOt',l:'Saturday OT >8 hrs (x)',ea:'Cl. 140'},{k:'phWkd',l:'PH weekday (x)',ea:'Cl. 31'},{k:'phWke',l:'PH weekend (x)',ea:'Cl. 31'},
+  {k:'afternoonRate',l:'Afternoon rate ($/hr)',ea:'Sch.4B Item 6'},{k:'nightRate',l:'Night rate ($/hr)',ea:'Sch.4B Item 7'},{k:'earlyRate',l:'Early morning rate ($/hr)',ea:'Sch.4B Item 8'},
+  {k:'addLoading',l:'Additional loading ($/shift flat)',ea:'Sch.4B Item 9'},
+  {k:'wobodRate',l:'WOBOD rate (x)',ea:'Cl. 136'},{k:'wobodMin',l:'WOBOD min hrs',ea:'Cl. 136'}
+];
+const CODE_DEFS=[
+  {k:'base',l:'Ordinary time'},{k:'ot1',l:'OT first 2 hrs'},{k:'ot2',l:'OT beyond 2 hrs'},
+  {k:'sat',l:'Saturday'},{k:'sun',l:'Sunday'},{k:'satOt',l:'Saturday OT'},
+  {k:'phWkd',l:'PH weekday'},{k:'phWke',l:'PH weekend'},
+  {k:'afternoon',l:'Afternoon shift'},{k:'night',l:'Night shift'},{k:'early',l:'Early morning'},{k:'addLoad',l:'Additional loading'},
+  {k:'wobod',l:'WOBOD'},{k:'liftup',l:'Lift-up / Layback / Buildup'},{k:'unassoc',l:'Un-associated duties'}
+];
+
+function buildConfigUI(){
+  const g=document.getElementById('cfgGrid');g.innerHTML='';
+  CFG_DEFS.forEach(d=>{g.innerHTML+=`<div><label>${d.l} <span class="ea-ref">${d.ea}</span></label><input type="number" step="any" id="cfg_${d.k}" value="${cfg[d.k]}"></div>`;});
+  const cg=document.getElementById('codeGrid');cg.innerHTML='';
+  CODE_DEFS.forEach(d=>{cg.innerHTML+=`<div><label>${d.l}</label><input type="text" id="code_${d.k}" value="${codes[d.k]||''}" placeholder="payslip code"></div>`;});
+}
+function saveCfg(){CFG_DEFS.forEach(d=>{const v=parseFloat(document.getElementById('cfg_'+d.k).value);if(!isNaN(v))cfg[d.k]=v;});flash('cfgSaved');}
+function saveCodes(){CODE_DEFS.forEach(d=>{codes[d.k]=document.getElementById('code_'+d.k).value||'';});flash('codeSaved');}
+function saveUA(){unassocAmt=parseFloat(document.getElementById('unassocAmt').value)||0;codes.unassoc=document.getElementById('unassocCode').value||'';flash('uaSaved');}
+function flash(id){const el=document.getElementById(id);el.style.display='inline';setTimeout(()=>{el.style.display='none';},2000);}
+
+const ROSTER={
+1:[[null,null,false,0,"OFF"],["00:51","09:18",false,8.45,"3151 SMB"],["02:00","10:00",false,8.00,"SBY"],["01:10","10:08",false,8.97,"3153"],["01:52","11:21",false,9.48,"3154 SMB"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],["01:00","09:00",false,8.00,"3152 SBY"],["01:10","10:08",false,8.97,"3153"],["04:00","12:00",false,8.00,"SBY"],["05:00","13:00",false,8.00,"SBY"],["02:42","11:41",false,8.98,"3156"],["04:43","12:58",false,8.25,"3652"]],
+2:[[null,null,false,0,"OFF"],[null,null,false,0,"ADO"],["03:36","12:41",false,9.08,"3158 RK"],["05:00","13:00",false,8.00,"SBY"],["02:42","11:41",false,8.98,"3156"],["01:52","11:21",false,9.48,"3154 SMB"],["03:35","12:07",false,8.53,"3651"],["05:43","13:31",false,7.80,"3654 SMB"],["09:32","17:41",false,8.15,"3160"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],["01:00","09:00",false,8.00,"3152 SBY"],["00:51","09:18",false,8.45,"3151 SMB"],[null,null,false,0,"OFF"]],
+3:[[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],["01:00","09:00",false,8.00,"3152 SBY"],["00:51","09:18",false,8.45,"3151 SMB"],["00:51","09:18",false,8.45,"3151 SMB"],["01:00","09:00",false,8.00,"3152 SBY"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],["01:52","11:21",false,9.48,"3154 SMB"],["02:42","11:41",false,8.98,"3156"],["05:30","13:30",false,8.00,"SBY"],["03:11","12:41",false,9.50,"3157"],["03:11","12:41",false,9.50,"3157"],["05:43","13:31",false,7.80,"3654 SMB"]],
+4:[[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],["02:32","10:32",false,8.00,"3155 SMB"],["01:52","11:21",false,9.48,"3154 SMB"],["02:32","10:32",false,8.00,"3155 SMB"],["01:10","10:08",false,8.97,"3153"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],[null,null,false,0,"ADO"],["09:42","18:28",false,8.77,"3161 RR"],["09:42","18:28",false,8.77,"3161 RR"],["12:00","20:00",false,8.00,"3163 SBY"],["11:43","20:28",false,8.75,"3162 RK"],["12:00","20:00",false,8.00,"3657 SMB"]],
+5:[["14:03","22:03",false,8.00,"3660 SMB"],["11:43","20:28",false,8.75,"3162 RK"],["12:00","20:00",false,8.00,"3163 SBY"],["12:50","21:08",false,8.30,"3164"],["11:43","20:28",false,8.75,"3162 RK"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],["03:11","12:41",false,9.50,"3157"],["09:32","17:41",false,8.15,"3160"],["09:32","17:41",false,8.15,"3160"],["09:42","18:28",false,8.77,"3161 RR"],["09:42","18:28",false,8.77,"3161 RR"],[null,null,false,0,"OFF"]],
+6:[[null,null,false,0,"OFF"],["02:32","10:32",false,8.00,"3155 SMB"],["03:30","11:30",false,8.00,"SBY"],["03:30","11:30",false,8.00,"SBY"],["03:36","12:41",false,9.08,"3158 RK"],["02:32","10:32",false,8.00,"3155 SMB"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],["01:10","10:08",false,8.97,"3153"],["02:32","10:32",false,8.00,"3155 SMB"],[null,null,false,0,"ADO"],[null,null,false,0,"OFF"],["01:52","11:21",false,9.48,"3154 SMB"],["03:35","12:07",false,8.53,"3651"]],
+7:[["03:35","12:07",false,8.53,"3651"],["02:42","11:41",false,8.98,"3156"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],["01:00","09:00",false,8.00,"3152 SBY"],["00:51","09:18",false,8.45,"3151 SMB"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],["00:51","09:18",false,8.45,"3151 SMB"],["01:00","09:00",false,8.00,"3152 SBY"],["01:52","11:21",false,9.48,"3154 SMB"],["02:32","10:32",false,8.00,"3155 SMB"],["03:36","12:41",false,9.08,"3158 RK"],["06:32","15:58",false,9.43,"3656"]],
+8:[[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],["01:52","11:21",false,9.48,"3154 SMB"],["02:32","10:32",false,8.00,"3155 SMB"],["03:11","12:41",false,9.50,"3157"],["02:42","11:41",false,8.98,"3156"],["04:43","12:58",false,8.25,"3652"],[null,null,false,0,"OFF"],[null,null,false,0,"ADO"],["00:51","09:18",false,8.45,"3151 SMB"],["01:00","09:00",false,8.00,"3152 SBY"],["01:10","10:08",false,8.97,"3153"],["01:10","10:08",false,8.97,"3153"],[null,null,false,0,"OFF"]],
+9:[[null,null,false,0,"OFF"],["18:02","02:35",true,8.55,"3168"],["18:02","02:35",true,8.55,"3168"],["18:02","02:35",true,8.55,"3168"],["18:02","02:35",true,8.55,"3168"],["18:02","02:35",true,8.55,"3168"],["18:32","02:34",true,8.03,"3664"],["16:26","23:58",false,7.53,"3663"],["16:15","00:34",true,8.32,"3167"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],["15:00","23:00",false,8.00,"SBY"],["14:42","23:43",false,9.02,"3166"],[null,null,false,0,"OFF"]],
+10:[[null,null,false,0,"OFF"],["13:00","21:08",false,8.13,"3165 SMB"],["14:42","23:43",false,9.02,"3166"],["15:00","23:00",false,8.00,"SBY"],["16:15","00:34",true,8.32,"3167"],["16:15","00:34",true,8.32,"3167"],["15:32","00:38",true,9.10,"3662"],["15:32","00:38",true,9.10,"3661"],["14:42","23:43",false,9.02,"3166"],["16:15","00:34",true,8.32,"3167"],[null,null,false,0,"ADO"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"]],
+11:[[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],["11:43","20:28",false,8.75,"3162 RK"],["11:43","20:28",false,8.75,"3162 RK"],["12:00","20:00",false,8.00,"3163 SBY"],["11:43","20:28",false,8.75,"3162 RK"],["12:00","20:00",false,8.00,"3657 SMB"],["14:03","22:03",false,8.00,"3660 SMB"],["12:00","20:00",false,8.00,"3163 SBY"],["13:00","21:08",false,8.13,"3165 SMB"],["12:50","21:08",false,8.30,"3164"],["11:43","20:28",false,8.75,"3162 RK"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"]],
+12:[["06:32","15:58",false,9.43,"3655"],["09:32","17:41",false,8.15,"3160"],["09:32","17:41",false,8.15,"3160"],["09:42","18:28",false,8.77,"3161 RR"],["09:42","18:28",false,8.77,"3161 RR"],["09:42","18:28",false,8.77,"3161 RR"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],["02:42","11:41",false,8.98,"3156"],["03:30","11:30",false,8.00,"SBY"],["03:11","12:41",false,9.50,"3157"],[null,null,false,0,"ADO"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"]],
+13:[["05:43","13:31",false,7.80,"3654 SMB"],["03:11","12:41",false,9.50,"3157"],["02:42","11:41",false,8.98,"3156"],["02:42","11:41",false,8.98,"3156"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],["03:35","12:07",false,8.53,"3651"],["02:32","10:32",false,8.00,"3155 SMB"],["03:00","11:00",false,8.00,"SBY"],["02:42","11:41",false,8.98,"3156"],["03:36","12:41",false,9.08,"3158 RK"],["09:32","17:41",false,8.15,"3160"],[null,null,false,0,"OFF"]],
+14:[[null,null,false,0,"OFF"],["01:10","10:08",false,8.97,"3153"],["00:51","09:18",false,8.45,"3151 SMB"],["01:00","09:00",false,8.00,"3152 SBY"],["01:10","10:08",false,8.97,"3153"],[null,null,false,0,"ADO"],[null,null,false,0,"OFF"],["04:43","14:31",false,9.80,"3653"],["03:36","12:41",false,9.08,"3158 RK"],["03:11","12:41",false,9.50,"3157"],["03:36","13:16",false,9.67,"3159 RK"],["09:32","17:41",false,8.15,"3160"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"]],
+15:[["13:32","22:39",false,9.12,"3659"],["12:00","20:00",false,8.00,"3163 SBY"],["13:00","21:00",false,8.00,"SBY"],["14:42","23:43",false,9.02,"3166"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],["18:02","02:35",true,8.55,"3168"],["18:02","02:35",true,8.55,"3168"],["18:02","02:35",true,8.55,"3168"],["18:02","02:35",true,8.55,"3168"],["18:02","02:35",true,8.55,"3168"],["18:32","02:34",true,8.03,"3664"]],
+16:[[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],[null,null,false,0,"ADO"],["13:00","21:08",false,8.13,"3165 SMB"],["13:00","21:08",false,8.13,"3165 SMB"],["13:32","22:28",false,8.93,"3658"],["13:32","22:39",false,9.12,"3659"],["13:00","21:08",false,8.13,"3165 SMB"],["14:42","23:43",false,9.02,"3166"],["14:42","23:43",false,9.02,"3166"],["14:42","23:43",false,9.02,"3166"],["12:00","20:00",false,8.00,"3163 SBY"],[null,null,false,0,"OFF"]],
+17:[[null,null,false,0,"OFF"],["01:00","09:00",false,8.00,"3152 SBY"],["01:10","10:08",false,8.97,"3153"],["03:11","12:41",false,9.50,"3157"],["03:30","11:30",false,8.00,"SBY"],["03:36","12:41",false,9.08,"3158 RK"],["06:32","15:58",false,9.43,"3656"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],["01:52","11:21",false,9.48,"3154 SMB"],["01:10","10:08",false,8.97,"3153"],["00:51","09:18",false,8.45,"3151 SMB"],["02:32","10:32",false,8.00,"3155 SMB"],[null,null,false,0,"OFF"]],
+18:[[null,null,false,0,"OFF"],["01:52","11:21",false,9.48,"3154 SMB"],["03:00","11:00",false,8.00,"SBY"],["03:36","13:16",false,9.67,"3159 RK"],["03:00","11:00",false,8.00,"SBY"],["03:11","12:41",false,9.50,"3157"],["05:43","13:31",false,7.80,"3654 SMB"],["06:32","15:58",false,9.43,"3655"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],["00:51","09:18",false,8.45,"3151 SMB"],["01:52","11:21",false,9.48,"3154 SMB"],[null,null,false,0,"ADO"],[null,null,false,0,"OFF"]],
+19:[["04:43","14:31",false,9.80,"3653"],["03:36","12:41",false,9.08,"3158 RK"],["03:11","12:41",false,9.50,"3157"],["04:00","12:00",false,8.00,"SBY"],["06:00","14:00",false,8.00,"SBY"],["09:32","17:41",false,8.15,"3160"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],["03:36","12:41",false,9.08,"3158 RK"],["02:32","10:32",false,8.00,"3155 SMB"],["02:42","11:41",false,8.98,"3156"],["01:00","09:00",false,8.00,"3152 SBY"],[null,null,false,0,"OFF"]],
+20:[[null,null,false,0,"OFF"],["09:42","18:28",false,8.77,"3161 RR"],["09:42","18:28",false,8.77,"3161 RR"],["09:32","17:41",false,8.15,"3160"],["09:32","17:41",false,8.15,"3160"],["12:00","20:00",false,8.00,"3163 SBY"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],[null,null,false,0,"ADO"],["16:15","00:34",true,8.32,"3167"],["16:15","00:34",true,8.32,"3167"],["16:15","00:34",true,8.32,"3167"],["15:32","00:38",true,9.10,"3662"]],
+21:[["15:32","00:38",true,9.10,"3661"],["16:15","00:34",true,8.32,"3167"],["16:15","00:34",true,8.32,"3167"],["16:15","00:34",true,8.32,"3167"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],["09:42","18:28",false,8.77,"3161 RR"],["11:43","20:28",false,8.75,"3162 RK"],["12:00","20:00",false,8.00,"3163 SBY"],["13:00","21:08",false,8.13,"3165 SMB"],["13:00","21:08",false,8.13,"3165 SMB"],["13:32","22:28",false,8.93,"3658"]],
+22:[["16:26","23:58",false,7.53,"3663"],["14:42","23:43",false,9.02,"3166"],["13:00","21:08",false,8.13,"3165 SMB"],["12:00","20:00",false,8.00,"3163 SBY"],["14:42","23:43",false,9.02,"3166"],["14:42","23:43",false,9.02,"3166"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],["11:43","20:28",false,8.75,"3162 RK"],["12:00","20:00",false,8.00,"3163 SBY"],["11:43","20:28",false,8.75,"3162 RK"],[null,null,false,0,"ADO"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"]],
+201:[[null,null,false,0,"OFF"],["05:00","13:00",false,8.00,"SBY"],["05:00","13:00",false,8.00,"SBY"],["05:00","13:00",false,8.00,"SBY"],["05:00","13:00",false,8.00,"SBY"],["05:00","13:00",false,8.00,"SBY"],["05:00","13:00",false,8.00,"SBY"],["05:00","13:00",false,8.00,"SBY"],["05:00","13:00",false,8.00,"SBY"],["05:00","13:00",false,8.00,"SBY"],["05:00","13:00",false,8.00,"SBY"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"]],
+202:[["09:30","17:30",false,8.00,"SBY"],["09:30","17:30",false,8.00,"SBY"],["09:30","17:30",false,8.00,"SBY"],["09:30","17:30",false,8.00,"SBY"],["09:30","17:30",false,8.00,"SBY"],["09:30","17:30",false,8.00,"SBY"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],[null,null,false,0,"ADO"],["09:30","17:30",false,8.00,"SBY"],["09:30","17:30",false,8.00,"SBY"],["09:30","17:30",false,8.00,"SBY"]],
+203:[["13:00","21:00",false,8.00,"SBY"],["14:00","22:00",false,8.00,"SBY"],["14:00","22:00",false,8.00,"SBY"],["14:00","22:00",false,8.00,"SBY"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],["14:00","22:00",false,8.00,"SBY"],["14:00","22:00",false,8.00,"SBY"],["14:00","22:00",false,8.00,"SBY"],["14:00","22:00",false,8.00,"SBY"],["14:00","22:00",false,8.00,"SBY"],["13:00","21:00",false,8.00,"SBY"]],
+204:[[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],[null,null,false,0,"ADO"],[null,null,false,0,"OFF"],["03:00","11:00",false,8.00,"SBY"],["03:00","11:00",false,8.00,"SBY"],["03:00","11:00",false,8.00,"SBY"],["03:00","11:00",false,8.00,"SBY"],["03:00","11:00",false,8.00,"SBY"],["08:00","16:00",false,8.00,"SBY"],["08:00","16:00",false,8.00,"SBY"],["08:00","16:00",false,8.00,"SBY"],["08:00","16:00",false,8.00,"SBY"],[null,null,false,0,"OFF"]],
+205:[[null,null,false,0,"OFF"],["02:00","10:00",false,8.00,"SBY"],["02:00","10:00",false,8.00,"SBY"],["02:00","10:00",false,8.00,"SBY"],["02:00","10:00",false,8.00,"SBY"],["06:30","14:30",false,8.00,"SBY"],["06:30","14:30",false,8.00,"SBY"],["09:30","17:30",false,8.00,"SBY"],["09:30","17:30",false,8.00,"SBY"],["09:30","17:30",false,8.00,"SBY"],["09:30","17:30",false,8.00,"SBY"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"]],
+206:[["09:00","17:00",false,8.00,"SBY"],["09:30","17:30",false,8.00,"SBY"],["09:30","17:30",false,8.00,"SBY"],["09:30","17:30",false,8.00,"SBY"],["09:30","17:30",false,8.00,"SBY"],["09:30","17:30",false,8.00,"SBY"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],[null,null,false,0,"ADO"],["03:00","11:00",false,8.00,"SBY"],["03:00","11:00",false,8.00,"SBY"],["03:00","11:00",false,8.00,"SBY"]],
+207:[["03:00","11:00",false,8.00,"SBY"],["06:00","14:00",false,8.00,"SBY"],["06:00","14:00",false,8.00,"SBY"],["06:00","14:00",false,8.00,"SBY"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],["11:30","19:30",false,8.00,"SBY"],["11:30","19:30",false,8.00,"SBY"],["11:30","19:30",false,8.00,"SBY"],["11:30","19:30",false,8.00,"SBY"],["11:30","19:30",false,8.00,"SBY"],["11:30","19:30",false,8.00,"SBY"]],
+208:[[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],[null,null,false,0,"ADO"],["16:00","00:00",true,8.00,"SBY"],["16:00","00:00",true,8.00,"SBY"],["16:00","00:00",true,8.00,"SBY"],["16:00","00:00",true,8.00,"SBY"],["18:00","02:00",true,8.00,"SBY"],["18:00","02:00",true,8.00,"SBY"],["18:00","02:00",true,8.00,"SBY"],["18:00","02:00",true,8.00,"SBY"],["18:00","02:00",true,8.00,"SBY"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"]],
+209:[["16:00","00:00",true,8.00,"SBY"],["18:00","02:00",true,8.00,"SBY"],["18:00","02:00",true,8.00,"SBY"],["18:00","02:00",true,8.00,"SBY"],["18:00","02:00",true,8.00,"SBY"],["18:00","02:00",true,8.00,"SBY"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],["16:00","00:00",true,8.00,"SBY"],["18:00","02:00",true,8.00,"SBY"],["18:00","02:00",true,8.00,"SBY"],["18:00","02:00",true,8.00,"SBY"]],
+210:[[null,null,false,0,"OFF"],[null,null,false,0,"OFF"],["04:00","12:00",false,8.00,"SBY"],["04:00","12:00",false,8.00,"SBY"],["04:00","12:00",false,8.00,"SBY"],["04:00","12:00",false,8.00,"SBY"],["10:00","18:00",false,8.00,"SBY"],["10:00","18:00",false,8.00,"SBY"],["10:00","18:00",false,8.00,"SBY"],["10:00","18:00",false,8.00,"SBY"],["10:00","18:00",false,8.00,"SBY"],[null,null,false,0,"ADO"],[null,null,false,0,"OFF"],[null,null,false,0,"OFF"]]
+};
+
+let days=[];
+let phs=[];
+
+function loadLine(){
+  const ln=parseInt(document.getElementById('lineNum').value);
+  if(!ROSTER[ln]){document.getElementById('linePreview').innerHTML='<span style="color:var(--red)">Line not found. Valid: 1-22, 201-210.</span>';return;}
+  let raw=document.getElementById('fnStart').value;
+  const snapped=toSunday(raw);
+  const warn=document.getElementById('dateWarn');
+  if(snapped!==raw){warn.style.display='block';document.getElementById('fnStart').value=snapped;}else{warn.style.display='none';}
+  const dates=makeFortnight(snapped);
+  phs=document.getElementById('phIn').value.split(',').map(s=>s.trim()).filter(Boolean);
+  days=ROSTER[ln].map((r,i)=>{
+    const[rS,rE,cm,rH,diag]=r;
+    const dateObj=parseDate(dates[i]);
+    return{date:dates[i],dow:dateObj.getDay(),ph:phs.includes(dates[i]),diag:diag,rStart:rS,rEnd:rE,cm:cm,rHrs:rH,aStart:rS||'',aEnd:rE||'',wobod:false,km:0};
+  });
+  const workDays=days.filter(d=>d.diag!=='OFF'&&d.diag!=='ADO').length;
+  const adoDays=days.filter(d=>d.diag==='ADO').length;
+  const endDate=parseDate(dates[13]);
+  const fnTypeLabel=adoDays>0?'SHORT fortnight (ADO present — payout this period)':'LONG fortnight (no ADO — accruing)';
+  document.getElementById('linePreview').innerHTML=`<strong>Line ${ln} loaded.</strong> Fortnight: <strong>${fmtDateShort(parseDate(snapped))}</strong> &rarr; <strong>${fmtDateShort(endDate)}</strong> &nbsp;&middot;&nbsp; ${workDays} work days &nbsp;&middot;&nbsp; ${adoDays} ADO &nbsp;&middot;&nbsp; <span style="color:${adoDays>0?'var(--amber-text)':'var(--blue-text)'}">${fnTypeLabel}</span>`;
+  document.getElementById('fnChips').innerHTML=dates.map((d,i)=>{
+    const day=days[i];const cls=day.diag==='ADO'?'ado':day.diag!=='OFF'?'work':'';
+    return`<span class="fn-chip ${cls}">${DW[parseDate(d).getDay()]} ${d.slice(5)} ${day.diag}</span>`;
+  }).join('');
+  document.getElementById('lineLabel').textContent=`Line ${ln} · ${fmtDateShort(parseDate(snapped))} - ${fmtDateShort(endDate)}`;
+  renderDayList();
+  sw('days');
+}
+
+function renderDayList(){
+  const container=document.getElementById('dayList');container.innerHTML='';
+  days.forEach((day,i)=>{
+    const d=parseDate(day.date);
+    const isOff=day.diag==='OFF';const isAdo=day.diag==='ADO';
+    const isSat=day.dow===6;const isSun=day.dow===0;const isPH=day.ph;
+    let badges='';
+    if(isOff)badges+='<span class="badge badge-off">OFF</span>';
+    else if(isAdo)badges+='<span class="badge badge-ado">ADO</span>';
+    else{if(isPH)badges+='<span class="badge badge-ph">PH</span>';else if(isSun)badges+='<span class="badge badge-sun">Sun</span>';else if(isSat)badges+='<span class="badge badge-sat">Sat</span>';}
+    const rosterInfo=(!isOff&&!isAdo)?`<span style="font-size:11px;color:var(--text3);margin-left:8px">Roster: ${day.rStart||'\u2014'}\u2013${day.rEnd||'\u2014'} &middot; ${day.diag}</span>`:'';
+    const row=document.createElement('div');row.className='day-row';row.id=`row_${i}`;
+    row.innerHTML=`
+      <div class="day-header" onclick="toggleDay(${i})">
+        <span style="min-width:140px;font-weight:500;font-size:13px">${fmtDate(d)}</span>
+        ${badges}${rosterInfo}
+        <span class="day-summary" id="sum_${i}">—</span>
+        <span class="chevron">&#x25BC;</span>
+      </div>
+      <div class="day-body" id="body_${i}">
+        ${buildDayForm(i,day,isOff,isAdo)}
+      </div>`;
+    container.appendChild(row);
+  });
+}
+
+function buildDayForm(i,day,isOff,isAdo){
+  if((isOff||isAdo)&&!day.manualDiag){
+    const typeLabel=isAdo?'Accrued Day Off (ADO)':'Day off / RDO';
+    return`
+      <div style="padding:4px 0">
+        <p style="font-size:12px;color:var(--text3);margin-bottom:10px">${typeLabel} — no ordinary pay.</p>
+        <div style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap">
+          <div>
+            <label style="font-size:11px;color:var(--text2)">Manual diagram / schedule number <span style="color:var(--text3)">(shift swap or day-off work)</span></label>
+            <input type="text" id="mdiag_${i}" placeholder="e.g. 3158 or 7" value="${day.manualDiagInput||''}" style="width:180px" onchange="setManualDiag(${i},this.value)">
+          </div>
+          <button class="small primary" onclick="applyManualDiag(${i})">Load diagram &#x2197;</button>
+          <button class="small" onclick="markWorkedOnOff(${i})" style="border-color:#f0a0a0;color:var(--red-text);background:var(--red-bg)">+ Worked (no diagram)</button>
+        </div>
+      </div>`;
+  }
+  // When a manual diagram or worked-on-off is active, show a reset banner so the user can always go back
+  const origDiag=day._origDiag||'';
+  const isOffOrAdo=origDiag==='OFF'||origDiag==='ADO';
+  const resetBanner=isOffOrAdo?`
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:6px 10px;background:var(--bg2);border-radius:5px;border:1px solid var(--border)">
+      <span style="font-size:11px;color:var(--text3)">Working on <strong>${origDiag}</strong> day &mdash; diagram: <strong>${day.diag}</strong></span>
+      <button class="small" onclick="resetManualDiag(${i})" style="margin-left:auto;font-size:11px;color:var(--text2)">&#x21A9; Reset to ${origDiag}</button>
+    </div>`:'';
+  return`${resetBanner}
+    <div class="day-inputs">
+      <div><label>Actual start <span style="color:var(--text3)">(roster: ${day.rStart||'\u2014'})</span></label><input type="time" id="as_${i}" value="${day.aStart}" onchange="onDayChange(${i},'aStart',this.value)"></div>
+      <div><label>Actual end <span style="color:var(--text3)">(roster: ${day.rEnd||'\u2014'})</span></label><input type="time" id="ae_${i}" value="${day.aEnd}" onchange="onDayChange(${i},'aEnd',this.value)"></div>
+      <div><label>KMs driven</label><input type="number" id="km_${i}" min="0" step="1" value="${day.km}" onchange="onDayChange(${i},'km',parseFloat(this.value)||0)"></div>
+      <div><label>WOBOD?</label><select id="wb_${i}" onchange="onDayChange(${i},'wobod',this.value==='1')"><option value="0">No</option><option value="1"${day.wobod?' selected':''}>Yes</option></select></div>
+      <div><label>Cross-midnight?</label><select id="cm_${i}" onchange="onDayChange(${i},'cm',this.value==='1')"><option value="0"${!day.cm?' selected':''}>No</option><option value="1"${day.cm?' selected':''}>Yes</option></select></div>
+      <div style="display:flex;align-items:flex-end"><button class="small" onclick="useRostered(${i})">Use rostered</button></div>
+    </div>
+    <div id="result_${i}"></div>`;
+}
+
+function toggleDay(i){
+  const row=document.getElementById('row_'+i);const body=document.getElementById('body_'+i);
+  const isOpen=body.classList.contains('open');body.classList.toggle('open',!isOpen);row.classList.toggle('open',!isOpen);
+}
+
+function setManualDiag(i,val){days[i].manualDiagInput=val;}
+
+function applyManualDiag(i){
+  const diagInput=(document.getElementById('mdiag_'+i)?.value||'').trim();
+  if(!diagInput){alert('Enter a diagram / schedule number first.');return;}
+  const lineNum=parseInt(diagInput);let matchedRoster=null;
+  if(!isNaN(lineNum)&&ROSTER[lineNum]){matchedRoster=ROSTER[lineNum][i];}
+  else{for(const[ln,rosterArr]of Object.entries(ROSTER)){for(const entry of rosterArr){if(entry[4]&&entry[4].toLowerCase().includes(diagInput.toLowerCase())&&entry[0]){matchedRoster=entry;break;}}if(matchedRoster)break;}}
+  const day=days[i];
+  day._origDiag=day._origDiag||day.diag; // save original only if not already saved
+  day.manualDiag=diagInput;day.manualDiagInput=diagInput;
+  if(matchedRoster&&matchedRoster[0]){
+    day.rStart=matchedRoster[0];day.rEnd=matchedRoster[1];day.cm=matchedRoster[2];day.rHrs=matchedRoster[3];
+    day.diag=matchedRoster[4]+' [manual]';day.aStart=matchedRoster[0];day.aEnd=matchedRoster[1];
+  }else{
+    day.rStart='';day.rEnd='';day.cm=false;day.rHrs=8;
+    day.diag=diagInput+' [manual]';day.aStart='';day.aEnd='';
+  }
+  day.workedOnOff=true;
+  rebuildDayRowManual(i);
+}
+
+function rebuildDayRowManual(i){
+  const day=days[i];const d=parseDate(day.date);
+  const row=document.getElementById('row_'+i);const body=document.getElementById('body_'+i);
+  const manualBadge=`<span class="badge" style="background:#f3e8ff;color:#6b21a8;border:1px solid #d8b4fe">${day.diag}</span>`;
+  row.querySelector('.day-header').innerHTML=`
+    <span style="min-width:140px;font-weight:500;font-size:13px">${fmtDate(d)}</span>
+    ${manualBadge}
+    <span style="font-size:11px;color:var(--text3);margin-left:8px">Manual — ${day.rStart||'enter times'}</span>
+    <span class="day-summary" id="sum_${i}">—</span>
+    <span class="chevron">&#x25BC;</span>`;
+  row.querySelector('.day-header').onclick=()=>toggleDay(i);
+  body.innerHTML=buildDayForm(i,day,false,false);
+  body.classList.add('open');row.classList.add('open');
+}
+
+function markWorkedOnOff(i){
+  days[i]._origDiag=days[i].diag; // save original diag before overwriting
+  days[i].manualDiag='WORKED';days[i].workedOnOff=true;
+  rebuildDayRowManual(i);
+}
+
+function resetManualDiag(i){
+  const orig=days[i]._origDiag||'OFF';
+  // Restore the day back to its original OFF/ADO state, clearing all entered data
+  days[i].manualDiag=null;days[i].manualDiagInput='';
+  days[i].workedOnOff=false;days[i].diag=orig;
+  days[i].rStart=null;days[i].rEnd=null;days[i].cm=false;days[i].rHrs=0;
+  days[i].aStart='';days[i].aEnd='';days[i].wobod=false;days[i].km=0;
+  const day=days[i];const d=parseDate(day.date);
+  const row=document.getElementById('row_'+i);const body=document.getElementById('body_'+i);
+  const isOff=orig==='OFF';const isAdo=orig==='ADO';
+  const badge=isAdo?'<span class="badge badge-ado">ADO</span>':'<span class="badge badge-off">OFF</span>';
+  row.querySelector('.day-header').innerHTML=`
+    <span style="min-width:140px;font-weight:500;font-size:13px">${fmtDate(d)}</span>
+    ${badge}
+    <span class="day-summary" id="sum_${i}">—</span>
+    <span class="chevron">&#x25BC;</span>`;
+  row.querySelector('.day-header').onclick=()=>toggleDay(i);
+  body.innerHTML=buildDayForm(i,day,isOff,isAdo);
+  body.classList.add('open');row.classList.add('open');
+  const sum=document.getElementById('sum_'+i);if(sum){sum.textContent='—';sum.className='day-summary';}
+}
+
+function onDayChange(i,key,val){days[i][key]=val;const result=calcDay(days[i]);renderDayResult(i,result);}
+function useRostered(i){
+  const d=days[i];
+  if(d.rStart){document.getElementById('as_'+i).value=d.rStart;days[i].aStart=d.rStart;}
+  if(d.rEnd){document.getElementById('ae_'+i).value=d.rEnd;days[i].aEnd=d.rEnd;}
+  renderDayResult(i,calcDay(days[i]));
+}
+function fillAllRostered(){
+  days.forEach((d,i)=>{
+    if(d.diag==='OFF'||d.diag==='ADO')return;
+    if(d.rStart){const el=document.getElementById('as_'+i);if(el){el.value=d.rStart;days[i].aStart=d.rStart;}}
+    if(d.rEnd){const el=document.getElementById('ae_'+i);if(el){el.value=d.rEnd;days[i].aEnd=d.rEnd;}}
+    renderDayResult(i,calcDay(days[i]));
+  });
+}
+
+function calcDay(day){
+  const{aStart,aEnd,km,wobod,ph,dow,rStart,rEnd,cm,diag}=day;
+  const isSat=dow===6,isSun=dow===0,isPH=ph;
+  if(diag==='OFF')return{hrs:0,paidHrs:0,components:[],total:0,flags:[],isSat,isSun,isPH};
+  if(diag==='ADO'){
+    const isShortFortnight=day.isShortFortnight;
+    if(isShortFortnight){
+      const B2=cfg.baseRate;const adoPay=8*B2;
+      return{hrs:8,paidHrs:8,components:[{n:'ADO — accrued day off pay (8 hrs ordinary)',ea:'Cl. 120 / ADO accrual',code:codes.base||'\u2014',hrs:'8.00',rate:`$${B2.toFixed(4)}/hr`,amount:adoPay,cls:'km-row'}],total:adoPay,flags:['ADO paid out — short fortnight. 8 hrs at ordinary rate.'],isSat,isSun,isPH,isAdo:true};
+    }else{
+      return{hrs:0,paidHrs:0,components:[],total:0,flags:['ADO accruing — long fortnight (payout falls in next fortnight).'],isSat,isSun,isPH,isAdo:true};
+    }
+  }
+  if(!aStart||!aEnd)return{hrs:0,paidHrs:0,components:[],total:0,flags:['Enter actual times or click "Use rostered"'],isSat,isSun,isPH};
+  const B=cfg.baseRate;const components=[];const flags=[];
+  let sMin=toMins(aStart);let eMin=toMins(aEnd);
+  if(cm||eMin<=sMin)eMin+=1440;
+  const actualHrs=toHrs(eMin-sMin);const ordHrs=Math.min(actualHrs,8);
+  const otHrs=Math.max(0,actualHrs-8);const ot1h=Math.min(otHrs,2);const ot2h=Math.max(0,otHrs-2);
+  const kmc=km>0?getKmCredit(km):null;
+  let kmCreditedHrs=null,kmBonus=0,kmApplied=false;
+  if(kmc&&kmc.credited!==null){kmCreditedHrs=kmc.credited;if(kmCreditedHrs>actualHrs){kmBonus=kmCreditedHrs-actualHrs;kmApplied=true;}}
+  if(kmc&&kmc.isDouble&&actualHrs>10)flags.push('ALERT: Double shift >10 hrs — driver must be relieved at terminal on return (Cl. 146.4(f)).');
+  if(kmc&&kmc.is370){flags.push('>370 km shift — max 4/week, relieved at terminal, 8 hr traffic cap (Cl. 146.4(g-i)).');if(actualHrs>8)flags.push(`ALERT: >370 km shift — ${actualHrs.toFixed(2)} hrs in traffic exceeds 8 hr cap (Cl. 146.4(i)).`);}
+  const pen=getShiftPenalty(sMin,eMin,ordHrs,isSat,isSun,isPH,dow);
+  if(wobod){
+    const wh=Math.max(actualHrs,cfg.wobodMin);
+    components.push({n:'WOBOD — work on book-off day',ea:'Cl. 136',code:codes.wobod||'\u2014',hrs:wh.toFixed(2),rate:`${cfg.wobodRate}x ($${(B*cfg.wobodRate).toFixed(4)}/hr)`,amount:wh*B*cfg.wobodRate,cls:''});
+    flags.push(`WOBOD: double time, min ${cfg.wobodMin} hrs (Cl. 136).`);
+  }else if(isPH){
+    const rate=(isSat||isSun)?cfg.phWke:cfg.phWkd;const code=(isSat||isSun)?codes.phWke:codes.phWkd;
+    const phHrs=Math.max(actualHrs,kmCreditedHrs||0);
+    components.push({n:`Public holiday — ${isSat||isSun?'weekend':'weekday'} (${rate}x)`,ea:'Cl. 31',code:code||'\u2014',hrs:phHrs.toFixed(2),rate:`${rate}x`,amount:phHrs*B*rate,cls:''});
+    flags.push(`PH ${rate}x applied. Day in lieu accrues (Cl. 31).`);
+  }else if(isSun){
+    components.push({n:'Sunday time — ordinary',ea:'Cl. 133/54',code:codes.sun||'\u2014',hrs:ordHrs.toFixed(2),rate:`${cfg.sunRate}x`,amount:ordHrs*B*cfg.sunRate,cls:''});
+    if(ot1h+ot2h>0){const oh=ot1h+ot2h;components.push({n:'Sunday OT (Cl. 144)',ea:'Cl. 140',code:codes.sun||'\u2014',hrs:oh.toFixed(2),rate:`${cfg.sunRate}x`,amount:oh*B*cfg.sunRate,cls:''});}
+  }else if(isSat){
+    components.push({n:'Saturday — ordinary',ea:'Cl. 54/134',code:codes.sat||'\u2014',hrs:ordHrs.toFixed(2),rate:`${cfg.satRate}x`,amount:ordHrs*B*cfg.satRate,cls:''});
+    if(ot1h+ot2h>0){const oh=ot1h+ot2h;components.push({n:'Saturday OT >8 hrs',ea:'Cl. 140+Sch.4A',code:codes.satOt||'\u2014',hrs:oh.toFixed(2),rate:`${cfg.satOt}x`,amount:oh*B*cfg.satOt,cls:''});flags.push('Saturday OT >8 hrs — double time (EA 2025 Sch. 4A).');}
+  }else{
+    components.push({n:'Ordinary time',ea:'Sch. 4A',code:codes.base||'\u2014',hrs:ordHrs.toFixed(2),rate:`$${B.toFixed(4)}/hr`,amount:ordHrs*B,cls:''});
+    if(ot1h>0)components.push({n:'OT — first 2 hrs',ea:'Cl. 140.1',code:codes.ot1||'\u2014',hrs:ot1h.toFixed(2),rate:`${cfg.ot1}x`,amount:ot1h*B*cfg.ot1,cls:''});
+    if(ot2h>0)components.push({n:'OT — beyond 2 hrs',ea:'Cl. 140.1',code:codes.ot2||'\u2014',hrs:ot2h.toFixed(2),rate:`${cfg.ot2}x`,amount:ot2h*B*cfg.ot2,cls:''});
+    if(pen.penAmt>0){const penRate=pen.shiftType==='night'?cfg.nightRate:pen.shiftType==='early'?cfg.earlyRate:cfg.afternoonRate;components.push({n:`${pen.penName} (${pen.penItem}) — ${pen.penHrs} hrs x $${penRate}/hr`,ea:'Sch.4B / Cl. 134.3',code:pen.penCode,hrs:pen.penHrs.toString(),rate:`$${penRate}/hr · Cl.134.3(b) rounded`,amount:pen.penAmt,cls:'pen-row'});}
+    if(pen.addLoad)components.push({n:'Additional loading (Item 9) — sign on/off 01:01-03:59',ea:'Sch.4B / Cl. 134.4',code:codes.addLoad||'\u2014',hrs:'flat',rate:`$${cfg.addLoading.toFixed(2)}/shift`,amount:cfg.addLoading,cls:'pen-row'});
+  }
+  if(kmApplied&&kmBonus>0){
+    const bRate=isSat?cfg.satRate:isSun?cfg.sunRate:1.0;
+    components.push({n:`Cl. 146.4 KM credit — ${km} km → ${kmCreditedHrs} hrs credited, bonus ${kmBonus.toFixed(2)} hrs`,ea:'Cl. 146.4(a)(b)',code:codes.base||'\u2014',hrs:kmBonus.toFixed(2),rate:'Ordinary rate — NOT included in OT (Cl. 146.4(b))',amount:kmBonus*B*bRate,cls:'km-row'});
+    flags.push(`KM credit: ${km} km → ${kmCreditedHrs} hrs. Actual: ${actualHrs.toFixed(2)} hrs. Bonus ${kmBonus.toFixed(2)} hrs at ordinary rate (Cl. 146.4(b)).`);
+  }
+  if(km>0&&kmc&&kmc.credited===null)flags.push(`${km} km < 161 — all actual time paid normally (Cl. 146.4(c)).`);
+  if(km>=161&&unassocAmt>0&&!wobod)components.push({n:'Un-associated duties (\u2265161 km)',ea:'Cl. 146.4(d) / Cl. 157.2',code:codes.unassoc||'\u2014',hrs:'\u2014',rate:`$${unassocAmt.toFixed(2)}/shift`,amount:unassocAmt,cls:'km-row'});
+
+  // Lift-up / Layback / Buildup: auto-detected from actual vs rostered times
+  // Gap hours paid at ordinary rate if total shift <=8 hrs, OT rate beyond 8.
+  // Rate depends on shift day type (weekday/Sat/Sun/PH).
+  let liftupGapHrs=0,laybackGapHrs=0;
+  if(rStart&&aStart){const rsMin=toMins(rStart),asMin=toMins(aStart);if(rsMin!==null&&asMin!==null&&asMin<rsMin)liftupGapHrs=toHrs(rsMin-asMin);}
+  if(rEnd&&aEnd){
+    let reMin=toMins(rEnd),aeMin2=toMins(aEnd);
+    if(cm||(reMin!==null&&toMins(rStart)!==null&&reMin<=toMins(rStart))){if(reMin!==null)reMin+=1440;}
+    if(cm||(aeMin2!==null&&toMins(aStart)!==null&&aeMin2<=toMins(aStart))){if(aeMin2!==null)aeMin2+=1440;}
+    if(reMin!==null&&aeMin2!==null&&aeMin2>reMin)laybackGapHrs=toHrs(aeMin2-reMin);
+  }
+  function calcGapPay(gapHrs,gapLabel,eaRef){
+    if(gapHrs<=0)return;
+    const ordRemainder=Math.max(0,8-(actualHrs-gapHrs));const gapOrdHrs=Math.min(gapHrs,ordRemainder);
+    const gapOtHrs=Math.max(0,gapHrs-gapOrdHrs);const gapOt1h=Math.min(gapOtHrs,2);const gapOt2h=Math.max(0,gapOtHrs-2);
+    if(gapOrdHrs>0){
+      let ordRate,ordMult;
+      if(wobod){ordRate=cfg.wobodRate;ordMult=`${cfg.wobodRate}x (WOBOD)`;}
+      else if(isPH){const r=(isSat||isSun)?cfg.phWke:cfg.phWkd;ordRate=r;ordMult=`${r}x PH`;}
+      else if(isSun){ordRate=cfg.sunRate;ordMult=`${cfg.sunRate}x Sun`;}
+      else if(isSat){ordRate=cfg.satRate;ordMult=`${cfg.satRate}x Sat`;}
+      else{ordRate=1.0;ordMult=`ordinary ($${B.toFixed(4)}/hr)`;}
+      components.push({n:`${gapLabel} — ordinary rate (${gapOrdHrs.toFixed(2)} hrs within 8-hr limit)`,ea:eaRef,code:codes.liftup||'\u2014',hrs:gapOrdHrs.toFixed(2),rate:ordMult,amount:gapOrdHrs*B*ordRate,cls:'pen-row'});
+    }
+    if(gapOt1h>0){
+      let r1,m1;
+      if(isPH){const r=(isSat||isSun)?cfg.phWke:cfg.phWkd;r1=r;m1=`${r}x PH`;}
+      else if(isSun){r1=cfg.sunRate;m1=`${cfg.sunRate}x Sun`;}
+      else if(isSat){r1=cfg.satOt;m1=`${cfg.satOt}x Sat OT`;}
+      else{r1=cfg.ot1;m1=`${cfg.ot1}x OT (first 2 hrs)`;}
+      components.push({n:`${gapLabel} — OT rate (first 2 hrs beyond 8)`,ea:eaRef,code:codes.liftup||'\u2014',hrs:gapOt1h.toFixed(2),rate:m1,amount:gapOt1h*B*r1,cls:'pen-row'});
+    }
+    if(gapOt2h>0){
+      let r2,m2;
+      if(isPH){const r=(isSat||isSun)?cfg.phWke:cfg.phWkd;r2=r;m2=`${r}x PH`;}
+      else if(isSun){r2=cfg.sunRate;m2=`${cfg.sunRate}x Sun`;}
+      else if(isSat){r2=cfg.satOt;m2=`${cfg.satOt}x Sat OT`;}
+      else{r2=cfg.ot2;m2=`${cfg.ot2}x OT (beyond 2 hrs)`;}
+      components.push({n:`${gapLabel} — OT rate (beyond 2 hrs)`,ea:eaRef,code:codes.liftup||'\u2014',hrs:gapOt2h.toFixed(2),rate:m2,amount:gapOt2h*B*r2,cls:'pen-row'});
+    }
+    flags.push(`${gapLabel}: ${gapHrs.toFixed(2)} hrs — ${gapOrdHrs.toFixed(2)} at ordinary, ${gapOtHrs.toFixed(2)} at OT rate (Cl. 140.1 / EA 2025).`);
+  }
+  if(!wobod){calcGapPay(liftupGapHrs,'Lift-up / buildup (started before rostered)','Cl. 131 / Cl. 140.1');calcGapPay(laybackGapHrs,'Layback / extend (finished after rostered)','Cl. 131 / Cl. 140.1');}
+  if(otHrs>0&&!wobod)flags.push(`Daily OT: ${otHrs.toFixed(2)} hrs beyond 8-hr ordinary limit (Cl. 140.1).`);
+  const total=components.reduce((s,c)=>s+c.amount,0);
+  const paidHrs=kmApplied?Math.max(actualHrs,kmCreditedHrs):actualHrs;
+  return{hrs:actualHrs,paidHrs,components,total,flags,isSat,isSun,isPH,hasOt:otHrs>0,kmApplied,kmBonus};
+}
+
+function renderDayResult(i,res){
+  const el=document.getElementById('result_'+i);const sum=document.getElementById('sum_'+i);
+  if(!el)return;
+  if(!res||(res.hrs===0&&!res.isAdo)){
+    el.innerHTML=`<p style="font-size:11px;color:var(--text3)">${res&&res.flags&&res.flags.length?res.flags[0]:'No hours entered.'}</p>`;
+    sum.textContent='\u2014';sum.className='day-summary';return;
+  }
+  if(res.isAdo&&res.total===0){
+    el.innerHTML=`<div class="alert alert-info" style="font-size:11px">${res.flags[0]||'ADO accruing.'}</div>`;
+    sum.textContent='ADO accruing';sum.className='day-summary';return;
+  }
+  let html=`<table><tr><th>Component</th><th>EA ref</th><th>Code</th><th>Hrs</th><th>Rate / rule</th><th class="text-right">Amount</th></tr>`;
+  res.components.forEach(c=>{
+    html+=`<tr class="${c.cls||""}">
+      <td>${c.n}</td><td style="color:var(--text3);font-size:11px">${c.ea}</td>
+      <td><code>${c.code}</code></td><td>${c.hrs}</td>
+      <td style="color:var(--text3);font-size:11px">${c.rate}</td>
+      <td class="text-right">$${c.amount.toFixed(2)}</td></tr>`;
+  });
+  html+=`<tr class="total-row"><td colspan="3"><strong>Daily total</strong></td><td>${res.hrs.toFixed(2)} actual${res.kmApplied?` / ${res.paidHrs.toFixed(2)} paid`:''} hrs</td><td></td><td class="text-right"><strong>$${res.total.toFixed(2)}</strong></td></tr></table>`;
+  res.flags.forEach(f=>{const cls=f.includes('ALERT')?'err':'';html+=`<span class="flag-chip ${cls}">${f.includes('ALERT')?'&#x1F6A8;':'&#x26F1;'} ${f}</span>`;});
+  el.innerHTML=html;
+  sum.textContent=`${res.hrs.toFixed(1)}h \u2192 $${res.total.toFixed(2)}`;
+  sum.className=`day-summary${(res.hasOt||res.isPH||res.kmApplied)?' has-pay':''}`;
+}
+
+function calcAll(){
+  if(!days.length){alert('Load a roster line first (Setup tab).');return;}
+  const fnT=parseFloat(document.getElementById('fnType').value);
+  const adoDayCount=days.filter(d=>d.diag==='ADO').length;
+  const isShortFortnight=adoDayCount>0;
+  days.forEach(d=>{d.isShortFortnight=isShortFortnight;});
+  const results=days.map((d,i)=>{const r=calcDay(d);r.day=d;r.idx=i;return r;});
+  results.forEach(r=>renderDayResult(r.idx,r));
+  let totHrs=0,totPay=0,totOtHrs=0,totKmBonus=0;
+  results.forEach(r=>{totHrs+=r.hrs||0;totPay+=r.total||0;if(r.hasOt)totOtHrs+=Math.max(0,(r.hrs||0)-8);if(r.kmApplied)totKmBonus+=r.kmBonus||0;});
+  const fnOtHrs=Math.max(0,totHrs-fnT);
+  document.getElementById('resMetrics').style.display='block';
+  document.getElementById('metricsGrid').innerHTML=`
+    <div class="metric"><div class="val">$${totPay.toFixed(2)}</div><div class="lbl">Calculated gross pay</div></div>
+    <div class="metric"><div class="val">${totHrs.toFixed(2)}</div><div class="lbl">Actual hours worked</div></div>
+    <div class="metric"><div class="val">${totOtHrs.toFixed(2)}</div><div class="lbl">Daily OT hours</div></div>
+    <div class="metric"><div class="val">${fnOtHrs>0?fnOtHrs.toFixed(2)+' &#x26F1;':totKmBonus>0?totKmBonus.toFixed(2)+' KM':'\u2014'}</div>
+      <div class="lbl">${fnOtHrs>0?`FN OT hrs (${fnT}h threshold)`:totKmBonus>0?'KM credit bonus hrs':'No threshold breach'}</div></div>`;
+  document.getElementById('res14day').style.display='block';
+  let tbl=`<table><tr><th>Date</th><th>Diagram</th><th>Type</th><th>Rostered</th><th>Actual</th><th>KMs</th><th>Hrs</th><th class="text-right">Pay</th></tr>`;
+  results.forEach(r=>{
+    const d=parseDate(r.day.date);const tp=r.isPH?'PH':r.isSun?'Sun':r.isSat?'Sat':'Wkd';
+    const tpStyle=r.isPH?'color:var(--green-text)':r.isSun?'color:var(--red-text)':r.isSat?'color:var(--amber-text)':'';
+    const actDiff=(r.day.aStart&&r.day.rStart&&r.day.aStart!==r.day.rStart)||(r.day.aEnd&&r.day.rEnd&&r.day.aEnd!==r.day.rEnd);
+    const actStyle=actDiff?'color:var(--amber-text)':'';
+    tbl+=`<tr><td style="white-space:nowrap;font-size:11px">${fmtDate(d)}</td><td style="font-size:11px;color:var(--text3)">${r.day.diag}</td><td style="${tpStyle};font-size:11px">${tp}</td><td style="font-size:11px;color:var(--text3)">${r.day.rStart?`${r.day.rStart}\u2013${r.day.rEnd}`:'\u2014'}</td><td style="font-size:11px;${actStyle}">${r.day.aStart?`${r.day.aStart}\u2013${r.day.aEnd}`:'\u2014'}</td><td style="font-size:11px">${r.day.km||'\u2014'}</td><td>${r.hrs?r.hrs.toFixed(2):'\u2014'}</td><td class="text-right">${r.total?'$'+r.total.toFixed(2):'\u2014'}</td></tr>`;
+  });
+  tbl+=`<tr class="total-row"><td colspan="6"><strong>Fortnight total</strong></td><td><strong>${totHrs.toFixed(2)}</strong></td><td class="text-right"><strong>$${totPay.toFixed(2)}</strong></td></tr></table>`;
+  document.getElementById('res14dayInner').innerHTML=tbl;
+  const compMap={};
+  results.forEach(r=>{if(!r.components)return;r.components.forEach(c=>{if(!compMap[c.n])compMap[c.n]={amount:0,code:c.code,ea:c.ea};compMap[c.n].amount+=c.amount;});});
+  document.getElementById('resComp').style.display='block';
+  let ct=`<table><tr><th>Pay component</th><th>EA ref</th><th>Payroll code</th><th class="text-right">Fortnight total</th></tr>`;
+  Object.entries(compMap).forEach(([k,v])=>{ct+=`<tr><td style="font-size:11px">${k}</td><td style="font-size:11px;color:var(--text3)">${v.ea}</td><td><code>${v.code||'\u2014'}</code></td><td class="text-right">$${v.amount.toFixed(2)}</td></tr>`;});
+  ct+=`<tr class="total-row"><td colspan="3"><strong>Gross total</strong></td><td class="text-right"><strong>$${totPay.toFixed(2)}</strong></td></tr></table>`;
+  document.getElementById('resCompInner').innerHTML=ct;
+  const audits=[];
+  const psT=parseFloat(document.getElementById('psTotal').value);
+  if(!isNaN(psT)&&psT>0){const diff=totPay-psT;if(Math.abs(diff)>0.10){audits.push(`<div class="alert alert-err">Payslip variance: calculated <strong>$${totPay.toFixed(2)}</strong> vs payslip <strong>$${psT.toFixed(2)}</strong> — difference <strong>$${Math.abs(diff).toFixed(2)}</strong> ${diff>0?'(possible underpayment — check your payslip)':'(possible overpayment or components not in this calculator)'}.</div>`);}else{audits.push(`<div class="alert alert-ok">Payslip matches within $0.10 — no variance detected.</div>`);}}
+  if(fnOtHrs>0)audits.push(`<div class="alert alert-err">Fortnight OT: total hours (${totHrs.toFixed(2)}) exceed ${fnT}-hr threshold by <strong>${fnOtHrs.toFixed(2)} hrs</strong>. A fortnight OT line should appear on your payslip (Cl. 140.1).</div>`);
+  if(totKmBonus>0)audits.push(`<div class="alert alert-info">&#x2139; Cl. 146.4 KM credits applied: ${totKmBonus.toFixed(2)} bonus hrs this fortnight (paid at ordinary rate, excluded from OT threshold — Cl. 146.4(b)).</div>`);
+  if(isShortFortnight){const adoPay=8*cfg.baseRate;audits.push(`<div class="alert alert-ok">ADO payout included — <strong>short fortnight</strong>. 8 hrs ordinary = <strong>$${adoPay.toFixed(2)}</strong> included in gross total.</div>`);}
+  else{audits.push(`<div class="alert alert-info">&#x2139; <strong>Long fortnight</strong> — no ADO this period. ADO accruing; payout falls in the fortnight containing the ADO day.</div>`);}
+  results.forEach(r=>{if(!r.flags)return;r.flags.filter(f=>f.includes('ALERT')).forEach(f=>{audits.push(`<div class="alert alert-err">&#x1F6A8; <strong>${fmtDateShort(parseDate(r.day.date))}:</strong> ${f}</div>`);});});
+  document.getElementById('resAudit').style.display='block';
+  document.getElementById('resAuditInner').innerHTML=audits.length?audits.join(''):'<p style="font-size:12px;color:var(--text3)">No anomalies detected.</p>';
+  sw('results');
+}
+
+function sw(name){
+  const names=['setup','days','results','config','km'];
+  document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',names[i]===name));
+  document.querySelectorAll('.pane').forEach(p=>p.classList.remove('active'));
+  document.getElementById('pane-'+name).classList.add('active');
+}
+
+buildConfigUI();
+</script>
+</body>
+</html>
