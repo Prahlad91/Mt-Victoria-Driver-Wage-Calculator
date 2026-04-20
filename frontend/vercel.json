@@ -9,6 +9,9 @@
       "dest": "https://mt-victoria-wage-calc-api.onrender.com/api/$1"
     },
     {
+      "handle": "filesystem"
+    },
+    {
       "src": "/(.*)",
       "dest": "/index.html"
     }
