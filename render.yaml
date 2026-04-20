@@ -1,12 +1,11 @@
 services:
   - type: web
     name: mt-victoria-wage-calc-api
-    env: python
+    runtime: python
     rootDir: backend
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    plan: free
     envVars:
-      - key: ALLOWED_ORIGINS
-        value: https://mt-victoria-wage-calc.vercel.app
       - key: PYTHON_VERSION
         value: 3.11.0
