@@ -5,14 +5,14 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      // Proxy /api calls to the FastAPI backend during local development
       '/api': {
         target: process.env.VITE_API_URL || 'http://localhost:8000',
         changeOrigin: true,
       },
     },
   },
+  // Output to dist/ inside the frontend folder (Vercel root dir = frontend)
   build: {
-    outDir: '../dist',  // Output into /dist at repo root for Vercel
+    outDir: 'dist',
   },
 })
