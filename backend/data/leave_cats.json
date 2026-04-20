@@ -1,0 +1,11 @@
+[
+  { "code": "SL",   "label": "Sick leave",                   "ea_ref": "Cl. 30.4",         "pay_basis": "rostered_ordinary" },
+  { "code": "CL",   "label": "Carer's leave",                "ea_ref": "Cl. 30.7(b)(ix)", "pay_basis": "rostered_base" },
+  { "code": "AL",   "label": "Annual leave",                 "ea_ref": "Cl. 30.1/30.2",   "pay_basis": "8hrs_plus_20pct_loading" },
+  { "code": "PHNW", "label": "Public holiday not worked",    "ea_ref": "Cl. 31.7",         "pay_basis": "8hrs_ordinary" },
+  { "code": "PHW",  "label": "Public holiday worked",        "ea_ref": "Cl. 31.5",         "pay_basis": "150pct_plus_addl_day" },
+  { "code": "BL",   "label": "Bereavement/compassionate",   "ea_ref": "Cl. 30.8(k)(iv)", "pay_basis": "rostered_base" },
+  { "code": "JD",   "label": "Jury duty",                    "ea_ref": "Cl. 30.8(g)",      "pay_basis": "rostered_ordinary" },
+  { "code": "PD",   "label": "Picnic day",                   "ea_ref": "Cl. 32.1",         "pay_basis": "8hrs_ordinary" },
+  { "code": "LWOP", "label": "Leave without pay",            "ea_ref": "—",                "pay_basis": "zero" }
+]

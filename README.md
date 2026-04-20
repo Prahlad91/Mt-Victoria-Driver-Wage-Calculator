@@ -1,90 +1,107 @@
 # Mt Victoria Driver Wage Calculator
 
-A web-based wage calculator for Mt Victoria intercity train drivers at Sydney Trains, built to the **Sydney Trains & NSW TrainLink Enterprise Agreement 2025**. It lets drivers enter their actual worked times against their rostered lines for a given fortnight and calculates their exact gross pay — including all penalties, overtime, KM credits, and allowances — so they can verify their payslip line by line.
+A full-stack web application for Mt Victoria intercity train drivers to verify their fortnightly pay against the Sydney Trains & NSW TrainLink Enterprise Agreement 2025.
 
-## What this app does
+**Read the [PRD](./PRD.md) before making any changes. Read the [Solution Design](./SOLUTION_DESIGN.md) before writing any code.**
 
-- **Select your roster line** — all 32 Mt Victoria roster lines (lines 1–22 and 201–210) are embedded, with rostered start/end times pre-filled
-- **Set your fortnight start date** — pick any Sunday to align with your pay period
-- **Enter actual times** — input the real start and finish times for each shift
-- **Calculates your gross pay** including:
-  - Ordinary hours at your base rate
-  - Shift penalties per hour (Cl. 134.3) with EA rounding
-  - Overtime (1.5× for first 2 hours, 2.0× beyond — Cl. 140.1)
-  - Public holiday rates (weekday 1.5×, weekend 2.5× — Cl. 31)
-  - WOBOD double time with 4-hour minimum (Cl. 136)
-  - KM credits across all 26 bands (Cl. 146.4)
-  - Greater-of intercity payment rule (Cl. 157.1)
-- **Payslip variance audit** — compare calculated pay against your actual payslip with payroll code fields for line-by-line matching
+---
 
-## 2025 Enterprise Agreement update
+## Architecture
 
-The Sydney Trains & NSW TrainLink Enterprise Agreement 2025 was approved by the Fair Work Commission in August 2025 following a ballot in which 92% of workers voted yes. Key changes reflected in this calculator:
-
-| Change | Detail |
-|--------|--------|
-| Pay rise | 12% over 3 years |
-| Back pay | 4% back-dated to 1 May 2024 |
-| Base rate | $49.81842/hr (Sch. 4A — configurable) |
-| Effective from | 1 July 2025 |
-
-All EA 2025 clauses applied in the calculator:
-
-- **Sch. 4A** — all classification rates
-- **Sch. 4B Items 6/7/8/9** — shift penalties (per hour, Cl. 134.3(b) rounding)
-- **Cl. 134.3(a)** — penalties not payable on Sat/Sun/PH
-- **Cl. 140.1** — overtime (1.5× first 2 hrs, 2.0× beyond)
-- **Cl. 146.4(a)–(j)** — full KM credit system (all 26 bands)
-- **Cl. 157.1** — greater-of payment basis for intercity
-- **Cl. 31** — public holiday rates
-- **Cl. 136** — WOBOD double time, minimum 4 hrs
-
-## Deploy to Vercel (2 minutes)
-
-### Option A — Vercel CLI (fastest)
-
-```bash
-# 1. Install Vercel CLI (once only)
-npm install -g vercel
-
-# 2. From this folder, deploy
-vercel
-
-# Follow the prompts:
-#   Set up and deploy? → Y
-#   Which scope? → your account
-#   Link to existing project? → N
-#   Project name? → mt-victoria-wage-calc (or anything)
-#   Directory? → ./  (just press Enter)
-#   Override settings? → N
-#
-# Vercel prints a URL like: https://mt-victoria-wage-calc.vercel.app
-# That's it — share the URL.
+```
+frontend/   React (Vite + TypeScript) — UI only
+backend/    FastAPI (Python) — EA calculation engine, file parsing, export
 ```
 
-### Option B — Vercel Dashboard (no CLI needed)
+## Local Development
 
-1. Go to [vercel.com](https://vercel.com) and sign in (free account)
-2. Click **Add New → Project**
-3. Click **"Deploy without Git"** or drag this folder into the upload area
-4. Vercel auto-detects it as a static site and deploys instantly
-5. Share the generated URL
-
-### Option C — GitHub + Vercel (best for ongoing updates)
-
+### Backend
 ```bash
-# 1. Push this repo to GitHub (already done if you're reading this here)
-
-# 2. Connect to Vercel
-# Go to vercel.com → New Project → Import from GitHub
-# Select this repo → Deploy
-# Auto-deploys on every push from then on
+cd backend
+python -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn main:app --reload
+# API available at http://localhost:8000
+# Docs at http://localhost:8000/docs
 ```
 
-## What's in this repo
+### Frontend
+```bash
+cd frontend
+npm install
+npm run dev
+# App available at http://localhost:5173
+```
 
-| File | Purpose |
-|------|---------|
-| `index.html` | The complete single-file calculator app |
-| `vercel.json` | Vercel deployment configuration |
-| `HourlyPayGrade/` | Pay grade reference data |
+### Environment variables
+```bash
+# frontend/.env.local
+VITE_API_URL=http://localhost:8000
+```
+
+---
+
+## Key Features
+
+- All 32 Mt Victoria roster lines (1–22, 201–210) embedded
+- EA 2025 rules applied exactly: Cl. 134.3, 140.1, 146.4, 157.1, 31, 136, 30.x, 32.1
+- Short vs long fortnight auto-detection (ADO payout vs accrual)
+- Lift-up / layback / buildup: auto-detected, paid at correct rate tier
+- **Roster PDF upload** — parse sign-on/sign-off from fortnightly roster
+- **Payslip XLSX/PDF upload** — parse line items for side-by-side comparison
+- Export to PDF or CSV
+- Payslip variance audit with per-line comparison
+
+---
+
+## Deployment
+
+**Frontend (Vercel):**
+1. Connect repo to Vercel
+2. Build command: `cd frontend && npm install && npm run build`
+3. Output directory: `dist`
+
+**Backend (Render):**
+1. Connect repo to Render
+2. Root directory: `backend`
+3. Start command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+4. Set env var `ALLOWED_ORIGINS` to your Vercel URL
+
+---
+
+## Adding a new pay rule (PRD-first process)
+
+1. Update `PRD.md` — add/modify the requirement, bump version
+2. Update `backend/config.yaml` if a new rate is needed
+3. Update `backend/calculator.py`
+4. Update `backend/models.py`
+5. Update `frontend/src/utils/calcPreview.ts` to match
+6. Update `frontend/src/types/index.ts` if response shape changes
+7. Update the relevant UI component
+8. Commit: `feat: <description> (implements PRD §X.X)`
+
+---
+
+## EA 2025 rates (current)
+
+| Component | Rate | EA ref |
+|-----------|------|--------|
+| Base hourly | $49.81842/hr | Sch. 4A |
+| OT tier 1 | 1.5× (first 2 hrs) | Cl. 140.1 |
+| OT tier 2 | 2.0× (beyond 2 hrs) | Cl. 140.1 |
+| Saturday | 1.5× | Cl. 54/134 |
+| Sunday | 2.0× | Cl. 133/54 |
+| PH weekday | 1.5× | Cl. 31 |
+| PH weekend | 2.5× | Cl. 31 |
+| WOBOD | 2.0×, min 4 hrs | Cl. 136 |
+| Night shift | $5.69/hr | Sch.4B Item 7 |
+| Afternoon shift | $4.84/hr | Sch.4B Item 6 |
+| Early morning | $4.84/hr | Sch.4B Item 8 |
+| Additional loading | $5.69/shift flat | Sch.4B Item 9 |
+
+---
+
+## Version History
+
+See `PRD.md` Section 15.

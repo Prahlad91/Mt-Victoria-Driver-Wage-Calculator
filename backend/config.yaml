@@ -1,0 +1,31 @@
+# Sydney Trains Driver Wage Calculator — Backend Configuration
+# EA 2025 rates (effective 1 July 2025)
+# ============================================================
+# PRD ref: Section 5, NFR-07
+# Update this file to change rates; no code changes needed.
+
+fortnight:
+  short_hours: 72   # Short fortnight OT threshold (hours)
+  long_hours: 76    # Long fortnight OT threshold (hours)
+
+rates:
+  base_hourly: 49.81842   # Sch. 4A — Train Driver rate from 1 Jul 2025
+  ot1: 1.5                # Cl. 140.1 — first 2 hrs OT
+  ot2: 2.0                # Cl. 140.1 — beyond 2 hrs OT
+  sat: 1.5                # Cl. 54/134 — Saturday ordinary
+  sun: 2.0                # Cl. 133/54 — Sunday ordinary
+  sat_ot: 2.0             # Saturday OT >8 hrs
+  ph_weekday: 1.5         # Cl. 31 — PH weekday worked
+  ph_weekend: 2.5         # Cl. 31 — PH weekend worked
+  wobod: 2.0              # Cl. 136 — WOBOD double time
+  wobod_min_hrs: 4        # Cl. 136 — minimum hours for WOBOD
+
+shift_penalties:
+  afternoon: 4.84    # Sch.4B Item 6 — per hour
+  night: 5.69        # Sch.4B Item 7 — per hour
+  early: 4.84        # Sch.4B Item 8 — per hour
+  add_loading: 5.69  # Sch.4B Item 9 — flat per shift
+
+leave_loading:
+  annual_leave_shiftworker: 0.20   # Cl. 30.2(a)(ii) — 20%
+  annual_leave_non_shift: 0.175    # Cl. 30.2 — 17.5%
