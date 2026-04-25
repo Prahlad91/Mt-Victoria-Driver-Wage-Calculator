@@ -4,46 +4,23 @@
  * PRD ref: Section 9
  */
 
-// ─── Day state (frontend) ───────────────────────────────────────────────────────────
+// ─── Day state ────────────────────────────────────────────────────────────────
 
 export interface DayState {
-  date: string;              // YYYY-MM-DD
-  dow: number;               // 0=Sun, 6=Sat
-  ph: boolean;
-  diag: string;              // '3158 RK' | 'OFF' | 'ADO'
-  _origDiag?: string;        // original before manual override
-  rStart: string | null;
-  rEnd: string | null;
-  cm: boolean;               // cross-midnight
-  rHrs: number;
-  aStart: string;
-  aEnd: string;
-  wobod: boolean;
-  km: number;
-  leaveCat: string;          // 'none' | 'SL' | 'AL' | ...
-  manualDiag: string | null;
-  manualDiagInput: string;
-  workedOnOff: boolean;
-  isShortFortnight: boolean; // set by context before API call
+  date: string; dow: number; ph: boolean;
+  diag: string; _origDiag?: string;
+  rStart: string | null; rEnd: string | null; cm: boolean; rHrs: number;
+  aStart: string; aEnd: string; wobod: boolean; km: number;
+  leaveCat: string; manualDiag: string | null; manualDiagInput: string;
+  workedOnOff: boolean; isShortFortnight: boolean;
 }
 
-// ─── Config ───────────────────────────────────────────────────────────────────
+// ─── Config ────────────────────────────────────────────────────────────────────
 
 export interface RateConfig {
-  base_rate: number;
-  ot1: number;
-  ot2: number;
-  sat_rate: number;
-  sun_rate: number;
-  sat_ot: number;
-  ph_wkd: number;
-  ph_wke: number;
-  afternoon_rate: number;
-  night_rate: number;
-  early_rate: number;
-  add_loading: number;
-  wobod_rate: number;
-  wobod_min: number;
+  base_rate: number; ot1: number; ot2: number; sat_rate: number; sun_rate: number;
+  sat_ot: number; ph_wkd: number; ph_wke: number; afternoon_rate: number;
+  night_rate: number; early_rate: number; add_loading: number; wobod_rate: number; wobod_min: number;
 }
 
 export interface PayrollCodes {
@@ -53,24 +30,16 @@ export interface PayrollCodes {
   liftup: string; ado: string; unassoc: string;
 }
 
-// ─── API request ───────────────────────────────────────────────────────────
+// ─── API request / response ────────────────────────────────────────────────────
 
 export interface CalculateRequest {
-  fortnight_start: string;
-  roster_line: number;
-  public_holidays: string[];
-  payslip_total?: number;
-  config: RateConfig;
-  codes: PayrollCodes;
-  days: DayState[];
-  unassoc_amt: number;
+  fortnight_start: string; roster_line: number; public_holidays: string[];
+  payslip_total?: number; config: RateConfig; codes: PayrollCodes;
+  days: DayState[]; unassoc_amt: number;
 }
 
-// ─── API response ───────────────────────────────────────────────────────────
-
 export interface PayComponent {
-  name: string; ea: string; code: string; hrs: string;
-  rate: string; amount: number; cls: string;
+  name: string; ea: string; code: string; hrs: string; rate: string; amount: number; cls: string;
 }
 
 export interface DayResult {
@@ -80,9 +49,8 @@ export interface DayResult {
 }
 
 export interface AuditResult {
-  payslip_variance?: number; fn_ot_hrs: number;
-  km_bonus_hrs: number; ado_payout: number;
-  fortnight_type: string; flags: string[];
+  payslip_variance?: number; fn_ot_hrs: number; km_bonus_hrs: number;
+  ado_payout: number; fortnight_type: string; flags: string[];
 }
 
 export interface CalculateResponse {
@@ -91,7 +59,7 @@ export interface CalculateResponse {
   days: DayResult[]; component_totals: Record<string, number>; audit: AuditResult;
 }
 
-// ─── Legacy upload response types ────────────────────────────────────────────────
+// ─── Legacy upload response types ─────────────────────────────────────────────
 
 export interface ParsedDayEntry {
   date: string; diagram: string;
@@ -103,67 +71,55 @@ export interface ParseRosterResponse {
 }
 
 export interface PayslipLineItem {
-  code: string; description: string;
-  hours?: number; rate?: number; amount: number;
+  code: string; description: string; hours?: number; rate?: number; amount: number;
 }
 
 export interface ParsePayslipResponse {
-  source_file: string; format: string;
-  period_start?: string; period_end?: string;
+  source_file: string; format: string; period_start?: string; period_end?: string;
   total_gross: number; line_items: PayslipLineItem[]; warnings: string[];
 }
 
 export type UploadStatus = 'idle' | 'uploading' | 'success' | 'error';
 
 export interface RosterUploadState {
-  status: UploadStatus; result: ParseRosterResponse | null;
-  error: string | null; applied: boolean;
+  status: UploadStatus; result: ParseRosterResponse | null; error: string | null; applied: boolean;
 }
 
 export interface PayslipUploadState {
   status: UploadStatus; result: ParsePayslipResponse | null; error: string | null;
 }
 
-// ─── New: roster ZIP upload types ─────────────────────────────────────────────────────
+// ─── Roster ZIP upload types ────────────────────────────────────────────────────
 
 export interface RosterDayEntry {
-  diag: string;              // '3151 SMB' | 'OFF' | 'ADO' | 'SBY' | ...
-  r_start: string | null;
-  r_end: string | null;
-  cm: boolean;
-  r_hrs: number;
+  diag: string; r_start: string | null; r_end: string | null; cm: boolean; r_hrs: number;
 }
 
 export interface ParsedRosterData {
-  source_file: string;
-  line_type: 'master' | 'fortnight';
-  fn_start: string | null;   // YYYY-MM-DD
-  fn_end: string | null;     // YYYY-MM-DD
-  lines: Record<string, RosterDayEntry[]>;  // '1' -> [14], '201' -> [14]
-  warnings: string[];
+  source_file: string; line_type: 'master' | 'fortnight';
+  fn_start: string | null; fn_end: string | null;
+  lines: Record<string, RosterDayEntry[]>; warnings: string[];
 }
 
-// ─── New: schedule ZIP upload types ────────────────────────────────────────────────
+// ─── Schedule ZIP upload types ─────────────────────────────────────────────────
 
 export interface DiagramInfo {
-  diag_num: string;          // e.g. '3151'
-  day_type: string;          // 'weekday' | 'saturday' | 'sunday'
-  sign_on: string | null;
-  sign_off: string | null;
-  r_hrs: number;
-  km: number;
-  cm: boolean;
+  diag_num: string; day_type: string;
+  sign_on: string | null; sign_off: string | null;
+  r_hrs: number; km: number; cm: boolean;
 }
 
 export interface ParsedScheduleData {
-  source_file: string;
-  schedule_type: 'weekday' | 'weekend';
-  diagrams: Record<string, DiagramInfo>;  // '3151' -> {...}
-  warnings: string[];
+  source_file: string; schedule_type: 'weekday' | 'weekend';
+  diagrams: Record<string, DiagramInfo>; warnings: string[];
 }
+
+// ─── Generic upload state ───────────────────────────────────────────────────────
 
 export interface SimpleUploadState<T> {
   status: UploadStatus;
   result: T | null;
   error: string | null;
+  /** true when this state was restored from a localStorage cache (no fresh upload needed) */
+  cached?: boolean;
 }
