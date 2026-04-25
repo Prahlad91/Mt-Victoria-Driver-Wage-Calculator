@@ -50,10 +50,7 @@ export function getKmCredit(km: number): number | null {
   return null;
 }
 
-/**
- * EA Cl. 134.3(b) rounding.
- * <30 min fraction → disregard. 30–59 min → round up to 1 full hour.
- */
+/** EA Cl. 134.3(b) rounding. <30 min disregard. 30–59 min round up to 1 hr. */
 export function roundHrsEA(hrs: number): number {
   const whole = Math.floor(hrs);
   const fracMins = (hrs - whole) * 60;
@@ -62,13 +59,13 @@ export function roundHrsEA(hrs: number): number {
 
 /** Return shift type based on sign-on time. PRD §5.4 */
 export function getShiftType(sMin: number, eMin: number): 'night' | 'early' | 'afternoon' | null {
-  if (sMin >= 1080 || sMin < 240) return 'night';      // 18:00–03:59
-  if (sMin >= 240 && sMin <= 330) return 'early';       // 04:00–05:30
-  if (sMin < 1080 && eMin > 1080) return 'afternoon';   // before 18:00 → after 18:00
+  if (sMin >= 1080 || sMin < 240) return 'night';
+  if (sMin >= 240 && sMin <= 330) return 'early';
+  if (sMin < 1080 && eMin > 1080) return 'afternoon';
   return null;
 }
 
-/** Leave categories as defined in PRD §5.9 */
+/** Leave categories as defined in PRD §5.9 (RDO added v3.6) */
 export const LEAVE_CATS: Array<{ code: string; label: string; eaRef: string }> = [
   { code: 'none', label: '— Work shift (no leave) —',                       eaRef: '' },
   { code: 'SL',   label: 'Sick leave',                                       eaRef: 'Cl. 30.4' },
@@ -79,5 +76,6 @@ export const LEAVE_CATS: Array<{ code: string; label: string; eaRef: string }> =
   { code: 'BL',   label: 'Bereavement/compassionate leave',                  eaRef: 'Cl. 30.8(k)(iv)' },
   { code: 'JD',   label: 'Jury duty',                                        eaRef: 'Cl. 30.8(g)' },
   { code: 'PD',   label: 'Picnic day',                                       eaRef: 'Cl. 32.1' },
+  { code: 'RDO',  label: 'Roster day off (RDO)',                             eaRef: '— (unpaid)' },
   { code: 'LWOP', label: 'Leave without pay',                                eaRef: '—' },
 ];

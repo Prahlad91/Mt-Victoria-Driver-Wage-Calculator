@@ -3,14 +3,13 @@
  * Used for immediate feedback as the user types — NOT authoritative.
  * The server calculation (POST /api/calculate) is the source of truth.
  *
- * Keeps in sync with backend/calculator.py.
- * PRD ref: NFR-01 (offline fallback), Solution Design §3.3
+ * MUST stay in sync with backend/calculator.py (PRD §5.7).
+ * PRD ref: NFR-01 (offline fallback), §5.7 (lift-up/layback)
  */
 import type { DayState, RateConfig, PayrollCodes, PayComponent, DayResult } from '../types';
 import { getKmCredit, roundHrsEA, getShiftType } from './eaRules';
 import { toMins, toHrs } from './dateUtils';
 
-/** Default EA 2025 rates. PRD §5.1–5.7 */
 export const DEFAULT_CONFIG: RateConfig = {
   base_rate: 49.81842,
   ot1: 1.5, ot2: 2.0,
@@ -27,10 +26,7 @@ export const DEFAULT_CODES: PayrollCodes = {
   add_load: '', wobod: '', liftup: '', ado: '', unassoc: '',
 };
 
-/**
- * Compute a preview pay result for a single day.
- * Returns null if the day is OFF or has no times entered.
- */
+/** Compute a preview pay result for a single day. */
 export function previewDay(
   day: DayState,
   cfg: RateConfig = DEFAULT_CONFIG,
@@ -60,6 +56,11 @@ export function previewDay(
       components: [],
       flags: ['ADO accruing — long fortnight.'],
     };
+  }
+
+  // ─── Leave (PRD §5.9) ─────────────────────────────────────────────────────
+  if (day.leaveCat && day.leaveCat !== 'none') {
+    return previewLeave(day, cfg);
   }
 
   if (!day.aStart || !day.aEnd) return null;
@@ -93,7 +94,7 @@ export function previewDay(
   const penRate = shiftType === 'night' ? cfg.night_rate : shiftType === 'early' ? cfg.early_rate : cfg.afternoon_rate;
   const penAmt = penHrs * penRate;
 
-  // Build components (simplified mirror of Python logic)
+  // Day-rate components
   if (day.wobod) {
     const wh = Math.max(actualHrs, cfg.wobod_min);
     components.push({ name: 'WOBOD', ea: 'Cl. 136', code: codes.wobod || '—', hrs: wh.toFixed(2), rate: `${cfg.wobod_rate}×`, amount: round2(wh * B * cfg.wobod_rate), cls: '' });
@@ -114,10 +115,27 @@ export function previewDay(
     if (penAmt > 0) components.push({ name: `${shiftType} shift penalty`, ea: 'Sch.4B / Cl. 134.3', code: '—', hrs: penHrs.toString(), rate: `$${penRate}/hr`, amount: round2(penAmt), cls: 'pen-row' });
   }
 
+  // KM credit bonus
   if (kmApplied && kmBonus > 0) {
     const bRate = isSat ? cfg.sat_rate : isSun ? cfg.sun_rate : 1.0;
     components.push({ name: `KM credit (${day.km} km → ${kmCredited} hrs)`, ea: 'Cl. 146.4', code: codes.base || '—', hrs: kmBonus.toFixed(2), rate: 'ordinary', amount: round2(kmBonus * B * bRate), cls: 'km-row' });
     flags.push(`KM: bonus ${kmBonus.toFixed(2)} hrs.`);
+  }
+
+  // ─── Lift-up / Layback (PRD §5.7) — added in v3.6 ──────────────────────────────────
+  if (!day.wobod) {
+    const liftupGap = calcLiftupGap(day);
+    const laybackGap = calcLaybackGap(day);
+    if (liftupGap > 0) {
+      addGapComponents(components, flags, liftupGap,
+        'Lift-up / buildup (started before scheduled)', 'Cl. 131 / Cl. 140.1',
+        actualHrs, B, cfg, codes, isSat, isSun, isPH);
+    }
+    if (laybackGap > 0) {
+      addGapComponents(components, flags, laybackGap,
+        'Layback / extend (finished after scheduled)', 'Cl. 131 / Cl. 140.1',
+        actualHrs, B, cfg, codes, isSat, isSun, isPH);
+    }
   }
 
   if (otHrs > 0) flags.push(`Daily OT: ${otHrs.toFixed(2)} hrs.`);
@@ -130,6 +148,139 @@ export function previewDay(
     day_type: isPH ? 'ph' : isSun ? 'sunday' : isSat ? 'saturday' : 'weekday',
     hours: round2(actualHrs), paid_hrs: round2(paidHrs),
     total_pay: total, components, flags,
+  };
+}
+
+// ─── Lift-up / Layback helpers (mirror of backend) ─────────────────────────────────
+
+function calcLiftupGap(day: DayState): number {
+  if (!day.rStart || !day.aStart) return 0;
+  const rs = toMins(day.rStart);
+  const as = toMins(day.aStart);
+  if (rs === null || as === null || as >= rs) return 0;
+  return toHrs(rs - as);
+}
+
+function calcLaybackGap(day: DayState): number {
+  if (!day.rEnd || !day.aEnd) return 0;
+  let re = toMins(day.rEnd);
+  let ae = toMins(day.aEnd);
+  if (re === null || ae === null) return 0;
+  if (day.cm) {
+    re += 1440;
+    ae += 1440;
+  }
+  return toHrs(Math.max(0, ae - re));
+}
+
+function addGapComponents(
+  components: PayComponent[], flags: string[],
+  gapHrs: number, label: string, eaRef: string,
+  actualHrs: number, B: number, cfg: RateConfig, codes: PayrollCodes,
+  isSat: boolean, isSun: boolean, isPH: boolean,
+) {
+  const ordRemainder = Math.max(0, 8 - (actualHrs - gapHrs));
+  const gapOrd = Math.min(gapHrs, ordRemainder);
+  const gapOt = Math.max(0, gapHrs - gapOrd);
+  const gapOt1 = Math.min(gapOt, 2);
+  const gapOt2 = Math.max(0, gapOt - 2);
+
+  const ordRate = isPH ? (isSat || isSun ? cfg.ph_wke : cfg.ph_wkd)
+    : isSun ? cfg.sun_rate : isSat ? cfg.sat_rate : 1.0;
+  const ot1Rate = isPH ? (isSat || isSun ? cfg.ph_wke : cfg.ph_wkd)
+    : isSun ? cfg.sun_rate : isSat ? cfg.sat_ot : cfg.ot1;
+  const ot2Rate = isPH ? (isSat || isSun ? cfg.ph_wke : cfg.ph_wkd)
+    : isSun ? cfg.sun_rate : isSat ? cfg.sat_ot : cfg.ot2;
+
+  if (gapOrd > 0) {
+    components.push({
+      name: `${label} — ordinary rate (${gapOrd.toFixed(2)} hrs within 8-hr limit)`,
+      ea: eaRef, code: codes.liftup || '—',
+      hrs: gapOrd.toFixed(2), rate: ordRate === 1.0 ? 'ordinary' : `${ordRate}×`,
+      amount: round2(gapOrd * B * ordRate), cls: 'pen-row',
+    });
+  }
+  if (gapOt1 > 0) {
+    components.push({
+      name: `${label} — OT rate (first 2 hrs beyond 8)`,
+      ea: eaRef, code: codes.liftup || '—',
+      hrs: gapOt1.toFixed(2), rate: `${ot1Rate}×`,
+      amount: round2(gapOt1 * B * ot1Rate), cls: 'pen-row',
+    });
+  }
+  if (gapOt2 > 0) {
+    components.push({
+      name: `${label} — OT rate (beyond 2 hrs)`,
+      ea: eaRef, code: codes.liftup || '—',
+      hrs: gapOt2.toFixed(2), rate: `${ot2Rate}×`,
+      amount: round2(gapOt2 * B * ot2Rate), cls: 'pen-row',
+    });
+  }
+  flags.push(`${label}: ${gapHrs.toFixed(2)} hrs — ${gapOrd.toFixed(2)} ord, ${gapOt.toFixed(2)} OT.`);
+}
+
+// ─── Leave preview (mirror of backend _compute_leave) ──────────────────────────────
+
+function previewLeave(day: DayState, cfg: RateConfig): DayResult {
+  const B = cfg.base_rate;
+  const cat = day.leaveCat;
+  const rHrs = day.rHrs || 8.0;
+
+  const leaveMap: Record<string, [number, number, string, string]> = {
+    SL:   [rHrs, B, 'Sick leave — ordinary rate',          'Cl. 30.4'],
+    CL:   [rHrs, B, "Carer's leave — base rate",          'Cl. 30.7(b)(ix)'],
+    BL:   [rHrs, B, 'Bereavement leave — base rate',       'Cl. 30.8(k)(iv)'],
+    JD:   [rHrs, B, 'Jury duty — ordinary pay',            'Cl. 30.8(g)'],
+    LWOP: [0,    0, 'Leave without pay',                    '—'],
+    RDO:  [0,    0, 'Roster day off (RDO)',                 '—'],
+    PHNW: [8,    B, 'Public holiday not worked — 8 hrs',    'Cl. 31.7'],
+    PD:   [8,    B, 'Picnic day — 8 hrs ordinary',          'Cl. 32.1'],
+  };
+
+  if (cat in leaveMap) {
+    const [hrs, rate, name, ea] = leaveMap[cat];
+    const amount = round2(hrs * rate);
+    const comps: PayComponent[] = amount > 0
+      ? [{ name, ea, code: '—', hrs: hrs.toFixed(2), rate: `$${rate.toFixed(4)}/hr`, amount, cls: '' }]
+      : [];
+    return {
+      date: day.date, diag: day.diag, day_type: 'leave',
+      hours: hrs, paid_hrs: hrs, total_pay: amount,
+      components: comps, flags: [`${cat}: ${name} (${ea}).`],
+    };
+  }
+
+  if (cat === 'AL') {
+    const base = 8 * B;
+    const loading = base * 0.20;
+    const comps: PayComponent[] = [
+      { name: 'Annual leave — 8 hrs ordinary',                 ea: 'Cl. 30.1',         code: '—', hrs: '8.00', rate: `$${B.toFixed(4)}/hr`,  amount: round2(base),    cls: '' },
+      { name: 'Annual leave loading — 20% (shiftworker)',     ea: 'Cl. 30.2(a)(ii)',  code: '—', hrs: '8.00', rate: '20% of ordinary',     amount: round2(loading), cls: 'pen-row' },
+    ];
+    return {
+      date: day.date, diag: day.diag, day_type: 'leave',
+      hours: 8, paid_hrs: 8, total_pay: round2(base + loading),
+      components: comps, flags: ['AL: 8 hrs ordinary + 20% loading.'],
+    };
+  }
+
+  if (cat === 'PHW') {
+    const loading = rHrs * B * 1.5;
+    const addDay = 8 * B;
+    const comps: PayComponent[] = [
+      { name: 'PHW — 150% loading on hrs worked',     ea: 'Cl. 31.5(a)', code: '—', hrs: rHrs.toFixed(2), rate: '1.5× ordinary',           amount: round2(loading), cls: '' },
+      { name: 'PHW — additional day pay (ordinary)',   ea: 'Cl. 31.5(b)', code: '—', hrs: '8.00',          rate: `$${B.toFixed(4)}/hr`,    amount: round2(addDay),  cls: '' },
+    ];
+    return {
+      date: day.date, diag: day.diag, day_type: 'leave',
+      hours: rHrs, paid_hrs: rHrs, total_pay: round2(loading + addDay),
+      components: comps, flags: ['PHW: 150% loading + additional 8 hr day pay.'],
+    };
+  }
+
+  return {
+    date: day.date, diag: day.diag, day_type: 'leave',
+    hours: 0, paid_hrs: 0, total_pay: 0, components: [], flags: [`Unknown leave: ${cat}`],
   };
 }
 

@@ -1,7 +1,8 @@
 """EA 2025 pay calculation engine — Mt Victoria Driver Wage Calculator.
 This module is the authoritative calculation source. The frontend has a
-lightweight copy (calcPreview.ts) for live previews only.
-PRD ref: Section 5 (all EA rules), Solution Design Section 4.3
+lightweight copy (calcPreview.ts) for live previews only — they MUST stay
+in sync (PRD §5.7).
+PRD ref: Section 5 (all EA rules)
 
 DO NOT modify pay logic without first updating PRD.md.
 """
@@ -17,39 +18,37 @@ from models import (
 DATA_DIR = Path(__file__).parent / "data"
 
 
-# ─── KM credit table (Cl. 146.4) ─────────────────────────────────────────────
+# ─── KM credit table (Cl. 146.4) ────────────────────────────────────────
 
 _KM_BANDS: list[dict] = json.loads((DATA_DIR / "km_bands.json").read_text())
 
 
 def get_km_credit(km: float) -> Optional[float]:
-    """Return credited hours for a given km distance. PRD §5.5 / Cl. 146.4(a).
-    Returns None if km < 161 (actual time applies).
-    """
+    """Return credited hours for a given km distance. PRD §5.5 / Cl. 146.4(a)."""
     if km <= 0:
         return None
     for band in _KM_BANDS:
         lo = band["min_km"]
         hi = band.get("max_km")
-        if hi is None:  # extension band (644+)
+        if hi is None:
             extra = km - 644
-            steps = (extra + 15.999) // 16  # ceil(extra / 16)
+            steps = (extra + 15.999) // 16
             return band["base_at_644"] + steps * band["increment_per_16km"]
         if lo <= km < hi:
-            return band.get("credited_hrs")  # None for the <161 band
+            return band.get("credited_hrs")
     return None
 
 
-# ─── EA Cl. 134.3(b) rounding ────────────────────────────────────────────────
+# ─── EA Cl. 134.3(b) rounding ─────────────────────────────────────────
 
 def round_hrs_ea(hrs: float) -> int:
-    """Cl. 134.3(b): <30 min fraction disregarded; 30–59 min = 1 full hour."""
+    """Cl. 134.3(b): <30 min disregarded; 30–59 min = 1 full hour."""
     whole = int(hrs)
     frac_mins = (hrs - whole) * 60
     return whole if frac_mins < 30 else whole + 1
 
 
-# ─── Time helpers ─────────────────────────────────────────────────────────────
+# ─── Time helpers ────────────────────────────────────────────────────────
 
 def _to_mins(t: str) -> Optional[int]:
     if not t:
@@ -62,7 +61,7 @@ def _to_hrs(mins: float) -> float:
     return mins / 60
 
 
-# ─── Shift penalty (Sch. 4B / Cl. 134.3) ─────────────────────────────────────
+# ─── Shift penalty (Sch. 4B / Cl. 134.3) ───────────────────────────────────
 
 class _PenaltyResult:
     def __init__(self, amount, name, code, item, hrs, shift_type, add_load):
@@ -80,17 +79,16 @@ def _get_shift_penalty(
     is_sat: bool, is_sun: bool, is_ph: bool, dow: int,
     cfg: RateConfig, codes,
 ) -> _PenaltyResult:
-    """Determine shift type and compute penalty. PRD §5.4"""
     if is_sat or is_sun or is_ph:
         return _PenaltyResult(0, "", "", "", 0, None, False)
 
     shift_type = None
     if s_min >= 1080 or s_min < 240:
-        shift_type = "night"       # 18:00–03:59
+        shift_type = "night"
     elif 240 <= s_min <= 330:
-        shift_type = "early"       # 04:00–05:30
+        shift_type = "early"
     elif s_min < 1080 < e_min:
-        shift_type = "afternoon"   # before 18:00, ends after 18:00
+        shift_type = "afternoon"
 
     rate_map = {"night": cfg.night_rate, "early": cfg.early_rate, "afternoon": cfg.afternoon_rate}
     item_map = {"night": "Item 7 Sch.4B", "early": "Item 8 Sch.4B", "afternoon": "Item 6 Sch.4B"}
@@ -103,7 +101,6 @@ def _get_shift_penalty(
         pen_hrs = round_hrs_ea(ord_hrs)
         pen_amt = pen_hrs * rate_map[shift_type]
 
-    # Item 9: 01:01–03:59 Mon–Fri, not PH
     add_load = (not is_ph) and (1 <= dow <= 5) and (61 <= s_min <= 239)
 
     return _PenaltyResult(
@@ -117,7 +114,7 @@ def _get_shift_penalty(
     )
 
 
-# ─── Core per-day calculation ─────────────────────────────────────────────────
+# ─── Core per-day calculation ─────────────────────────────────────────
 
 def compute_day(day: DayState, cfg: RateConfig, codes, unassoc_amt: float = 0.0) -> DayResult:
     """All pay components for one day. PRD §FR-03, all of §5."""
@@ -126,14 +123,12 @@ def compute_day(day: DayState, cfg: RateConfig, codes, unassoc_amt: float = 0.0)
     is_ph = day.ph
     B = cfg.base_rate
 
-    # ── OFF days ──────────────────────────────────────────────────────────────
     if day.diag == "OFF":
         return DayResult(
             date=day.date, diag=day.diag, day_type="off",
             hours=0, paid_hrs=0, total_pay=0, components=[], flags=[],
         )
 
-    # ── ADO days (PRD §5.8 / FR-08) ──────────────────────────────────────────
     if day.diag == "ADO":
         if day.is_short_fortnight:
             ado_pay = 8.0 * B
@@ -154,11 +149,9 @@ def compute_day(day: DayState, cfg: RateConfig, codes, unassoc_amt: float = 0.0)
                 flags=["ADO accruing — long fortnight (payout in next fortnight)."],
             )
 
-    # ── Leave categories (PRD §5.9) ───────────────────────────────────────────
     if day.leave_cat and day.leave_cat != "none":
         return _compute_leave(day, cfg, codes)
 
-    # ── No times entered ──────────────────────────────────────────────────────
     if not day.a_start or not day.a_end:
         return DayResult(
             date=day.date, diag=day.diag, day_type="weekday",
@@ -169,7 +162,6 @@ def compute_day(day: DayState, cfg: RateConfig, codes, unassoc_amt: float = 0.0)
     components: list[PayComponent] = []
     flags: list[str] = []
 
-    # ── Parse times ───────────────────────────────────────────────────────────
     s_min = _to_mins(day.a_start)
     e_min = _to_mins(day.a_end)
     if day.cm or (e_min is not None and s_min is not None and e_min <= s_min):
@@ -180,7 +172,6 @@ def compute_day(day: DayState, cfg: RateConfig, codes, unassoc_amt: float = 0.0)
     ot1h = min(ot_hrs, 2.0)
     ot2h = max(0.0, ot_hrs - 2.0)
 
-    # ── KM credit (Cl. 146.4) ─────────────────────────────────────────────────
     km_credited = None
     km_bonus = 0.0
     km_applied = False
@@ -200,9 +191,7 @@ def compute_day(day: DayState, cfg: RateConfig, codes, unassoc_amt: float = 0.0)
     day_type = "ph" if is_ph else ("sunday" if is_sun else ("saturday" if is_sat else "weekday"))
     pen = _get_shift_penalty(s_min, e_min, ord_hrs, is_sat, is_sun, is_ph, day.dow, cfg, codes)
 
-    # ── Build pay components ───────────────────────────────────────────────────
     if day.wobod:
-        # WOBOD: double time, min 4 hrs (Cl. 136)
         wh = max(actual_hrs, float(cfg.wobod_min))
         components.append(PayComponent(
             name="WOBOD — work on book-off day", ea="Cl. 136", code=codes.wobod or "—",
@@ -253,7 +242,6 @@ def compute_day(day: DayState, cfg: RateConfig, codes, unassoc_amt: float = 0.0)
             flags.append("Saturday OT >8 hrs — double time (EA 2025 Sch. 4A).")
 
     else:
-        # Weekday ordinary + OT
         components.append(PayComponent(
             name="Ordinary time", ea="Sch. 4A", code=codes.base or "—",
             hrs=f"{ord_hrs:.2f}", rate=f"${B:.4f}/hr",
@@ -288,7 +276,6 @@ def compute_day(day: DayState, cfg: RateConfig, codes, unassoc_amt: float = 0.0)
                 amount=round(cfg.add_loading, 2), cls="pen-row",
             ))
 
-    # ── KM credit bonus ───────────────────────────────────────────────────────
     if km_applied and km_bonus > 0:
         b_rate = cfg.sat_rate if is_sat else (cfg.sun_rate if is_sun else 1.0)
         components.append(PayComponent(
@@ -309,13 +296,12 @@ def compute_day(day: DayState, cfg: RateConfig, codes, unassoc_amt: float = 0.0)
             amount=round(unassoc_amt, 2), cls="km-row",
         ))
 
-    # ── Lift-up / Layback / Buildup (Cl. 131 / Cl. 140.1) ────────────────────
     if not day.wobod:
         liftup_gap = _calc_liftup_gap(day)
         layback_gap = _calc_layback_gap(day)
         for gap, label, ea_ref in [
-            (liftup_gap, "Lift-up / buildup (started before rostered)", "Cl. 131 / Cl. 140.1"),
-            (layback_gap, "Layback / extend (finished after rostered)", "Cl. 131 / Cl. 140.1"),
+            (liftup_gap, "Lift-up / buildup (started before scheduled)", "Cl. 131 / Cl. 140.1"),
+            (layback_gap, "Layback / extend (finished after scheduled)", "Cl. 131 / Cl. 140.1"),
         ]:
             if gap > 0:
                 _add_gap_components(components, flags, gap, label, ea_ref,
@@ -334,10 +320,10 @@ def compute_day(day: DayState, cfg: RateConfig, codes, unassoc_amt: float = 0.0)
     )
 
 
-# ─── Lift-up / Layback helpers ────────────────────────────────────────────────
+# ─── Lift-up / Layback helpers ────────────────────────────────────────────
 
 def _calc_liftup_gap(day: DayState) -> float:
-    """Hours driver worked before rostered start. PRD §5.7"""
+    """Hours driver worked before scheduled start. PRD §5.7"""
     if not (day.r_start and day.a_start):
         return 0.0
     rs = _to_mins(day.r_start)
@@ -348,7 +334,7 @@ def _calc_liftup_gap(day: DayState) -> float:
 
 
 def _calc_layback_gap(day: DayState) -> float:
-    """Hours driver worked after rostered end. PRD §5.7"""
+    """Hours driver worked after scheduled end. PRD §5.7"""
     if not (day.r_end and day.a_end):
         return 0.0
     re = _to_mins(day.r_end)
@@ -356,10 +342,8 @@ def _calc_layback_gap(day: DayState) -> float:
     if re is None or ae is None:
         return 0.0
     if day.cm:
-        if re is not None:
-            re += 1440
-        if ae is not None:
-            ae += 1440
+        re += 1440
+        ae += 1440
     return _to_hrs(max(0, ae - re))
 
 
@@ -377,28 +361,22 @@ def _add_gap_components(
     def _ord_rate():
         if is_ph:
             return cfg.ph_wke if (is_sat or is_sun) else cfg.ph_wkd
-        if is_sun:
-            return cfg.sun_rate
-        if is_sat:
-            return cfg.sat_rate
+        if is_sun: return cfg.sun_rate
+        if is_sat: return cfg.sat_rate
         return 1.0
 
     def _ot1_rate():
         if is_ph:
             return cfg.ph_wke if (is_sat or is_sun) else cfg.ph_wkd
-        if is_sun:
-            return cfg.sun_rate
-        if is_sat:
-            return cfg.sat_ot
+        if is_sun: return cfg.sun_rate
+        if is_sat: return cfg.sat_ot
         return cfg.ot1
 
     def _ot2_rate():
         if is_ph:
             return cfg.ph_wke if (is_sat or is_sun) else cfg.ph_wkd
-        if is_sun:
-            return cfg.sun_rate
-        if is_sat:
-            return cfg.sat_ot
+        if is_sun: return cfg.sun_rate
+        if is_sat: return cfg.sat_ot
         return cfg.ot2
 
     if gap_ord > 0:
@@ -428,7 +406,7 @@ def _add_gap_components(
     flags.append(f"{label}: {gap_hrs:.2f} hrs — {gap_ord:.2f} at ordinary, {gap_ot:.2f} at OT rate.")
 
 
-# ─── Leave calculation ────────────────────────────────────────────────────────
+# ─── Leave calculation ──────────────────────────────────────────────────────────
 
 def _compute_leave(day: DayState, cfg: RateConfig, codes) -> DayResult:
     """Compute pay for leave categories. PRD §5.9"""
@@ -442,6 +420,7 @@ def _compute_leave(day: DayState, cfg: RateConfig, codes) -> DayResult:
         "BL":   (r_hrs, B, "Bereavement leave — base rate", "Cl. 30.8(k)(iv)"),
         "JD":   (r_hrs, B, "Jury duty — ordinary pay", "Cl. 30.8(g)"),
         "LWOP": (0, 0, "Leave without pay", "—"),
+        "RDO":  (0, 0, "Roster day off (RDO)", "—"),
         "PHNW": (8.0, B, "Public holiday not worked — 8 hrs", "Cl. 31.7"),
         "PD":   (8.0, B, "Picnic day — 8 hrs ordinary", "Cl. 32.1"),
     }
@@ -458,7 +437,7 @@ def _compute_leave(day: DayState, cfg: RateConfig, codes) -> DayResult:
 
     if cat == "AL":
         base = 8.0 * B
-        loading = base * 0.20  # 20% shiftworker rate (Cl. 30.2(a)(ii))
+        loading = base * 0.20
         comps = [
             PayComponent(name="Annual leave — 8 hrs ordinary", ea="Cl. 30.1", code="—", hrs="8.00", rate=f"${B:.4f}/hr", amount=round(base, 2), cls=""),
             PayComponent(name="Annual leave loading — 20% (shiftworker)", ea="Cl. 30.2(a)(ii)", code="—", hrs="8.00", rate="20% of ordinary", amount=round(loading, 2), cls="pen-row"),
@@ -488,14 +467,13 @@ def _compute_leave(day: DayState, cfg: RateConfig, codes) -> DayResult:
     )
 
 
-# ─── Fortnight entry point ────────────────────────────────────────────────────
+# ─── Fortnight entry point ───────────────────────────────────────────────────
 
 def compute_fortnight(req: CalculateRequest) -> CalculateResponse:
     """Compute gross pay for the full fortnight. PRD §FR-03."""
     is_short = any(d.diag == "ADO" for d in req.days)
     fn_threshold = 72.0 if is_short else 76.0
 
-    # Tag each day with fortnight type
     for d in req.days:
         d.is_short_fortnight = is_short
 
@@ -504,24 +482,17 @@ def compute_fortnight(req: CalculateRequest) -> CalculateResponse:
     total_hrs = sum(r.hours for r in day_results)
     total_pay = round(sum(r.total_pay for r in day_results), 2)
     fn_ot_hrs = max(0.0, total_hrs - fn_threshold)
-    ado_payout = sum(
-        c.amount for r in day_results
-        for c in r.components
-        if "ADO" in c.name
-    )
+    ado_payout = sum(c.amount for r in day_results for c in r.components if "ADO" in c.name)
     km_bonus_hrs = sum(
-        float(c.hrs) for r in day_results
-        for c in r.components
+        float(c.hrs) for r in day_results for c in r.components
         if "KM credit" in c.name and c.hrs != "—"
     )
 
-    # Component totals
     comp_totals: dict[str, float] = {}
     for r in day_results:
         for c in r.components:
             comp_totals[c.name] = round(comp_totals.get(c.name, 0.0) + c.amount, 2)
 
-    # Audit
     audit_flags = []
     payslip_variance = None
     if req.payslip_total and req.payslip_total > 0:

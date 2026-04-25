@@ -7,5 +7,6 @@
   { "code": "BL",   "label": "Bereavement/compassionate",   "ea_ref": "Cl. 30.8(k)(iv)", "pay_basis": "rostered_base" },
   { "code": "JD",   "label": "Jury duty",                    "ea_ref": "Cl. 30.8(g)",      "pay_basis": "rostered_ordinary" },
   { "code": "PD",   "label": "Picnic day",                   "ea_ref": "Cl. 32.1",         "pay_basis": "8hrs_ordinary" },
+  { "code": "RDO",  "label": "Roster day off (RDO)",         "ea_ref": "—",                "pay_basis": "zero" },
   { "code": "LWOP", "label": "Leave without pay",            "ea_ref": "—",                "pay_basis": "zero" }
 ]
