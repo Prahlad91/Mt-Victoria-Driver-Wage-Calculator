@@ -12,7 +12,6 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
   const [phInput,   setPH]   = useState('')
   const [psInput,   setPS]   = useState('')
   const [err, setErr]        = useState('')
-  const rRef = useRef<HTMLInputElement>(null)
   const pRef = useRef<HTMLInputElement>(null)
 
   function handleLoad() {
@@ -25,21 +24,21 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
     onLoaded()
   }
 
-  // Source indicator
   const srcBadge = !ctx.fnLoaded ? null
     : ctx.rosterSource === 'master'    ? <span className="badge" style={{background:'var(--green-bg)',color:'var(--green-text)',border:'1px solid #8fcca8',marginLeft:8}}>✓ Master roster</span>
     : ctx.rosterSource === 'fortnight' ? <span className="badge" style={{background:'var(--blue-bg)',color:'var(--blue-text)',border:'1px solid #93c5fd',marginLeft:8}}>✓ Fortnight roster</span>
     : <span className="badge badge-off" style={{marginLeft:8}}>Built-in data</span>
 
-  // Swinger note
   const isSwingerLine = parseInt(lineInput) >= 201
 
   return (
     <>
-      {/* ── Roster uploads (do these first) ──────────────────────────────── */}
+      {/* ── Step 1: Upload rosters & schedules ───────────────────────────── */}
       <div className="card">
         <h2>Step 1 — Upload rosters &amp; schedules
-          <span className="note" style={{fontWeight:400,marginLeft:8,textTransform:'none',letterSpacing:0}}>Upload before loading a line so times and KMs auto-fill</span>
+          <span className="note" style={{fontWeight:400,marginLeft:8,textTransform:'none',letterSpacing:0}}>
+            Upload before loading a line so times and KMs auto-fill
+          </span>
         </h2>
         <div className="g2" style={{marginBottom:8}}>
           <UploadCard
@@ -65,7 +64,7 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
         </div>
         <div className="g2">
           <UploadCard
-            title="Weekday Schedule (auto-fills KMs &amp; times)"
+            title="Weekday Schedule (auto-fills KMs & times)"
             hint="MTVICDRWD…_weekday.pdf — diagrams 3151–3168"
             icon="🗓️"
             state={ctx.weekdayScheduleUpload}
@@ -75,7 +74,7 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
               : ''}
           />
           <UploadCard
-            title="Weekend Schedule (auto-fills KMs &amp; times)"
+            title="Weekend Schedule (auto-fills KMs & times)"
             hint="MTVICDRWE…_weekend.pdf — diagrams 3651–3664"
             icon="🗓️"
             state={ctx.weekendScheduleUpload}
@@ -87,21 +86,25 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
         </div>
       </div>
 
-      {/* ── Fortnight setup ─────────────────────────────────────────────── */}
+      {/* ── Step 2: Load roster line ─────────────────────────────────────── */}
       <div className="card">
         <h2>Step 2 — Load roster line {srcBadge}</h2>
 
-        {isSwingerLine && (
+        {isSwingerLine ? (
           <div className="alert alert-info" style={{marginBottom:10,fontSize:11}}>
-            ⓘ Line {lineInput || '201+'} is a <strong>swinger line</strong>. Diagram assignments will be taken from the
-            {ctx.fnRosterUpload.status === 'success' ? <strong> Fortnight Roster</strong> : ' Fortnight Roster (not yet uploaded)'}
-            {ctx.masterRosterUpload.status === 'success' && ctx.fnRosterUpload.status !== 'success' && ' — falling back to Master Roster'}.
+            ⓘ Line {lineInput || '201+'} is a <strong>swinger line</strong>. Diagram assignments come from the{' '}
+            {ctx.fnRosterUpload.status === 'success'
+              ? <strong>Fortnight Roster ✓</strong>
+              : <>Fortnight Roster <span style={{color:'var(--amber-text)'}}>— not yet uploaded</span></>}
+            {ctx.masterRosterUpload.status === 'success' && ctx.fnRosterUpload.status !== 'success'
+              && ' — will fall back to Master Roster'}.
           </div>
-        )}
-        {!isSwingerLine && (
+        ) : (
           <div className="alert alert-info" style={{marginBottom:10,fontSize:11}}>
-            ⓘ Lines 1–22 use the <strong>Master Roster</strong> for diagram assignments.
-            {ctx.masterRosterUpload.status !== 'success' && ' Upload it above for accurate data, or built-in data will be used.'}
+            ⓘ Lines 1–22 use the <strong>Master Roster</strong> for diagram assignments.{' '}
+            {ctx.masterRosterUpload.status === 'success'
+              ? <span style={{color:'var(--green-text)'}}>✓ Master Roster uploaded.</span>
+              : <span style={{color:'var(--amber-text)'}}>Not yet uploaded — built-in data will be used.</span>}
           </div>
         )}
 
@@ -140,10 +143,9 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
               <span style={{color: ctx.fnType === 'short' ? 'var(--amber-text)' : 'var(--blue-text)', fontWeight: 600}}>
                 {ctx.fnType === 'short' ? '⚡ SHORT fortnight — ADO paid out' : '📋 LONG fortnight — ADO accruing'}
               </span>
-              {ctx.weekdayScheduleUpload.status === 'success' || ctx.weekendScheduleUpload.status === 'success'
-                ? <span style={{color:'var(--green-text)',marginLeft:8,fontSize:11}}>✓ KMs auto-filled from schedule</span>
-                : null
-              }
+              {(ctx.weekdayScheduleUpload.status === 'success' || ctx.weekendScheduleUpload.status === 'success') && (
+                <span style={{color:'var(--green-text)',marginLeft:8,fontSize:11}}>✓ KMs auto-filled from schedule</span>
+              )}
             </div>
             <div className="fn-chips">
               {ctx.days.map((d, i) => {
@@ -156,38 +158,26 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
         )}
       </div>
 
-      {/* ── Payslip upload ───────────────────────────────────────────────── */}
-      <div className="g2">
-        <UploadCard
-          title="Upload Payslip (for comparison)"
-          hint="NSW_Payslip.xlsx or Sydney_Crew_Payslip.xlsx — compare actual vs calculated"
-          icon="🧳"
-          state={ctx.payslipUpload}
-          onFile={ctx.uploadPayslip}
-          successMsg={ctx.payslipUpload.result
-            ? `${ctx.payslipUpload.result.line_items.length} line items · Total $${ctx.payslipUpload.result.total_gross.toFixed(2)}`
-            : ''}
-          fileRef={pRef}
-          accept=".xlsx,.pdf"
-        />
-        <UploadCard
-          title="Upload Fortnight Roster PDF (legacy)"
-          hint="Sign-on / sign-off only — older PDF format; use ZIP format above for full data"
-          icon="📄"
-          state={ctx.rosterUpload}
-          onFile={ctx.uploadRoster}
-          successMsg={ctx.rosterUpload.result
-            ? `Parsed ${ctx.rosterUpload.result.parsed_days.length} days from ${ctx.rosterUpload.result.source_file}`
-            : ''}
-          extraAction={ctx.rosterUpload.status === 'success' && !ctx.rosterUpload.applied && ctx.fnLoaded
-            ? { label: 'Apply to daily entry →', onClick: ctx.applyUploadedRoster } : undefined}
-          fileRef={rRef}
-          accept=".pdf"
-          applied={ctx.rosterUpload.applied}
-        />
+      {/* ── Step 3: Upload payslip (optional, for comparison) ────────────── */}
+      <div className="card">
+        <h2>Step 3 — Upload payslip <span className="note" style={{fontWeight:400,textTransform:'none',letterSpacing:0}}>optional — for comparing calculated vs actual pay</span></h2>
+        <div style={{maxWidth:480}}>
+          <UploadCard
+            title="Payslip"
+            hint="NSW_Payslip.xlsx or Sydney_Crew_Payslip.xlsx"
+            icon="🧾"
+            state={ctx.payslipUpload}
+            onFile={ctx.uploadPayslip}
+            successMsg={ctx.payslipUpload.result
+              ? `${ctx.payslipUpload.result.line_items.length} line items · Total $${ctx.payslipUpload.result.total_gross.toFixed(2)}`
+              : ''}
+            fileRef={pRef}
+            accept=".xlsx,.pdf"
+          />
+        </div>
       </div>
 
-      {/* ── Penalty reference ───────────────────────────────────────────────── */}
+      {/* ── Penalty reference ─────────────────────────────────────────────── */}
       <div className="card">
         <h3>Shift Penalty Rules — Cl. 134 (EA 2025)</h3>
         <table>
@@ -207,7 +197,7 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
   )
 }
 
-// ── UploadCard component ───────────────────────────────────────────────────────────
+// ── UploadCard ─────────────────────────────────────────────────────────────────
 
 interface UploadCardProps {
   title: string
@@ -229,7 +219,7 @@ function UploadCard({ title, hint, icon = '📄', state, onFile, successMsg, fil
   const { status, error } = state
   const cardCls = `upload-card${drag ? ' drag-over' : ''}${status === 'success' ? ' success' : ''}${status === 'error' ? ' error' : ''}`
   return (
-    <div className="card" style={{padding: 0, marginBottom: 0}}>
+    <div style={{marginBottom:0}}>
       <div
         className={cardCls}
         onDragOver={e => { e.preventDefault(); setDrag(true) }}
@@ -249,19 +239,19 @@ function UploadCard({ title, hint, icon = '📄', state, onFile, successMsg, fil
           onClick={e => e.stopPropagation()} />
       </div>
       {state.result && (state.result as any).warnings?.length > 0 && (
-        <div style={{padding: '6px 12px'}}>
+        <div style={{paddingTop:6}}>
           {(state.result as any).warnings.map((w: string, i: number) => (
             <p key={i} className="note" style={{color: 'var(--amber-text)'}}>⚠ {w}</p>
           ))}
         </div>
       )}
       {extraAction && !applied && (
-        <div style={{padding: '0 12px 10px'}}>
+        <div style={{paddingTop:6}}>
           <button className="btn-primary btn-sm" onClick={e => { e.stopPropagation(); extraAction.onClick() }}>{extraAction.label}</button>
         </div>
       )}
       {applied && (
-        <div style={{padding: '0 12px 10px'}}>
+        <div style={{paddingTop:6}}>
           <span style={{fontSize: 11, padding: '3px 8px', borderRadius: 4, background: 'var(--green-bg)', color: 'var(--green-text)', display: 'inline-block'}}>✓ Applied to daily entry</span>
         </div>
       )}
