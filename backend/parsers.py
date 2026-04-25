@@ -25,17 +25,14 @@ from models import (
     ParsedScheduleResponse, DiagramInfo,
 )
 
-# Valid Mt Victoria line numbers
 _VALID_LINES = set(list(range(1, 23)) + list(range(201, 211)))
 
-# Time tokens used by the roster parser (HH:MM-style only — no am/pm)
 _TIME_RE = re.compile(r'^\d{1,2}:\d{2}$')
 _WHRS_RE = re.compile(r'^\d{1,2}:\d{2}[Ww]$')
 _FAT_RE  = re.compile(r'^F\d+$')
 
 
 def _norm_time(t: str) -> str:
-    """Normalise H:MM or HH:MM to HH:MM (zero-pad the hour)."""
     h, m = t.split(':')
     return f'{int(h):02d}:{m}'
 
@@ -43,11 +40,7 @@ def _norm_time(t: str) -> str:
 # ─── Text extraction ───────────────────────────────────────────────────────────
 
 def _extract_text_from_file(file_bytes: bytes) -> str:
-    """
-    Extract all text from a file that may be either:
-    1. A ZIP archive (Sydney Trains app format) containing manifest.json + .txt pages
-    2. A real PDF file
-    """
+    """Extract text from ZIP (Sydney Trains app format) or real PDF."""
     try:
         with ZipFile(io.BytesIO(file_bytes)) as zf:
             if 'manifest.json' in zf.namelist():
@@ -71,8 +64,7 @@ def _extract_text_from_file(file_bytes: bytes) -> str:
             return full_text
     except Exception as e:
         raise ValueError(
-            f'Could not read file as ZIP or PDF. '
-            f'Make sure you are uploading the correct file. Details: {e}'
+            f'Could not read file as ZIP or PDF. Details: {e}'
         )
 
 
@@ -103,10 +95,7 @@ def parse_roster_zip(file_bytes: bytes, filename: str) -> ParsedRosterResponse:
             line_starts.append((num, m.start()))
 
     if not line_starts:
-        warnings.append(
-            'No roster lines found in this file. '
-            'The PDF layout may differ from the expected format.'
-        )
+        warnings.append('No roster lines found in this file.')
         return ParsedRosterResponse(
             source_file=filename, line_type=line_type,
             fn_start=fn_start, fn_end=fn_end, lines={}, warnings=warnings
@@ -130,91 +119,89 @@ def parse_roster_zip(file_bytes: bytes, filename: str) -> ParsedRosterResponse:
 
 
 def _parse_day_entries(section_text: str) -> list[RosterDayEntry]:
-    """Parse up to 14 day entries from a roster line section."""
     words = section_text.split()
     days: list[RosterDayEntry] = []
     i = 0
-
     if words and re.match(r'^\d{1,3}$', words[0]):
         i = 1
-
     while i < len(words) and len(days) < 14:
         w = words[i]
-
         if w.upper() == 'OFF':
-            days.append(RosterDayEntry(diag='OFF'))
-            i += 1
+            days.append(RosterDayEntry(diag='OFF')); i += 1
         elif w.upper() == 'ADO':
-            days.append(RosterDayEntry(diag='ADO'))
-            i += 1
+            days.append(RosterDayEntry(diag='ADO')); i += 1
         elif _TIME_RE.match(w) and i + 2 < len(words) and words[i + 1] == '-':
             r_start = _norm_time(w)
             end_raw = words[i + 2]
             cm      = end_raw.upper().endswith('L')
             r_end   = _norm_time(end_raw.rstrip('LlLl'))
             i += 3
-
             r_hrs = 8.0
             if i < len(words) and _WHRS_RE.match(words[i]):
                 hrs_str = words[i][:-1]
                 h_str, m_str = hrs_str.split(':')
                 r_hrs = round(int(h_str) + int(m_str) / 60, 4)
                 i += 1
-
             diag_parts: list[str] = []
             while i < len(words):
                 tok = words[i]
-                if _FAT_RE.match(tok):
-                    i += 1
-                    break
-                if tok.upper() in ('OFF', 'ADO'):
-                    break
-                if _TIME_RE.match(tok) and i + 1 < len(words) and words[i + 1] == '-':
-                    break
-                diag_parts.append(tok)
-                i += 1
-
+                if _FAT_RE.match(tok): i += 1; break
+                if tok.upper() in ('OFF', 'ADO'): break
+                if _TIME_RE.match(tok) and i + 1 < len(words) and words[i + 1] == '-': break
+                diag_parts.append(tok); i += 1
             diag = ' '.join(diag_parts).strip()
             days.append(RosterDayEntry(
                 diag=diag, r_start=r_start, r_end=r_end, cm=cm, r_hrs=r_hrs
             ))
         else:
             i += 1
-
     return days
 
 
-# ─── Schedule parser (v3.5: hardened time extraction) ──────────────────────────
+# ─── Schedule parser (v3.7: hardened diagram-block detection) ──────────────────
 
-# Patterns for labelled times — tried in order, most-specific first.
-# Group 1 always captures the full time string (digits, optional colon spacing,
-# optional am/pm marker).
+# Time patterns for labelled extraction — tried in order, most-specific first.
 _TIME_PATTERNS_FOR_LABEL = [
-    # 12-hour with am/pm: "9:18a", "9:18 am", "12:51AM", "5 : 30 PM"
+    # 12-hour with am/pm: "9:18a", "9:18 am", "12:51AM"
     r'(\d{1,2}\s*:\s*\d{2}\s*[AaPp][Mm]?)',
     # 24-hour: "09:18", "17:30"
     r'(\d{1,2}\s*:\s*\d{2})',
 ]
 
 
-def _extract_labeled_time(label: str, text: str) -> str | None:
+def _flexible_label_pattern(label: str) -> str:
     """
-    Find the first time value following a label.
-    Tries 12-hour (with am/pm) first, then 24-hour as a fallback.
+    Convert a literal label like 'Sign on' or 'Time off duty' to a flexible
+    regex that tolerates internal whitespace and hyphen variations.
 
-    Examples that all work for label='Time off duty':
-      "Time off duty : 9:18a"
-      "Time off duty: 9:18a"
-      "Time off duty : 09:18"
-      "Time off duty: 17:30"
-      "Time off duty : 9:18 PM"
+    'Sign on'        -> r'Sign\\s*[-]?\\s*on'
+    'Time off duty'  -> r'Time\\s*[-]?\\s*off\\s*[-]?\\s*duty'
+
+    Matches 'Sign on', 'Signon', 'Sign-on', 'Sign  on' etc.
     """
+    parts = label.split()
+    return r'\s*[-]?\s*'.join(re.escape(p) for p in parts)
+
+
+def _extract_labeled_time(label: str, text: str) -> str | None:
+    """Find the first time value following a label (case-insensitive, flexible spacing)."""
+    label_pat = _flexible_label_pattern(label)
     for tp in _TIME_PATTERNS_FOR_LABEL:
-        # Allow optional space before colon, optional colon, then time pattern
-        m = re.search(rf'{label}\s*:?\s*{tp}', text)
+        m = re.search(rf'{label_pat}\s*:?\s*{tp}', text, re.IGNORECASE)
         if m:
             return m.group(1)
     return None
+
+
+# Diagram-block header. v3.7 tightening:
+#   * Require 3- or 4-digit number (real diagrams: 3xxx). Avoids false matches
+#     like "No. 2 of 5 cars" or page-number text "Page No. 2".
+#   * Anchor to start-of-line (after a newline) to avoid mid-paragraph hits.
+#   * Capture the day-type token (rest of line) for weekday/weekend tagging.
+_NO_RE = re.compile(
+    r'(?:^|\n)\s*No\.\s+(\d{3,4})\s+([^\n]+)',
+    re.MULTILINE,
+)
 
 
 def parse_schedule_zip(file_bytes: bytes, filename: str) -> ParsedScheduleResponse:
@@ -241,8 +228,7 @@ def parse_schedule_zip(file_bytes: bytes, filename: str) -> ParsedScheduleRespon
 
     text = full_text.replace('\r\n', '\n').replace('\r', '\n')
 
-    no_re  = re.compile(r'No\.\s+(\d+)\s+([^\n]+)')
-    blocks = list(no_re.finditer(text))
+    blocks = list(_NO_RE.finditer(text))
 
     diagrams: dict[str, DiagramInfo] = {}
     failed_signon: list[str] = []
@@ -255,21 +241,30 @@ def parse_schedule_zip(file_bytes: bytes, filename: str) -> ParsedScheduleRespon
         block_end    = blocks[idx + 1].start() if idx + 1 < len(blocks) else len(text)
         block_text   = text[block_start:block_end]
 
-        # Use the robust labelled-time extractor for both ends
+        # Skip if we've already seen this diagram (first occurrence wins —
+        # diagrams sometimes repeat across pages of the schedule).
+        if diag_num in diagrams:
+            continue
+
         sign_on_raw  = _extract_labeled_time('Sign on',       block_text)
         sign_off_raw = _extract_labeled_time('Time off duty', block_text)
 
-        sign_on  = _parse_time_str(sign_on_raw)  if sign_on_raw  else None
-        sign_off = _parse_time_str(sign_off_raw) if sign_off_raw else None
+        try:
+            sign_on  = _parse_time_str(sign_on_raw)  if sign_on_raw  else None
+        except ValueError:
+            sign_on = None
+        try:
+            sign_off = _parse_time_str(sign_off_raw) if sign_off_raw else None
+        except ValueError:
+            sign_off = None
 
-        # Track failures so we can report them clearly
         if sign_on is None:
             failed_signon.append(diag_num)
         if sign_off is None:
             failed_signoff.append(diag_num)
 
-        total_m = re.search(r'Total shift\s*:\s*(\d{1,2}:\d{2})', block_text)
-        km_m    = re.search(r'Distance:\s*([\d.]+)\s*Km', block_text, re.IGNORECASE)
+        total_m = re.search(r'Total\s*shift\s*:?\s*(\d{1,2}:\d{2})', block_text, re.IGNORECASE)
+        km_m    = re.search(r'Distance\s*:?\s*([\d.]+)\s*Km', block_text, re.IGNORECASE)
 
         km    = float(km_m.group(1)) if km_m else 0.0
         r_hrs = _hmm_to_float(total_m.group(1)) if total_m else 8.0
@@ -283,13 +278,11 @@ def parse_schedule_zip(file_bytes: bytes, filename: str) -> ParsedScheduleRespon
         elif 'sunday'   in dl: day_type = 'sunday'
         else:                  day_type = 'weekday'
 
-        info = DiagramInfo(
+        diagrams[diag_num] = DiagramInfo(
             diag_num=diag_num, day_type=day_type,
             sign_on=sign_on, sign_off=sign_off,
             r_hrs=r_hrs, km=km, cm=cm,
         )
-        if diag_num not in diagrams:
-            diagrams[diag_num] = info
 
     if not diagrams:
         warnings.append(
@@ -297,14 +290,21 @@ def parse_schedule_zip(file_bytes: bytes, filename: str) -> ParsedScheduleRespon
             'Make sure this is a weekday or weekend schedule file (MTVICDRWD or MTVICDRWE).'
         )
     if failed_signon:
+        # De-dupe and limit list length for readability
+        unique_failed = sorted(set(failed_signon), key=lambda s: int(s) if s.isdigit() else 0)
         warnings.append(
-            f'Could not extract "Sign on" time for {len(failed_signon)} diagram(s): '
-            f'{", ".join(failed_signon[:10])}. Times may render as blank in the daily entry.'
+            f'Could not extract "Sign on" time for {len(unique_failed)} diagram(s): '
+            f'{", ".join(unique_failed[:10])}'
+            f'{"..." if len(unique_failed) > 10 else ""}. '
+            f'Times may render as blank in the daily entry.'
         )
     if failed_signoff:
+        unique_failed = sorted(set(failed_signoff), key=lambda s: int(s) if s.isdigit() else 0)
         warnings.append(
-            f'Could not extract "Time off duty" time for {len(failed_signoff)} diagram(s): '
-            f'{", ".join(failed_signoff[:10])}. Schedule end time will fall back to master roster.'
+            f'Could not extract "Time off duty" time for {len(unique_failed)} diagram(s): '
+            f'{", ".join(unique_failed[:10])}'
+            f'{"..." if len(unique_failed) > 10 else ""}. '
+            f'Schedule end time will fall back to master roster.'
         )
 
     return ParsedScheduleResponse(
@@ -317,33 +317,28 @@ def parse_schedule_zip(file_bytes: bytes, filename: str) -> ParsedScheduleRespon
 
 def _parse_time_str(t: str) -> str:
     """
-    Convert a time string in any of these formats to 'HH:MM' (24-hour):
+    Convert a time string in any supported format to 'HH:MM' (24-hour):
       '12:51a', '9:18a', '10:30p', '12:51 AM', '9:18 am', '10:30 PM',
       '09:18', '17:30', '9 : 18 PM'
     """
-    # Strip all whitespace and lowercase
     t = re.sub(r'\s+', '', t.strip()).lower()
 
-    # Detect am/pm marker
     has_am = t.endswith('am') or (t.endswith('a') and not t.endswith('pa'))
     has_pm = t.endswith('pm') or (t.endswith('p') and not t.endswith('ap'))
 
-    # Strip am/pm marker
     t = re.sub(r'[apm]+$', '', t)
 
-    # Parse HH:MM
+    if ':' not in t:
+        raise ValueError(f'No colon in time: {t}')
     h, m = map(int, t.split(':'))
 
     if has_pm and h != 12:
         h += 12
     elif has_am and h == 12:
         h = 0
-    # If no am/pm marker, treat as 24-hour — leave h alone
 
-    # Sanity clamp
     if h < 0 or h > 23 or m < 0 or m > 59:
         raise ValueError(f'Invalid time: {t}')
-
     return f'{h:02d}:{m:02d}'
 
 
@@ -364,7 +359,6 @@ def _time_to_mins(t: str) -> int:
 # ─── Legacy fortnight roster PDF parser ───────────────────────────────────────
 
 def parse_roster_pdf(file_bytes: bytes, filename: str = 'roster.pdf') -> ParseRosterResponse:
-    """Legacy: extract sign-on/sign-off from a table-based roster PDF."""
     if pdfplumber is None:
         raise RuntimeError('pdfplumber not installed.')
 
@@ -383,8 +377,7 @@ def parse_roster_pdf(file_bytes: bytes, filename: str = 'roster.pdf') -> ParseRo
                     times = time_re.findall(row_text)
                     date_match = date_re.search(row_text)
                     diag_match = diag_re.search(row_text)
-                    if not date_match and not times:
-                        continue
+                    if not date_match and not times: continue
                     date_str = None
                     confidence = 0.5
                     if date_match:
@@ -405,7 +398,7 @@ def parse_roster_pdf(file_bytes: bytes, filename: str = 'roster.pdf') -> ParseRo
                         warnings.append(f'Low confidence ({confidence:.0%}) for row: {row_text[:60]}...')
 
     if not parsed_days:
-        warnings.append('No roster entries could be extracted. Please enter times manually.')
+        warnings.append('No roster entries could be extracted.')
     return ParseRosterResponse(source_file=filename, parsed_days=parsed_days, warnings=warnings)
 
 
@@ -459,13 +452,11 @@ def _parse_payslip_xlsx(file_bytes: bytes, filename: str) -> ParsePayslipRespons
     if header_row_idx is not None:
         for row in rows[header_row_idx + 1:]:
             cells = list(row)
-            if not any(cells):
-                continue
+            if not any(cells): continue
             try:
                 code = str(cells[0] or '').strip()
                 desc = str(cells[1] or '').strip() if len(cells) > 1 else ''
-                if not code or not desc:
-                    continue
+                if not code or not desc: continue
                 hrs_val  = cells[2] if len(cells) > 2 else None
                 rate_val = cells[3] if len(cells) > 3 else None
                 amt_val  = cells[4] if len(cells) > 4 else None
@@ -506,10 +497,9 @@ def _parse_payslip_pdf(file_bytes: bytes, filename: str) -> ParsePayslipResponse
                                 hours=None, rate=None, amount=amounts[-1],
                             ))
                             total_gross += amounts[-1]
-                        except Exception:
-                            continue
+                        except Exception: continue
     if not line_items:
-        warnings.append('No line items extracted from payslip PDF. Please use XLSX format if available.')
+        warnings.append('No line items extracted from payslip PDF.')
     return ParsePayslipResponse(
         source_file=filename, format='pdf',
         total_gross=round(total_gross, 2), line_items=line_items, warnings=warnings,
