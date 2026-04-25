@@ -1,7 +1,7 @@
 # Product Requirements Document
 # Mt Victoria Driver Wage Calculator
 
-**Version:** 3.0  
+**Version:** 3.1  
 **Date:** April 2026  
 **Author:** Prahlad Modi (Mt Victoria depot, Sydney Trains)  
 **Status:** Active — governs all development on this repository
@@ -14,7 +14,7 @@
 
 The Mt Victoria Driver Wage Calculator is a **full-stack web application** built specifically for intercity train drivers based at the **Mt Victoria depot** under Sydney Trains. Its purpose is to allow drivers to calculate their exact gross fortnightly pay — derived from their rostered line, their actual worked times, and all applicable Enterprise Agreement 2025 rules — so they can independently verify every line on their payslip without needing payroll or HR involvement.
 
-From v3.0 the system moves from a single monolithic HTML file to a **React frontend + Python (FastAPI) backend** architecture. The backend handles all file parsing (PDF roster uploads, XLSX payslip uploads, EA PDF reference), calculation logic, and data persistence. The frontend handles UI rendering and user interaction only.
+From v3.0 the system moves from a single monolithic HTML file to a **React frontend + Python (FastAPI) backend** architecture. From v3.1, roster and schedule data is sourced from uploaded PDF/ZIP files rather than only from built-in hardcoded data.
 
 ---
 
@@ -52,7 +52,7 @@ Mt Victoria is an intercity depot on the Blue Mountains line. Key characteristic
 
 - Long-distance shifts accumulate significant KMs (often 200–400+ km per shift)
 - The KM credit system (Cl. 146.4) is heavily used and contributes substantially to pay
-- Roster lines are fortnightly repeating patterns; lines 1–22 are permanent/fixed, lines 201–210 are standby/flexible
+- Roster lines are fortnightly repeating patterns; lines 1–22 are permanent/fixed, lines 201–210 are standby/swinger lines whose diagram assignments change every fortnight
 - The ADO system (19-day month) alternates short fortnights (ADO paid out) and long fortnights (ADO accruing)
 - Shift swaps and working on off days are common, requiring manual diagram/schedule number entry
 
@@ -78,22 +78,23 @@ Mt Victoria is an intercity depot on the Blue Mountains line. Key characteristic
 
 | Term | Definition |
 |------|------------|
-| **Diagram / Schedule number** | Unique identifier for a specific roster line. Used interchangeably. Defines sign-on, sign-off, and train services worked. |
+| **Diagram / Schedule number** | Unique identifier for a specific shift. Used interchangeably. Defines sign-on, sign-off, train services, and KM distance. |
 | **Fortnight** | 14-day pay period starting on a Sunday. |
-| **Short fortnight** | Fortnight containing an ADO day — ADO paid out this period (9 shifts + 1 ADO paid = 10 paid days). |
-| **Long fortnight** | Fortnight with no ADO — all 10 days are worked shifts; ADO accrues (10 shifts, no ADO payout). |
-| **ADO** | Accrued Day Off. Under the 19-day month arrangement, drivers accumulate extra time daily (working 8h 48m instead of 8h), building to one paid day off per 4-week cycle. |
-| **OT** | Overtime. Hours beyond 8 in a single day, or beyond the fortnightly threshold (72h short / 76h long). 1.5× first 2 hrs, 2.0× beyond. |
+| **Short fortnight** | Fortnight containing an ADO day — ADO paid out this period. |
+| **Long fortnight** | Fortnight with no ADO — all shifts worked; ADO accrues. |
+| **ADO** | Accrued Day Off. Under the 19-day month arrangement, drivers accumulate time building to one paid day off per 4-week cycle. |
+| **Master Roster** | Annual roster document for lines 1–22. Published once a year. Defines which diagram (schedule number) each line works on each of the 14 days. Format: ZIP archive containing manifest.json + text + image layers. |
+| **Fortnight Roster** | Per-fortnight roster document for swinger lines 201–210. Published every fortnight. Same ZIP format as master roster. Defines which diagram each swinger line works that fortnight. |
+| **Schedule file** | Weekday or weekend schedule document. Contains detailed work instructions per diagram number, including sign-on time, sign-off time, distance (KMs), and total shift hours. Format: same ZIP archive structure. |
+| **Swinger line** | Roster lines 201–210. Standby/flexible positions whose diagram assignments change each fortnight (sourced from the Fortnight Roster). |
+| **OT** | Overtime. Hours beyond 8 in a single day. 1.5× first 2 hrs, 2.0× beyond. |
 | **WOBOD** | Work on Book-Off Day. Working on a rostered day off. Double time, minimum 4 hours (Cl. 136). |
-| **Lift-up / Buildup** | Driver signs on before rostered start. Gap hours at ordinary rate if total ≤8 hrs; OT rate beyond 8. |
+| **Lift-up / Buildup** | Driver signs on before rostered start. Ordinary rate within 8-hr total; OT rate beyond. |
 | **Layback / Extend** | Driver signs off after rostered end. Same rate rules as lift-up. |
 | **KM credit** | Under Cl. 146.4, intercity drivers doing ≥161 km are credited more hours than actually worked (26-band table). Credited excess paid at ordinary rate, excluded from OT. |
-| **Shift penalty** | Per-hour loading for afternoon (Item 6), night (Item 7), or early morning (Item 8) shifts. EA rounding: <30 min disregarded, 30–59 min = 1 hr. Not payable Sat/Sun/PH. |
-| **Additional loading (Item 9)** | Flat per-shift payment for drivers signing on/off 01:01–03:59 Mon–Fri (not PH). |
-| **Cross-midnight shift** | Shift spanning midnight. Hours on the second calendar day rated at that day's rules. |
-| **PH** | Public holiday. |
-| **Un-associated duties** | Duties not directly associated with train operations (road review, pilot prep, etc.) paid additionally for ≥161 km shifts (Cl. 146.4(d) / Cl. 157.2). |
-| **Payroll code** | Alphanumeric code on a Sydney Trains payslip identifying each pay component line. |
+| **Shift penalty** | Per-hour loading for afternoon, night, or early morning shifts. EA rounding: <30 min disregarded, 30–59 min = 1 hr. Not payable Sat/Sun/PH. |
+| **Un-associated duties** | Duties not directly associated with train operations (road review, pilot prep, etc.) paid additionally for ≥161 km shifts (Cl. 146.4(d)). |
+| **Roster source indicator** | UI badge showing which data source was used: "Master roster", "Fortnight roster", or "Built-in data". |
 
 ---
 
@@ -102,20 +103,19 @@ Mt Victoria is an intercity depot on the Blue Mountains line. Key characteristic
 ### 5.1 Ordinary time (Sch. 4A)
 - Base rate: $49.81842/hr (configurable)
 - First 8 hours of any shift at ordinary rate
-- Weekend: Saturday 1.5×, Sunday 2.0× (Cl. 54 / Cl. 133)
+- Weekend: Saturday 1.5×, Sunday 2.0×
 
 ### 5.2 Overtime (Cl. 140.1)
 - Hours 1–2 beyond 8-hr daily limit: 1.5×
 - Hours beyond 2 hrs OT: 2.0×
 - Saturday OT >8 hrs: 2.0×
-- Sunday OT: Sunday rate applies (2.0×)
 - Fortnightly threshold: 72h (short) or 76h (long)
 
 ### 5.3 Public holidays (Cl. 31)
 - Weekday PH worked: 1.5×
 - Weekend PH worked: 2.5×
 - PH not worked: 8 hrs ordinary pay (Cl. 31.7)
-- Day in lieu accrues; shift penalties not payable on PH (Cl. 134.3(a))
+- Shift penalties not payable on PH (Cl. 134.3(a))
 
 ### 5.4 Shift penalties (Sch. 4B / Cl. 134.3)
 - Item 6 (Afternoon): $4.84/hr — commences before AND concludes after 18:00
@@ -126,11 +126,10 @@ Mt Victoria is an intercity depot on the Blue Mountains line. Key characteristic
 - Not payable Sat/Sun/PH (Cl. 134.3(a))
 
 ### 5.5 KM credit system (Cl. 146.4)
-26-band table from <161 km (actual time) up to 644+ km (+0.5 hr per 16 km). See Section 10 for full table.
+26-band table from <161 km (actual time) up to 644+ km (+0.5 hr per 16 km). See Section 10.
 - Credited excess hours paid at ordinary rate, NOT in OT computation (Cl. 146.4(b))
+- KM distance auto-filled from uploaded schedule file (v3.1)
 - Cl. 157.1: greater-of rule (scheduled shift time vs km-credited hrs + un-associated time)
-- Double shifts (≥257 km): round trip, min 30 min meal, relieved if >10 hrs
-- ≥370 km: max 4/week, relieved at terminal, 8 hr traffic cap
 
 ### 5.6 WOBOD (Cl. 136)
 - Double time on all hours, minimum 4 hours paid
@@ -138,13 +137,10 @@ Mt Victoria is an intercity depot on the Blue Mountains line. Key characteristic
 ### 5.7 Lift-up / Layback / Buildup (Cl. 131 / Cl. 140.1)
 - Auto-detected from actual vs rostered times
 - Gap hours: ordinary rate within 8-hr total, OT rate beyond 8
-- Rate depends on shift day type (weekday/Sat/Sun/PH)
-- Not applied when WOBOD is active
 
 ### 5.8 ADO pay
 - Short fortnight: ADO = 8 hrs ordinary rate paid out
 - Long fortnight: ADO accruing, no payout
-- Auto-detected from whether loaded roster line has ADO in the 14-day window
 
 ### 5.9 Leave categories
 
@@ -156,101 +152,145 @@ Mt Victoria is an intercity depot on the Blue Mountains line. Key characteristic
 | PHNW | PH not worked | Cl. 31.7 | 8 hrs ordinary |
 | PHW | PH worked | Cl. 31.5 | 150% loading + additional day |
 | BL | Bereavement leave | Cl. 30.8(k)(iv) | Rostered hrs at base rate |
-| JD | Jury duty | Cl. 30.8(g) | Rostered hrs ordinary (jury fee offsets) |
+| JD | Jury duty | Cl. 30.8(g) | Rostered hrs ordinary |
 | PD | Picnic day | Cl. 32.1 | 8 hrs ordinary |
 | LWOP | Leave without pay | — | $0 |
 
 ---
 
-## 6. File Upload Requirements (New in v3.0)
+## 6. File Upload Requirements
 
-### FR-U1: Fortnightly roster PDF upload
-- User uploads a fortnightly roster PDF (e.g. MTVICDRWD191025_1_weekday.pdf)
-- Backend parses the PDF and extracts: date, diagram number, sign-on time, sign-off time for each day
-- Extracted data pre-fills the daily entry form
-- User reviews and confirms before calculation
-- Error handling: if parsing fails, falls back to manual entry with an error message
+### 6.1 Roster and schedule file architecture (v3.1)
 
-### FR-U2: Payslip upload (NSW_Payslip.xlsx / Sydney_Crew_Payslip.xlsx)
-- User uploads their payslip XLSX or PDF
-- Backend parses line items: component name, payroll code, hours, dollar amount
-- Parsed payslip displayed alongside calculated results for direct comparison
-- Variance highlighted per line item (over/under)
-- Supports both payslip formats: NSW_Payslip and Sydney_Crew_Payslip
+Three distinct roster/schedule documents exist, all in the same ZIP-based format (manifest.json + text layer + image layer per page):
 
-### FR-U3: EA PDF reference upload
-- Admin/user can upload the EA PDF to a `/uploads/ea/` endpoint
-- Backend extracts and caches key rates and clause text for reference
-- Referenced inline in the calculator UI next to each rule
+| File | Update frequency | Purpose | Lines served |
+|------|-----------------|---------|--------------|
+| **Master Roster** | Annually | Maps lines 1–22 to diagram assignments for the 14-day window | 1–22 (and 201–210 as template) |
+| **Fortnight Roster** | Each fortnight | Maps swinger lines 201–210 to their actual diagram assignments for that fortnight | 201–210 |
+| **Weekday Schedule** | Annually (or as needed) | Per-diagram detail for weekday diagrams (3151–3168): sign-on, sign-off, KMs, total hrs | All weekday diagrams |
+| **Weekend Schedule** | Annually (or as needed) | Per-diagram detail for weekend diagrams (3651–3664): sign-on, sign-off, KMs, total hrs | All weekend diagrams |
 
-### FR-U4: File validation
-- File type validation: PDF and XLSX only
-- File size limit: 10 MB
+### 6.2 Roster lookup rules (FR-R1)
+
+**Lines 1–22 (permanent lines):**
+1. Look up master roster → get diagram name for each of the 14 days
+2. Look up weekday or weekend schedule (based on day-of-week) → get sign-on, sign-off, KMs
+3. Display roster source badge: **"✓ Master roster"**
+4. Fallback: if master roster not uploaded, use built-in `roster.json` data
+
+**Lines 201–210 (swinger lines):**
+1. Look up **fortnight roster** → get diagram name for each of the 14 days
+2. Look up schedule file → get sign-on, sign-off, KMs
+3. Display roster source badge: **"✓ Fortnight roster"**
+4. Fallback order: fortnight roster → master roster → built-in data
+5. Always indicate which source was used; swinger line notice shown when entering 201+ line
+
+### 6.3 KM auto-fill (FR-R2)
+
+When a weekday or weekend schedule is uploaded:
+- Each diagram's KM distance is extracted (`Distance: NNN.NNN Km` from schedule text)
+- When a roster line is loaded, KMs are automatically populated for each work day
+- "✓ KMs auto-filled from schedule" indicator shown in the Setup tab
+
+### 6.4 Master Roster upload (FR-U1)
+- Endpoint: `POST /api/parse-master-roster`
+- File format: ZIP archive (disguised as .pdf) containing `manifest.json` + `.txt` + `.jpeg` per page
+- Parser extracts for each roster line (1–22, 201–210): per-day diagram name, sign-on, sign-off, cross-midnight flag, rostered hours, fatigue units
+- Uploaded once per year; replaces built-in roster data for lines 1–22
+
+### 6.5 Fortnight Roster upload (FR-U2)
+- Endpoint: `POST /api/parse-fortnight-roster`
+- Same ZIP format as master roster
+- Used exclusively for swinger lines 201–210
+- Uploaded at the start of each fortnight
+
+### 6.6 Schedule upload (FR-U3) — weekday or weekend
+- Endpoint: `POST /api/parse-schedule`
+- Same ZIP format; weekday vs weekend auto-detected from filename (DRWD = weekday, DRWE = weekend)
+- Extracts per diagram: sign-on (12-hr → 24-hr converted), sign-off, total shift hours, distance (KM), cross-midnight
+- Diagram number is the primary key (e.g. `"3151"`)
+
+### 6.7 Payslip upload (FR-U4)
+- Endpoint: `POST /api/parse-payslip`
+- Supports: `NSW_Payslip.xlsx`, `Sydney_Crew_Payslip.xlsx`, PDF payslips
+- Extracts: payroll code, description, hours, rate, amount per line item
+- Total gross displayed alongside calculated results for variance comparison
+
+### 6.8 Legacy fortnight roster PDF (FR-U5)
+- Endpoint: `POST /api/parse-roster` (legacy)
+- Older table-based PDF format — extracts sign-on/sign-off only
+- Used to pre-fill actual times in Daily Entry
+
+### 6.9 File validation (FR-U6)
+- File type: any (ZIP-based roster files have .pdf extension — no content-type restriction)
+- File size: 10 MB maximum
 - Rejected files return a clear error message
-- All uploaded files are stored temporarily (session-scoped, deleted after 1 hour)
 
 ---
 
 ## 7. Functional Requirements
 
-### FR-01: Fortnight Setup
-- User selects roster line number (1–22, 201–210)
+### FR-01: Fortnight Setup (updated v3.1)
+- User selects roster line number (1–22 or 201–210)
 - User sets fortnight start date (snapped to Sunday)
 - Auto-detect short vs long fortnight
-- Prominent SHORT / LONG display with plain-English explanation
-- Public holiday dates (comma-separated YYYY-MM-DD)
+- Public holiday dates entry
 - Payslip total for variance audit
-- **New (v3.0):** Upload roster PDF button — pre-fills daily entry from parsed PDF
+- **Step 1 (upload, do before loading line):**
+  - Master Roster upload card
+  - Fortnight Roster upload card
+  - Weekday Schedule upload card
+  - Weekend Schedule upload card
+- **Step 2 (load line):**
+  - Swinger line notice (201+) showing which roster will be used
+  - Lines 1–22 notice showing master roster will be used
+  - Roster source badge after loading
+  - KMs auto-fill indicator if schedule is uploaded
+- Legacy: Payslip upload card + legacy fortnight roster PDF card
 
 ### FR-02: Daily entry
 - 14 collapsible day rows
-- Work-shift day: actual start/end, KMs, WOBOD, cross-midnight, Use rostered, leave type
+- Work-shift day: actual start/end, KMs (auto-filled if schedule uploaded), WOBOD, cross-midnight, Use rostered, leave type
 - OFF/ADO day: diagram input, Load diagram, Worked (no diagram), reset banner
 - Fill all with rostered times button
-- **New (v3.0):** If roster PDF was uploaded and parsed, "Apply uploaded roster" button appears in toolbar
 
-### FR-03: Pay calculation (server-side in v3.0)
-- API endpoint `POST /api/calculate` accepts fortnight state JSON
-- Returns per-day components and fortnight summary
-- Calculation logic lives in Python backend (`calculator.py`), not in the browser
-- Frontend renders results from API response
-- Real-time per-day preview still available (lightweight client-side calculation for immediate feedback; server calculation is authoritative for final results)
+### FR-03: Pay calculation
+- `POST /api/calculate` — server-side EA 2025 engine
+- Client-side preview for immediate feedback while typing
+- KM credits calculated from the km field (auto-filled or manual)
 
 ### FR-04: Results
-- Summary metric cards: gross pay, actual hours, daily OT hours, fortnight OT / KM bonus
-- 14-day breakdown table with colour coding
-- Component totals table with payroll code column
-- Audit section: payslip variance, OT alerts, KM notes, ADO payout, compliance flags
-- **New (v3.0):** If payslip was uploaded, side-by-side comparison table per line item
-- **New (v3.0):** Export to PDF button (server-rendered)
-- **New (v3.0):** Export to CSV button
+- Summary metric cards: gross pay, actual hours, OT hours, ADO payout
+- 14-day breakdown table
+- Component totals table with payroll codes
+- Payslip comparison (if payslip uploaded)
+- Export PDF and CSV
+- Audit section: flags, variance, OT alerts, KM notes
 
 ### FR-05: Configuration
 - All pay rates configurable with EA references
 - All payroll codes configurable
 - Un-associated duties amount and code
-- Config saved to backend (user session) and localStorage fallback
+- Config saved to localStorage
 
 ### FR-06: KM table reference
-- Full Cl. 146.4 table in dedicated tab
-- All rule notes
+- Full Cl. 146.4 reference table
 
 ### FR-07: Reset and toggling
 - Diagram picker always has a reset path
 - No irrecoverable locked state
 
 ### FR-08: ADO handling
-- Short/long auto-detect
+- Short/long auto-detect from roster data
 - Short: ADO paid; Long: ADO accruing
-- Audit flags fortnight type and ADO amount
 
 ### FR-09: Lift-up / Layback / Buildup
 - Auto-detected from actual vs rostered
 - Ordinary/OT split at 8-hr boundary
-- Not applied with WOBOD
 
 ### FR-10: Cross-midnight shifts
-- Auto-detected; manual override
+- Auto-detected from schedule data (cm flag) or manual override
 - Next-day rules applied to post-midnight hours
 
 ---
@@ -258,46 +298,45 @@ Mt Victoria is an intercity depot on the Blue Mountains line. Key characteristic
 ## 8. Non-Functional Requirements
 
 ### NFR-01: Architecture
-- React (Vite) frontend, FastAPI (Python) backend
+- React (Vite) frontend, FastAPI (Python 3.11) backend
 - Single-repo monorepo: `frontend/` and `backend/` directories
-- Deployable to Vercel (frontend) + Railway / Render (backend)
-- Frontend can operate in "offline mode" (client-side calculation only) when backend is unavailable
+- Deployed: Vercel (frontend) + Render free tier (backend)
+- `/legacy` route serves the original `index.html` calculator as fallback
+- Frontend operates in "offline mode" (client-side preview) when backend is unavailable
 
 ### NFR-02: Performance
-- API response for `/api/calculate` < 200ms
-- Frontend renders result within 100ms of API response
-- PDF parsing < 5 seconds for typical roster PDF
+- API response for `/api/calculate` < 200ms (warm)
+- Render free tier cold start: ~30s accepted (personal use)
+- Schedule/roster ZIP parsing < 3 seconds
 
 ### NFR-03: Browser compatibility
 - Chrome, Firefox, Safari (desktop and mobile)
 - Mobile-responsive (breakpoint at 768px)
 
 ### NFR-04: Data persistence
-- Config saved to localStorage + backend session
-- Uploaded files: session-scoped, auto-deleted after 1 hour
+- Config saved to localStorage
 - No long-term user data storage (no accounts, no database)
+- Uploaded files processed in-memory only; not stored server-side
 
 ### NFR-05: Accuracy
 - All amounts rounded to 2 decimal places
 - EA rounding rules applied exactly (Cl. 134.3(b))
 - KM credit table exact per EA 2025
-- No floating-point display artifacts
 
 ### NFR-06: Security
-- File uploads: type and size validation
-- No user authentication required (single-user local tool)
-- Uploaded files never persisted beyond session
-- CORS restricted to frontend origin
+- CORS: allow_origins=["*"] (personal tool, no sensitive data)
+- No user authentication required
 
 ### NFR-07: Maintainability
 - All EA clause references visible in UI
 - Pay rates configurable without code changes (config.yaml)
-- Roster data in a separate JSON file (roster.json), not hardcoded
+- Roster data in `backend/data/roster.json` (built-in fallback)
+- ZIP-based roster/schedule files replace built-in data when uploaded
 - PRD updated before any implementation change
 
 ### NFR-08: Auditability
 - Every pay component shows: name, EA ref, payroll code, hours, rate, amount
-- Audit section highlights anomalies, compliance alerts, payslip variances
+- Roster source always indicated in UI (Master / Fortnight / Built-in)
 
 ---
 
@@ -308,8 +347,8 @@ Mt Victoria is an intercity depot on the Blue Mountains line. Key characteristic
 interface DayState {
   date: string;           // YYYY-MM-DD
   dow: number;            // 0=Sun, 6=Sat
-  ph: boolean;            // is public holiday
-  diag: string;           // diagram name ('3158 RK', 'OFF', 'ADO')
+  ph: boolean;
+  diag: string;           // '3158 RK' | 'OFF' | 'ADO'
   _origDiag?: string;     // original before manual override
   rStart: string | null;  // rostered start HH:MM
   rEnd: string | null;    // rostered end HH:MM
@@ -318,12 +357,12 @@ interface DayState {
   aStart: string;         // actual start HH:MM
   aEnd: string;           // actual end HH:MM
   wobod: boolean;
-  km: number;
-  leaveCat: string;       // 'none' | 'SL' | 'AL' | ...
+  km: number;             // KM distance (auto-filled from schedule if available)
+  leaveCat: string;
   manualDiag: string | null;
   manualDiagInput: string;
   workedOnOff: boolean;
-  isShortFortnight: boolean; // set by calcAll
+  isShortFortnight: boolean;
 }
 ```
 
@@ -334,56 +373,67 @@ interface DayState {
   "roster_line": 7,
   "public_holidays": ["2025-08-11"],
   "payslip_total": 4250.00,
-  "config": { ...rates },
-  "codes": { ...payroll_codes },
-  "days": [ ...DayState[] ]
+  "config": { "base_rate": 49.81842, "..." },
+  "codes": { "base": "ORD", "..." },
+  "days": [ "...DayState[]" ],
+  "unassoc_amt": 0.0
 }
 ```
 
 ### 9.3 API response — `POST /api/calculate`
+*(unchanged from v3.0 — see §9.3 above)*
+
+### 9.4 API response — `POST /api/parse-master-roster` and `POST /api/parse-fortnight-roster`
 ```json
 {
-  "fortnight_type": "short",
-  "ado_payout": 398.55,
-  "total_hours": 84.5,
-  "total_pay": 4389.22,
-  "days": [
-    {
-      "date": "2025-08-10",
-      "diag": "3158 RK",
-      "day_type": "weekday",
-      "hours": 9.08,
-      "total_pay": 512.33,
-      "components": [
-        { "name": "Ordinary time", "ea": "Sch. 4A", "code": "ORD", "hrs": 8.0, "rate": "$49.82/hr", "amount": 398.55 },
-        { "name": "OT — first 2 hrs", "ea": "Cl. 140.1", "code": "OT1", "hrs": 1.08, "rate": "1.5x", "amount": 80.81 }
-      ],
-      "flags": ["Daily OT: 1.08 hrs"]
-    }
-  ],
-  "component_totals": { "Ordinary time": 3200.44, "OT — first 2 hrs": 450.10 },
-  "audit": {
-    "payslip_variance": -139.22,
-    "fn_ot_hrs": 8.5,
-    "km_bonus_hrs": 2.0,
-    "flags": ["Fortnight OT: 8.5 hrs above 76-hr threshold"]
-  }
+  "source_file": "Mt_Victoria_Drivers_Master.pdf",
+  "line_type": "master",
+  "fn_start": "2025-08-10",
+  "fn_end": "2025-08-23",
+  "lines": {
+    "1": [
+      { "diag": "OFF",       "r_start": null,    "r_end": null,    "cm": false, "r_hrs": 0.0 },
+      { "diag": "3151 SMB",  "r_start": "00:51", "r_end": "09:18", "cm": false, "r_hrs": 8.45 }
+    ],
+    "201": [
+      { "diag": "OFF",       "r_start": null,    "r_end": null,    "cm": false, "r_hrs": 0.0 },
+      { "diag": "SBY",       "r_start": "05:00", "r_end": "13:00", "cm": false, "r_hrs": 8.0 }
+    ]
+  },
+  "warnings": []
 }
 ```
 
-### 9.4 API response — `POST /api/parse-roster`
+### 9.5 API response — `POST /api/parse-schedule`
 ```json
 {
   "source_file": "MTVICDRWD191025_1_weekday.pdf",
-  "parsed_days": [
-    { "date": "2025-10-19", "diagram": "3158 RK", "sign_on": "03:36", "sign_off": "12:41", "confidence": 0.95 },
-    { "date": "2025-10-20", "diagram": "OFF", "sign_on": null, "sign_off": null, "confidence": 1.0 }
-  ],
-  "warnings": ["Day 3 sign-off time unclear — please verify"]
+  "schedule_type": "weekday",
+  "diagrams": {
+    "3151": {
+      "diag_num": "3151",
+      "day_type": "weekday",
+      "sign_on": "00:51",
+      "sign_off": "09:18",
+      "r_hrs": 8.45,
+      "km": 254.109,
+      "cm": false
+    },
+    "3152": {
+      "diag_num": "3152",
+      "day_type": "weekday",
+      "sign_on": "01:00",
+      "sign_off": "09:00",
+      "r_hrs": 8.0,
+      "km": 0.0,
+      "cm": false
+    }
+  },
+  "warnings": []
 }
 ```
 
-### 9.5 API response — `POST /api/parse-payslip`
+### 9.6 API response — `POST /api/parse-payslip`
 ```json
 {
   "source_file": "NSW_Payslip.xlsx",
@@ -392,13 +442,26 @@ interface DayState {
   "period_end": "2025-08-23",
   "total_gross": 4250.00,
   "line_items": [
-    { "code": "ORD", "description": "Ordinary time", "hours": 72.0, "rate": 49.82, "amount": 3587.04 },
-    { "code": "OT1", "description": "Overtime 1.5x", "hours": 8.0, "rate": 74.73, "amount": 597.84 }
+    { "code": "ORD", "description": "Ordinary time", "hours": 72.0, "rate": 49.82, "amount": 3587.04 }
   ]
 }
 ```
 
-### 9.6 Roster data format (roster.json)
+### 9.7 Roster ZIP file format (internal)
+```
+my_roster.pdf  (ZIP archive)
+├── manifest.json           → { "num_pages": 2, "pages": [...] }
+├── 1.txt                   → text layer of page 1 (roster data)
+├── 1.jpeg                  → image layer of page 1
+├── 2.txt
+└── 2.jpeg
+```
+
+Parsed roster text format per day entry:
+- `OFF` or `ADO` — single token, no times
+- `HH:MM - HH:MM[L]  HH:MMW  DIAGRAM_NAME  F\d+` — where `L` = cross-midnight, `W` = working hours, `F\d+` = fatigue units (consumed by parser, not stored)
+
+### 9.8 Built-in roster.json (fallback)
 ```json
 {
   "1": [
@@ -407,9 +470,7 @@ interface DayState {
   ]
 }
 ```
-
-### 9.7 Config (config.yaml / API config object)
-Same structure as v2.0 config — all rates and multipliers. Stored in `backend/config.yaml`.
+Used only when no master/fortnight roster has been uploaded.
 
 ---
 
@@ -439,81 +500,112 @@ Same structure as v2.0 config — all rates and multipliers. Stored in `backend/
 
 ## 11. Roster Lines — Mt Victoria
 
-All 32 roster lines stored in `backend/data/roster.json`.
-- **1–22**: Fixed permanent roster lines
-- **201–210**: Standby / flexible lines (SBY)
+### 11.1 Permanent lines (1–22)
+- Fixed patterns; do not change fortnight to fortnight
+- Data source priority: **uploaded master roster → built-in roster.json**
+- Each line: 14 entries (one per day, Sunday–Saturday–Sunday)
+- Diagram assignments come from master roster; timing detail from schedule files
 
-Each line: 14 entries (one per fortnight day, starting Sunday).
+### 11.2 Swinger lines (201–210)
+- Flexible standby positions
+- **Diagram assignments change every fortnight** (sourced from fortnight roster)
+- Data source priority: **uploaded fortnight roster → uploaded master roster → built-in roster.json**
+- Always show swinger line notice in Setup tab when line 201+ is entered
+
+### 11.3 Diagram numbering convention
+| Range | Day type | Schedule file |
+|-------|----------|---------------|
+| 3151–3168 | Weekday | Weekday schedule (DRWD) |
+| 3651–3664 | Weekend (Sat/Sun) | Weekend schedule (DRWE) |
+| SBY | Standby | No schedule entry (0 KMs) |
 
 ---
 
-## 12. UI Design Specification
+## 12. API Endpoints (v3.1)
 
-### 12.1 Layout
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET`  | `/health` | Health check |
+| `GET`  | `/api/roster` | Return built-in roster.json |
+| `GET`  | `/api/config` | Return EA 2025 rate config |
+| `POST` | `/api/calculate` | Full fortnight calculation |
+| `POST` | `/api/parse-master-roster` | Parse annual master roster ZIP |
+| `POST` | `/api/parse-fortnight-roster` | Parse per-fortnight swinger roster ZIP |
+| `POST` | `/api/parse-schedule` | Parse weekday or weekend schedule ZIP (auto-detected) |
+| `POST` | `/api/parse-roster` | Legacy: parse fortnight roster PDF (table format) |
+| `POST` | `/api/parse-payslip` | Parse NSW or Sydney Crew payslip XLSX/PDF |
+| `POST` | `/api/export/pdf` | Export results as PDF |
+| `POST` | `/api/export/csv` | Export results as CSV |
+
+---
+
+## 13. UI Design Specification
+
+### 13.1 Layout
 - React SPA with 5 tabs: **Setup**, **Daily Entry**, **Results**, **Rates & Codes**, **KM Table**
-- Header: app name, EA version badge, upload status indicator
+- Legacy `index.html` served at `/legacy` as fallback
 - Responsive: single-column mobile (<768px), multi-column desktop
 
-### 12.2 Setup tab
-- Row 1 (3 cols): Roster line | Fortnight start date | Fortnight type
-- Row 2 (2 cols): Public holidays | Payslip total
-- **New:** Upload roster PDF card (drag-drop or browse) with parse status
-- **New:** Upload payslip card (XLSX or PDF) with parse status
-- Load button + fortnight preview (line, dates, work days, ADO, SHORT/LONG)
-- Date chips row (work/ADO/off colour coded)
-- Shift penalty reference table
+### 13.2 Setup tab (v3.1)
 
-### 12.3 Daily Entry tab
-- Toolbar: Calculate (API call) | Fill all rostered | **Apply uploaded roster** (if parsed) | Line/date label
-- 14 collapsible day rows
-- Work-shift day: start/end/KMs/WOBOD/cross-midnight/Use rostered + leave selector + result preview
-- OFF/ADO day: diagram input + Load + Worked + reset banner
+**Step 1 — Upload rosters & schedules** (do before loading a line)
+- Upload card: **Master Roster** (annual, lines 1–22) — `Mt_Victoria_Drivers_Master.pdf`
+- Upload card: **Fortnight Roster** (swinger lines 201–210) — upload each fortnight
+- Upload card: **Weekday Schedule** — diagrams 3151–3168, auto-fills KMs + times
+- Upload card: **Weekend Schedule** — diagrams 3651–3664, auto-fills KMs + times
 
-### 12.4 Results tab
-- 4 metric cards
-- 14-day table
-- Component totals table with payroll codes
-- **New:** Payslip comparison table (if payslip uploaded) — side-by-side per line item with variance column
-- **New:** Export PDF and Export CSV buttons
-- Audit section
+**Step 2 — Load roster line**
+- Roster line input (1–22 or 201–210)
+- Swinger line info banner (when 201+ entered): shows which roster will be used
+- Lines 1–22 info banner: shows master roster will be used
+- Fortnight start date, public holidays, payslip total
+- **Load roster line** button
+- After loading: roster source badge + KM auto-fill indicator + date chips
 
-### 12.5 Rates & Codes tab
-- Rate config grid with EA refs
-- Payroll code grid
-- Un-associated duties
+**Below: payslip and legacy uploads**
+- Payslip upload card (for comparison)
+- Legacy fortnight roster PDF card (for sign-on/sign-off pre-fill)
 
-### 12.6 KM Table tab
-- Full Cl. 146.4 table
-- Rule notes
+### 13.3 Daily Entry tab
+*(unchanged from v3.0)*
+
+### 13.4 Results tab
+*(unchanged from v3.0)*
+
+### 13.5 Rates & Codes tab
+*(unchanged from v3.0)*
+
+### 13.6 KM Table tab
+*(unchanged from v3.0)*
 
 ---
 
-## 13. Known Limitations and Out of Scope
+## 14. Known Limitations and Out of Scope
 
 | Item | Status |
 |------|--------|
-| Back pay (4% to May 2024) calculation | Out of scope — payroll handles retroactively |
+| Back pay (4% to May 2024) | Out of scope |
 | Superannuation | Out of scope |
 | Tax / net pay | Out of scope — gross pay only |
-| Multi-driver / depot-wide use | Out of scope for v3 — single-user tool |
-| Leave accrual balances | Out of scope — pay amount only |
-| Penalty rate changes mid-fortnight | Out of scope |
+| Multi-driver / depot-wide use | Out of scope for v3 |
+| Leave accrual balances | Out of scope |
 | Other depots' roster lines | Out of scope — Mt Victoria only |
+| Per-day-of-week diagram variants (e.g. 3153 Monday vs 3153 Tuesday) | First occurrence used for KM lookup; typically same distance |
 
 ---
 
-## 14. Future Enhancements (Backlog)
+## 15. Future Enhancements (Backlog)
 
 - Save and compare multiple fortnights (history view)
-- Support for other Sydney Trains depots (Lithgow, Penrith)
+- Support for other Sydney Trains depots
 - Mobile PWA wrapper (offline, home screen install)
 - Automated EA update when new rates are published
-- Notification when a new fortnight starts
-- Improved OCR for scanned roster PDFs
+- Per-day-of-week diagram lookup (currently uses first occurrence per diagram number)
+- Improved OCR for non-standard roster formats
 
 ---
 
-## 15. Version History
+## 16. Version History
 
 | Version | Date | Summary |
 |---------|------|---------|
@@ -521,6 +613,7 @@ Each line: 14 entries (one per fortnight day, starting Sunday).
 | 1.1 | March 2026 | Lift-up/layback/buildup, ADO pay, manual diagram entry, reset toggle |
 | 2.0 | April 2026 | Full PRD written; redesigned UI; leave categories; payslip audit |
 | 3.0 | April 2026 | Architecture change: React frontend + FastAPI backend; file upload requirements; solution design; PRD-first process rule |
+| 3.1 | April 2026 | Roster architecture redesign: master roster (lines 1–22, annual), fortnight roster (lines 201–210, per-fortnight), weekday/weekend schedule files (KM auto-fill). New API endpoints. Swinger line rules. Roster source indicator. ZIP file format documented. |
 
 ---
 
