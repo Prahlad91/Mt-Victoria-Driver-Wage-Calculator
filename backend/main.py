@@ -22,12 +22,11 @@ app = FastAPI(
     version="3.0.0",
 )
 
-# CORS — allow the Vercel frontend origin in production
-ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
+# CORS — allow all origins (personal tool, no sensitive data)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ORIGINS,
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -35,7 +34,7 @@ app.add_middleware(
 DATA_DIR = Path(__file__).parent / "data"
 
 
-# ─── Health ──────────────────────────────────────────────────────────────────
+# ─── Health ───────────────────────────────────────────────────────────────────
 
 @app.get("/health")
 def health():
@@ -101,7 +100,7 @@ async def upload_payslip(file: UploadFile = File(...)):
     allowed = [
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "application/pdf",
-        "application/octet-stream",  # some browsers send this for xlsx
+        "application/octet-stream",
     ]
     _validate_upload(file, allowed_types=allowed, max_mb=10)
     content = await file.read()
@@ -115,10 +114,7 @@ async def upload_payslip(file: UploadFile = File(...)):
 
 @app.post("/api/export/pdf")
 def export_pdf(result: CalculateResponse):
-    """
-    Render a PDF report from a CalculateResponse.
-    PRD §FR-04 (export), Solution Design §4.5
-    """
+    """Render a PDF report from a CalculateResponse. PRD §FR-04"""
     try:
         pdf_bytes = render_pdf(result)
         return StreamingResponse(
@@ -132,10 +128,7 @@ def export_pdf(result: CalculateResponse):
 
 @app.post("/api/export/csv")
 def export_csv(result: CalculateResponse):
-    """
-    Render a CSV report from a CalculateResponse.
-    PRD §FR-04 (export), Solution Design §4.5
-    """
+    """Render a CSV report from a CalculateResponse. PRD §FR-04"""
     try:
         csv_text = render_csv(result)
         return StreamingResponse(
@@ -156,5 +149,3 @@ def _validate_upload(file: UploadFile, allowed_types: list[str], max_mb: int):
             status_code=415,
             detail=f"Unsupported file type: {file.content_type}. Allowed: {', '.join(allowed_types)}",
         )
-    # Size check happens after read — for now, rely on server limits
-    # (configurable via reverse proxy / Render settings)
