@@ -26,7 +26,6 @@ from models import (
 )
 
 _VALID_LINES = set(list(range(1, 23)) + list(range(201, 211)))
-
 _TIME_RE = re.compile(r'^\d{1,2}:\d{2}$')
 _WHRS_RE = re.compile(r'^\d{1,2}:\d{2}[Ww]$')
 _FAT_RE  = re.compile(r'^F\d+$')
@@ -37,10 +36,10 @@ def _norm_time(t: str) -> str:
     return f'{int(h):02d}:{m}'
 
 
-# ─── Text extraction ───────────────────────────────────────────────────────────
+# ─── Text extraction (roster — single column / table layout) ──────────────────
 
 def _extract_text_from_file(file_bytes: bytes) -> str:
-    """Extract text from ZIP (Sydney Trains app format) or real PDF."""
+    """Extract text from ZIP (Sydney Trains app) or real PDF (default scan order)."""
     try:
         with ZipFile(io.BytesIO(file_bytes)) as zf:
             if 'manifest.json' in zf.namelist():
@@ -54,7 +53,7 @@ def _extract_text_from_file(file_bytes: bytes) -> str:
         pass
 
     if pdfplumber is None:
-        raise RuntimeError('pdfplumber not installed. Run: pip install pdfplumber')
+        raise RuntimeError('pdfplumber not installed.')
     try:
         with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
             full_text = ''
@@ -63,17 +62,62 @@ def _extract_text_from_file(file_bytes: bytes) -> str:
                 full_text += page_text + '\n'
             return full_text
     except Exception as e:
-        raise ValueError(
-            f'Could not read file as ZIP or PDF. Details: {e}'
-        )
+        raise ValueError(f'Could not read file as ZIP or PDF. Details: {e}')
 
 
-# ─── Roster parser ─────────────────────────────────────────────────────────────
+# ─── Text extraction (schedule — TWO-COLUMN PDF layout) ───────────────────────
+# PRD §6.6 v3.8: Sydney Trains schedule PDFs are 2-column. Default
+# extract_text() reads left-to-right across BOTH columns line by line, jumbling
+# diagrams together. We must crop each page in half and extract each column
+# separately, otherwise:
+#   - ~half the diagrams get missed entirely (only one column header is found
+#     per page; the second is captured into the first's day_type field)
+#   - "Time off duty" gets pulled from the wrong column (e.g. 3155's value gets
+#     attributed to 3154 because the columns are interleaved in the text stream)
+
+def _extract_schedule_text_from_file(file_bytes: bytes) -> str:
+    """
+    Extract schedule text. ZIP path stays as-is (those text files are
+    pre-organised per diagram). PDF path uses column-aware extraction.
+    """
+    # Try ZIP first
+    try:
+        with ZipFile(io.BytesIO(file_bytes)) as zf:
+            if 'manifest.json' in zf.namelist():
+                manifest = json_mod.loads(zf.read('manifest.json'))
+                full_text = ''
+                for page in manifest['pages']:
+                    page_text = zf.read(page['text']['path']).decode('utf-8', errors='replace')
+                    full_text += page_text + '\n'
+                return full_text
+    except (BadZipFile, KeyError, Exception):
+        pass
+
+    # Real PDF — column-aware extraction
+    if pdfplumber is None:
+        raise RuntimeError('pdfplumber not installed.')
+    try:
+        with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+            full_text = ''
+            for page in pdf.pages:
+                mid = page.width / 2
+                # Small overlap (5pt) so text right at the boundary isn't lost
+                left  = page.crop((0,           0, mid + 5,    page.height))
+                right = page.crop((mid - 5,     0, page.width, page.height))
+                left_text  = left.extract_text()  or ''
+                right_text = right.extract_text() or ''
+                # Newline between columns ensures regex sees them as separate blocks
+                full_text += left_text + '\n' + right_text + '\n'
+            return full_text
+    except Exception as e:
+        raise ValueError(f'Could not read schedule PDF. Details: {e}')
+
+
+# ─── Roster parser (unchanged) ─────────────────────────────────────────────────
 
 def parse_roster_zip(file_bytes: bytes, filename: str) -> ParsedRosterResponse:
-    """Parse a roster file (ZIP or PDF). Master roster (lines 1-22) or fortnight swinger (201-210)."""
+    """Parse roster file (ZIP or PDF)."""
     warnings: list[str] = []
-
     full_text = _extract_text_from_file(file_bytes)
     text = full_text.replace('\r\n', '\n').replace('\r', '\n')
 
@@ -158,33 +202,21 @@ def _parse_day_entries(section_text: str) -> list[RosterDayEntry]:
     return days
 
 
-# ─── Schedule parser (v3.7: hardened diagram-block detection) ──────────────────
+# ─── Schedule parser (v3.8: 2-column PDF support) ──────────────────────────────
 
-# Time patterns for labelled extraction — tried in order, most-specific first.
 _TIME_PATTERNS_FOR_LABEL = [
-    # 12-hour with am/pm: "9:18a", "9:18 am", "12:51AM"
     r'(\d{1,2}\s*:\s*\d{2}\s*[AaPp][Mm]?)',
-    # 24-hour: "09:18", "17:30"
     r'(\d{1,2}\s*:\s*\d{2})',
 ]
 
 
 def _flexible_label_pattern(label: str) -> str:
-    """
-    Convert a literal label like 'Sign on' or 'Time off duty' to a flexible
-    regex that tolerates internal whitespace and hyphen variations.
-
-    'Sign on'        -> r'Sign\\s*[-]?\\s*on'
-    'Time off duty'  -> r'Time\\s*[-]?\\s*off\\s*[-]?\\s*duty'
-
-    Matches 'Sign on', 'Signon', 'Sign-on', 'Sign  on' etc.
-    """
+    """'Sign on' -> r'Sign\\s*[-]?\\s*on'"""
     parts = label.split()
     return r'\s*[-]?\s*'.join(re.escape(p) for p in parts)
 
 
 def _extract_labeled_time(label: str, text: str) -> str | None:
-    """Find the first time value following a label (case-insensitive, flexible spacing)."""
     label_pat = _flexible_label_pattern(label)
     for tp in _TIME_PATTERNS_FOR_LABEL:
         m = re.search(rf'{label_pat}\s*:?\s*{tp}', text, re.IGNORECASE)
@@ -193,11 +225,6 @@ def _extract_labeled_time(label: str, text: str) -> str | None:
     return None
 
 
-# Diagram-block header. v3.7 tightening:
-#   * Require 3- or 4-digit number (real diagrams: 3xxx). Avoids false matches
-#     like "No. 2 of 5 cars" or page-number text "Page No. 2".
-#   * Anchor to start-of-line (after a newline) to avoid mid-paragraph hits.
-#   * Capture the day-type token (rest of line) for weekday/weekend tagging.
 _NO_RE = re.compile(
     r'(?:^|\n)\s*No\.\s+(\d{3,4})\s+([^\n]+)',
     re.MULTILINE,
@@ -207,6 +234,7 @@ _NO_RE = re.compile(
 def parse_schedule_zip(file_bytes: bytes, filename: str) -> ParsedScheduleResponse:
     """
     Parse a schedule file (ZIP or PDF).
+    PRD §6.6: PDFs are 2-column — extracted column-by-column to keep diagrams intact.
     Per diagram, extracts:
       - sign_on  ← from "Sign on" line                  (scheduled START)
       - sign_off ← from "Time off duty" line            (scheduled END)
@@ -216,7 +244,8 @@ def parse_schedule_zip(file_bytes: bytes, filename: str) -> ParsedScheduleRespon
     """
     warnings: list[str] = []
 
-    full_text = _extract_text_from_file(file_bytes)
+    # v3.8: column-aware text extraction for the schedule PDF case
+    full_text = _extract_schedule_text_from_file(file_bytes)
 
     fname_upper = filename.upper()
     if 'DRWD' in fname_upper or 'WEEKDAY' in fname_upper:
@@ -227,7 +256,6 @@ def parse_schedule_zip(file_bytes: bytes, filename: str) -> ParsedScheduleRespon
         schedule_type = 'weekday'
 
     text = full_text.replace('\r\n', '\n').replace('\r', '\n')
-
     blocks = list(_NO_RE.finditer(text))
 
     diagrams: dict[str, DiagramInfo] = {}
@@ -241,27 +269,20 @@ def parse_schedule_zip(file_bytes: bytes, filename: str) -> ParsedScheduleRespon
         block_end    = blocks[idx + 1].start() if idx + 1 < len(blocks) else len(text)
         block_text   = text[block_start:block_end]
 
-        # Skip if we've already seen this diagram (first occurrence wins —
-        # diagrams sometimes repeat across pages of the schedule).
+        # First occurrence wins (diagrams may repeat e.g. Monday-only and Tue-Fri variants)
         if diag_num in diagrams:
             continue
 
         sign_on_raw  = _extract_labeled_time('Sign on',       block_text)
         sign_off_raw = _extract_labeled_time('Time off duty', block_text)
 
-        try:
-            sign_on  = _parse_time_str(sign_on_raw)  if sign_on_raw  else None
-        except ValueError:
-            sign_on = None
-        try:
-            sign_off = _parse_time_str(sign_off_raw) if sign_off_raw else None
-        except ValueError:
-            sign_off = None
+        try:    sign_on  = _parse_time_str(sign_on_raw)  if sign_on_raw  else None
+        except ValueError: sign_on = None
+        try:    sign_off = _parse_time_str(sign_off_raw) if sign_off_raw else None
+        except ValueError: sign_off = None
 
-        if sign_on is None:
-            failed_signon.append(diag_num)
-        if sign_off is None:
-            failed_signoff.append(diag_num)
+        if sign_on  is None: failed_signon.append(diag_num)
+        if sign_off is None: failed_signoff.append(diag_num)
 
         total_m = re.search(r'Total\s*shift\s*:?\s*(\d{1,2}:\d{2})', block_text, re.IGNORECASE)
         km_m    = re.search(r'Distance\s*:?\s*([\d.]+)\s*Km', block_text, re.IGNORECASE)
@@ -290,21 +311,18 @@ def parse_schedule_zip(file_bytes: bytes, filename: str) -> ParsedScheduleRespon
             'Make sure this is a weekday or weekend schedule file (MTVICDRWD or MTVICDRWE).'
         )
     if failed_signon:
-        # De-dupe and limit list length for readability
         unique_failed = sorted(set(failed_signon), key=lambda s: int(s) if s.isdigit() else 0)
         warnings.append(
             f'Could not extract "Sign on" time for {len(unique_failed)} diagram(s): '
             f'{", ".join(unique_failed[:10])}'
-            f'{"..." if len(unique_failed) > 10 else ""}. '
-            f'Times may render as blank in the daily entry.'
+            f'{"..." if len(unique_failed) > 10 else ""}.'
         )
     if failed_signoff:
         unique_failed = sorted(set(failed_signoff), key=lambda s: int(s) if s.isdigit() else 0)
         warnings.append(
             f'Could not extract "Time off duty" time for {len(unique_failed)} diagram(s): '
             f'{", ".join(unique_failed[:10])}'
-            f'{"..." if len(unique_failed) > 10 else ""}. '
-            f'Schedule end time will fall back to master roster.'
+            f'{"..." if len(unique_failed) > 10 else ""}.'
         )
 
     return ParsedScheduleResponse(
@@ -317,26 +335,19 @@ def parse_schedule_zip(file_bytes: bytes, filename: str) -> ParsedScheduleRespon
 
 def _parse_time_str(t: str) -> str:
     """
-    Convert a time string in any supported format to 'HH:MM' (24-hour):
+    Convert various time string formats to 'HH:MM' (24-hour):
       '12:51a', '9:18a', '10:30p', '12:51 AM', '9:18 am', '10:30 PM',
       '09:18', '17:30', '9 : 18 PM'
     """
     t = re.sub(r'\s+', '', t.strip()).lower()
-
     has_am = t.endswith('am') or (t.endswith('a') and not t.endswith('pa'))
     has_pm = t.endswith('pm') or (t.endswith('p') and not t.endswith('ap'))
-
     t = re.sub(r'[apm]+$', '', t)
-
     if ':' not in t:
         raise ValueError(f'No colon in time: {t}')
     h, m = map(int, t.split(':'))
-
-    if has_pm and h != 12:
-        h += 12
-    elif has_am and h == 12:
-        h = 0
-
+    if has_pm and h != 12: h += 12
+    elif has_am and h == 12: h = 0
     if h < 0 or h > 23 or m < 0 or m > 59:
         raise ValueError(f'Invalid time: {t}')
     return f'{h:02d}:{m:02d}'
