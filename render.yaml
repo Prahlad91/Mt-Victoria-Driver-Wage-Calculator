@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: mt-victoria-wage-calc-api
+    name: mt-victoria-driver-wage-calculator
     runtime: python
     rootDir: backend
     buildCommand: pip install -r requirements.txt
