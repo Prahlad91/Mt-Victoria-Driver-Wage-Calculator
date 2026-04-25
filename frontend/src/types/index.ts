@@ -6,7 +6,7 @@
 
 export type TimeSource = 'schedule' | 'master' | 'builtin' | 'manual' | 'none'
 
-// ─── Day state ()
+// ─── Day state (PRD §9.1)
 export interface DayState {
   date: string;              // YYYY-MM-DD
   dow: number;               // 0=Sun, 6=Sat
@@ -15,14 +15,15 @@ export interface DayState {
   diagNum: string | null;    // parsed 4-digit number e.g. '3151'; null for OFF/ADO/SBY
   _origDiag?: string;        // original diagram name before manual override
   _origDiagNum?: string | null;  // original diagNum before override
-  rStart: string | null;     // SCHEDULED start HH:MM (read-only after load)
-  rEnd: string | null;       // SCHEDULED end HH:MM
+  rStart: string | null;     // SCHEDULED start HH:MM (editable from v3.10)
+  rEnd: string | null;       // SCHEDULED end HH:MM (editable from v3.10)
   cm: boolean;
   rHrs: number;              // scheduled hours
   aStart: string;            // ACTUAL start HH:MM (user-editable)
   aEnd: string;              // ACTUAL end HH:MM (user-editable)
   timeSource: TimeSource;    // where rStart/rEnd came from
   km: number;
+  claimLiftupLayback: boolean;  // NEW v3.10 — per-day toggle, default true (PRD §5.7 / FR-02-F)
   wobod: boolean;
   leaveCat: string;
   manualDiag: string | null;
