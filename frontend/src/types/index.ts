@@ -4,7 +4,7 @@
  * PRD ref: Section 9
  */
 
-// ─── Day state (frontend) ──────────────────────────────────────────────────
+// ─── Day state (frontend) ───────────────────────────────────────────────────────────
 
 export interface DayState {
   date: string;              // YYYY-MM-DD
@@ -27,7 +27,7 @@ export interface DayState {
   isShortFortnight: boolean; // set by context before API call
 }
 
-// ─── Config ────────────────────────────────────────────────────────────────
+// ─── Config ───────────────────────────────────────────────────────────────────
 
 export interface RateConfig {
   base_rate: number;
@@ -47,22 +47,10 @@ export interface RateConfig {
 }
 
 export interface PayrollCodes {
-  base: string;
-  ot1: string;
-  ot2: string;
-  sat: string;
-  sun: string;
-  sat_ot: string;
-  ph_wkd: string;
-  ph_wke: string;
-  afternoon: string;
-  night: string;
-  early: string;
-  add_load: string;
-  wobod: string;
-  liftup: string;
-  ado: string;
-  unassoc: string;
+  base: string; ot1: string; ot2: string; sat: string; sun: string;
+  sat_ot: string; ph_wkd: string; ph_wke: string; afternoon: string;
+  night: string; early: string; add_load: string; wobod: string;
+  liftup: string; ado: string; unassoc: string;
 }
 
 // ─── API request ───────────────────────────────────────────────────────────
@@ -78,97 +66,104 @@ export interface CalculateRequest {
   unassoc_amt: number;
 }
 
-// ─── API response ──────────────────────────────────────────────────────────
+// ─── API response ───────────────────────────────────────────────────────────
 
 export interface PayComponent {
-  name: string;
-  ea: string;
-  code: string;
-  hrs: string;
-  rate: string;
-  amount: number;
-  cls: string;
+  name: string; ea: string; code: string; hrs: string;
+  rate: string; amount: number; cls: string;
 }
 
 export interface DayResult {
-  date: string;
-  diag: string;
-  day_type: string;
-  hours: number;
-  paid_hrs: number;
-  total_pay: number;
-  components: PayComponent[];
-  flags: string[];
+  date: string; diag: string; day_type: string;
+  hours: number; paid_hrs: number; total_pay: number;
+  components: PayComponent[]; flags: string[];
 }
 
 export interface AuditResult {
-  payslip_variance?: number;
-  fn_ot_hrs: number;
-  km_bonus_hrs: number;
-  ado_payout: number;
-  fortnight_type: string;
-  flags: string[];
+  payslip_variance?: number; fn_ot_hrs: number;
+  km_bonus_hrs: number; ado_payout: number;
+  fortnight_type: string; flags: string[];
 }
 
 export interface CalculateResponse {
-  fortnight_start: string;
-  fortnight_type: 'short' | 'long';
-  total_hours: number;
-  total_pay: number;
-  ado_payout: number;
-  fn_ot_hrs: number;
-  days: DayResult[];
-  component_totals: Record<string, number>;
-  audit: AuditResult;
+  fortnight_start: string; fortnight_type: 'short' | 'long';
+  total_hours: number; total_pay: number; ado_payout: number; fn_ot_hrs: number;
+  days: DayResult[]; component_totals: Record<string, number>; audit: AuditResult;
 }
 
-// ─── Upload response types ─────────────────────────────────────────────────
+// ─── Legacy upload response types ────────────────────────────────────────────────
 
 export interface ParsedDayEntry {
-  date: string;
-  diagram: string;
-  sign_on: string | null;
-  sign_off: string | null;
-  confidence: number;
+  date: string; diagram: string;
+  sign_on: string | null; sign_off: string | null; confidence: number;
 }
 
 export interface ParseRosterResponse {
-  source_file: string;
-  parsed_days: ParsedDayEntry[];
-  warnings: string[];
+  source_file: string; parsed_days: ParsedDayEntry[]; warnings: string[];
 }
 
 export interface PayslipLineItem {
-  code: string;
-  description: string;
-  hours?: number;
-  rate?: number;
-  amount: number;
+  code: string; description: string;
+  hours?: number; rate?: number; amount: number;
 }
 
 export interface ParsePayslipResponse {
-  source_file: string;
-  format: string;
-  period_start?: string;
-  period_end?: string;
-  total_gross: number;
-  line_items: PayslipLineItem[];
-  warnings: string[];
+  source_file: string; format: string;
+  period_start?: string; period_end?: string;
+  total_gross: number; line_items: PayslipLineItem[]; warnings: string[];
 }
-
-// ─── Upload state (UI) ─────────────────────────────────────────────────────
 
 export type UploadStatus = 'idle' | 'uploading' | 'success' | 'error';
 
 export interface RosterUploadState {
-  status: UploadStatus;
-  result: ParseRosterResponse | null;
-  error: string | null;
-  applied: boolean;
+  status: UploadStatus; result: ParseRosterResponse | null;
+  error: string | null; applied: boolean;
 }
 
 export interface PayslipUploadState {
+  status: UploadStatus; result: ParsePayslipResponse | null; error: string | null;
+}
+
+// ─── New: roster ZIP upload types ─────────────────────────────────────────────────────
+
+export interface RosterDayEntry {
+  diag: string;              // '3151 SMB' | 'OFF' | 'ADO' | 'SBY' | ...
+  r_start: string | null;
+  r_end: string | null;
+  cm: boolean;
+  r_hrs: number;
+}
+
+export interface ParsedRosterData {
+  source_file: string;
+  line_type: 'master' | 'fortnight';
+  fn_start: string | null;   // YYYY-MM-DD
+  fn_end: string | null;     // YYYY-MM-DD
+  lines: Record<string, RosterDayEntry[]>;  // '1' -> [14], '201' -> [14]
+  warnings: string[];
+}
+
+// ─── New: schedule ZIP upload types ────────────────────────────────────────────────
+
+export interface DiagramInfo {
+  diag_num: string;          // e.g. '3151'
+  day_type: string;          // 'weekday' | 'saturday' | 'sunday'
+  sign_on: string | null;
+  sign_off: string | null;
+  r_hrs: number;
+  km: number;
+  cm: boolean;
+}
+
+export interface ParsedScheduleData {
+  source_file: string;
+  schedule_type: 'weekday' | 'weekend';
+  diagrams: Record<string, DiagramInfo>;  // '3151' -> {...}
+  warnings: string[];
+}
+
+export interface SimpleUploadState<T> {
   status: UploadStatus;
-  result: ParsePayslipResponse | null;
+  result: T | null;
   error: string | null;
 }
