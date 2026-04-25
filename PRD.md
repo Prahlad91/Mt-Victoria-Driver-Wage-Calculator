@@ -1,12 +1,12 @@
 # Product Requirements Document
 # Mt Victoria Driver Wage Calculator
 
-**Version:** 3.9
+**Version:** 3.10
 **Date:** April 2026
 **Author:** Prahlad Modi (Mt Victoria depot, Sydney Trains)
 **Status:** Active — governs all development on this repository
 
-> **Process rules (updated v3.9):**
+> **Process rules:**
 > 1. Any new input field, calculation change, or feature addition must be reflected in this PRD first (version bump + changelog entry), then implemented. The PRD is the single source of truth.
 > 2. **The PRD must be readable as a complete standalone document.** When bumping versions, the previous version's content MUST be preserved verbatim — only changed sections may be edited. Placeholder text like *"unchanged from v3.X"* is never acceptable; if a section hasn't changed, copy the previous wording forward unchanged. The reader of any version of this PRD should be able to understand every requirement without consulting prior versions or git history.
 
@@ -57,7 +57,8 @@ Mt Victoria is an intercity depot on the Blue Mountains line. Key characteristic
 - Roster lines are fortnightly repeating patterns; lines 1–22 are permanent/fixed, lines 201–210 are standby/swinger lines whose diagram assignments change every fortnight
 - The ADO system (19-day month) alternates short fortnights (ADO paid out) and long fortnights (ADO accruing)
 - Drivers frequently work shift swaps — taking a different diagram than originally rostered — on **any day of the fortnight**, including regular weekdays, Saturdays, Sundays, and public holidays. The ability to override the rostered diagram for any day is therefore a core operational need.
-- **Times and KMs come from the schedule file, not the master roster** — the master roster shows the assignment (which diagram on which day); the schedule file is the authoritative source for sign-on, sign-off and distance per diagram.
+- **Times and KMs come from the schedule file, not the master roster** — the master roster shows the assignment (which diagram on which day); the schedule file is the authoritative source for sign-on, sign-off and distance per diagram. Drivers may also override these values manually on any day if the schedule file is out of date.
+- Drivers may also choose, on a per-day basis, whether to claim lift-up/layback/buildup pay — for example when there is an informal arrangement with a manager, or when the driver doesn't want the scheduled-hours guarantee applied.
 
 ---
 
@@ -91,20 +92,22 @@ Mt Victoria is an intercity depot on the Blue Mountains line. Key characteristic
 | **Master Roster** | Annual roster document for lines 1–22. Published once a year. Defines which diagram (schedule number) each line works on each of the 14 days. Format: ZIP archive containing manifest.json + text + image layers, OR real PDF. |
 | **Fortnight Roster** | Per-fortnight roster document for swinger lines 201–210. Published every fortnight. Same ZIP/PDF format as master roster. Defines which diagram each swinger line works that fortnight. |
 | **Schedule file** | Per-diagram file (weekday or weekend). Authoritative source for sign-on, sign-off, total hours, and KM distance per diagram number. |
-| **Sign on** | The "Sign on" line in the schedule block (e.g. `Sign on 1:51a MOUNT VICTORIA`). Authoritative source for **scheduled start time**. |
-| **Time off duty** | The "Time off duty" line in the schedule block (e.g. `Time off duty : 11:21a`). Authoritative source for **scheduled end time**. |
-| **Distance** | The `Distance: NNN.NNN Km` line in the schedule block. Authoritative source for **KMs**. |
-| **Scheduled times** | Sign-on and sign-off for a day — looked up from the schedule file using the day's diagram number. Pre-populated on roster load; never changes after that unless the user applies a manual diagram override. |
+| **Sign on** | The "Sign on" line in the schedule block (e.g. `Sign on 1:51a MOUNT VICTORIA`). Authoritative source for **scheduled start time** (subject to manual user override per FR-02-B). |
+| **Time off duty** | The "Time off duty" line in the schedule block (e.g. `Time off duty : 11:21a`). Authoritative source for **scheduled end time** (subject to manual user override per FR-02-B). |
+| **Distance** | The `Distance: NNN.NNN Km` line in the schedule block. Authoritative source for **KMs** (subject to manual user override). |
+| **Scheduled times** | Sign-on and sign-off for a day — looked up from the schedule file using the day's diagram number. Pre-populated on roster load and editable by the user. |
 | **Actual times** | User-entered start and end times reflecting what actually happened. May differ from scheduled (lift-up, layback, late sign-off). Defaults to scheduled times on load; can be changed by user; can be re-synced via "Same as scheduled" button. |
-| **Time source** | Tags every day with where its scheduled times came from: `schedule` (from uploaded schedule file), `master` (from master roster), `builtin` (from built-in fallback data), `manual` (user override), `none` (OFF/ADO). |
+| **Effective window** | The pay-calculation window when **Claim lift-up/layback = Yes**: from `min(scheduled_start, actual_start)` to `max(scheduled_end, actual_end)`. Total worked hours = effective_end − effective_start. See §5.7. |
+| **Time source** | Tags every day with where its scheduled times came from: `schedule` (from uploaded schedule file), `master` (from master roster), `builtin` (from built-in fallback data), `manual` (user override or user-edited times), `none` (OFF/ADO). |
 | **Manual diagram override** | User-entered diagram number that replaces the roster-assigned diagram for a specific day. Searches BOTH weekday and weekend schedules to find the diagram. Applies to **any day type**: regular workday, Saturday, Sunday, public holiday, OFF, or ADO. |
+| **Claim lift-up/layback** | Per-day Yes/No setting (default **Yes**) that controls whether the pay calculation includes lift-up/layback/buildup. When **Yes**, total shift duration = `max(scheduled_end, actual_end) − min(scheduled_start, actual_start)` (effective window — guarantees scheduled hours plus any extension). When **No**, total shift duration = `actual_end − actual_start` (driver paid only for hours physically on duty). See §5.7 and FR-02-F. |
 | **Swinger line** | Roster lines 201–210. Standby/flexible positions whose diagram assignments change each fortnight (sourced from the Fortnight Roster). |
 | **OT** | Overtime. Hours beyond 8 in a single day. 1.5× first 2 hrs, 2.0× beyond. |
 | **WOBOD** | Work on Book-Off Day. Working on a rostered day off. Double time, minimum 4 hours (Cl. 136). |
-| **Lift-up / Buildup** | Driver signs on **before** scheduled start. Hours between actual sign-on and scheduled sign-on. Paid at ordinary rate within the 8-hr daily limit and at OT rates beyond. |
-| **Layback / Extend** | Driver signs off **after** scheduled end. Hours between scheduled sign-off and actual sign-off. Paid as per lift-up. |
-| **KM credit** | Under Cl. 146.4, intercity drivers doing ≥161 km are credited more hours than actually worked (26-band table). Credited excess paid at ordinary rate, excluded from OT. KMs always come from the schedule file. |
-| **Shift penalty** | Per-hour loading for afternoon, night, or early morning shifts. EA rounding: <30 min disregarded, 30–59 min = 1 hr. Not payable Sat/Sun/PH. |
+| **Lift-up / Buildup** | Driver signs on **before** scheduled start. The duration = `max(0, scheduled_start − actual_start)`. Treatment depends on the **Claim lift-up/layback** toggle — see §5.7. |
+| **Layback / Extend** | Driver signs off **after** scheduled end. The duration = `max(0, actual_end − scheduled_end)`. Treatment depends on the **Claim lift-up/layback** toggle — see §5.7. |
+| **KM credit** | Under Cl. 146.4, intercity drivers doing ≥161 km are credited more hours than actually worked (26-band table). Credited excess paid at ordinary rate, excluded from OT. KMs always come from the schedule file (subject to user override). |
+| **Shift penalty** | Per-hour loading for afternoon, night, or early morning shifts. EA rounding: <30 min disregarded, 30–59 min = 1 hr. Not payable Sat/Sun/PH. **Always determined by actual sign-on time** (not the effective window), because the penalty class depends on when the driver physically signs on. |
 | **Un-associated duties** | Duties not directly associated with train operations (road review, pilot prep, etc.) paid additionally for ≥161 km shifts (Cl. 146.4(d)). |
 | **RDO** | Roster Day Off. A scheduled rest day in the roster pattern. When taken as a leave entry, treated as **unpaid** — same pay treatment as LWOP. |
 | **Roster source indicator** | UI badge showing which data source was used: "Master roster", "Fortnight roster", or "Built-in data". |
@@ -137,31 +140,69 @@ Mt Victoria is an intercity depot on the Blue Mountains line. Key characteristic
 - Item 9 (Additional loading): $5.69 flat/shift — sign on/off 01:01–03:59 Mon–Fri only
 - Rounding (Cl. 134.3(b)): <30 min disregarded; 30–59 min = 1 hr
 - Not payable Sat/Sun/PH (Cl. 134.3(a))
+- **Penalty class is determined by the actual sign-on time, regardless of the Claim lift-up/layback setting** — the class depends on when the driver physically signs on, not the effective window.
 
 ### 5.5 KM credit system (Cl. 146.4)
 26-band table from <161 km (actual time) up to 644+ km (+0.5 hr per 16 km). See Section 10.
 - Credited excess hours paid at ordinary rate, NOT in OT computation (Cl. 146.4(b))
-- KM distance auto-filled from uploaded schedule file's `Distance` field
+- KM distance auto-filled from uploaded schedule file's `Distance` field (and editable per FR-02-D)
 - Cl. 157.1: greater-of rule (scheduled shift time vs km-credited hrs + un-associated time)
+- The comparison is against **total worked hours** as defined by §5.7 (effective window when Claim lift-up/layback = Yes; actual times when No)
 
 ### 5.6 WOBOD (Cl. 136)
 - Double time on all hours, minimum 4 hours paid
 
-### 5.7 Lift-up / Layback / Buildup (Cl. 131 / Cl. 140.1)
+### 5.7 Lift-up / Layback / Buildup (Cl. 131 / Cl. 140.1) — rewritten v3.10
 
-Lift-up (driver started before scheduled start) and Layback (driver finished after scheduled end) are computed as the difference between the day's **scheduled** times and the **actual** times entered by the user.
+Lift-up (driver started before scheduled start) and Layback (driver finished after scheduled end) are determined per-day by the **Claim lift-up/layback** toggle (FR-02-F).
 
-**Lift-up gap** = scheduled start − actual start (only when actual start < scheduled start)
-**Layback gap** = actual end − scheduled end (only when actual end > scheduled end)
+**When `claim_liftup_layback = True` (default for every day):**
 
-For each gap, the calculator splits the hours into:
-- **Ordinary-rate hours** — the portion of the gap that fits within the 8-hr daily ordinary limit (i.e. up to `max(0, 8 − (actual_hrs − gap))`)
-- **OT-tier-1 hours** — first 2 hours beyond the 8-hr limit, paid at 1.5× (or Sat/Sun/PH multiplier)
-- **OT-tier-2 hours** — beyond 2 OT hours, paid at 2.0× (or Sat/Sun/PH multiplier)
+The pay calculation is based on the **effective window**:
+- `effective_start = min(scheduled_start, actual_start)` (across both, with cross-midnight handled)
+- `effective_end = max(scheduled_end, actual_end)` (across both, with cross-midnight handled)
+- **Total worked hours = effective_end − effective_start**
 
-These components MUST appear as separate line items in both the **per-day live preview** and the **server-side full calculation**. They MUST be labelled "Lift-up / buildup" or "Layback / extend" and reference Cl. 131 / Cl. 140.1.
+This single duration is split into ordinary (≤ 8 hrs) and OT (> 8 hrs) per Cl. 140.1, and paid accordingly (with weekend/PH multipliers).
 
-The frontend live preview (`calcPreview.ts`) and the backend calculator (`calculator.py`) MUST produce identical lift-up and layback components for the same input.
+The lift-up duration (= `max(0, scheduled_start − actual_start)`) and layback duration (= `max(0, actual_end − scheduled_end)`) are emitted as **informational flags only** — they're already included in the effective window and are NOT separate pay components.
+
+This rule guarantees the driver receives at least the scheduled shift duration even if they came late or finished early (per EA roster guarantee principle).
+
+**When `claim_liftup_layback = False`:**
+
+- `total_worked_hours = actual_end − actual_start` (no effective-window expansion)
+- No scheduled-hours guarantee
+- No lift-up/layback flags
+- Driver paid strictly for time on duty between actual sign-on and actual sign-off
+
+**In both cases:**
+- Shift penalty class (afternoon/night/early per Sch. 4B) is determined by the **actual sign-on time**, not the effective start, because the penalty depends on when the driver physically signs on
+- KM credit comparison is against the **total worked hours** as defined above
+
+**Worked example (claim = Yes):**
+- Scheduled: 09:00 to 17:00 (8 hrs)
+- Actual: 08:30 to 17:30 (9 hrs — early start, late finish)
+- Effective window: 08:30 to 17:30 = 9 hrs
+- Pay: 8 hrs ordinary + 1 hr OT (1.5×) = 9.5 base-rate units
+- Flags: "Lift-up: 30 min before scheduled start", "Layback: 30 min after scheduled end"
+
+**Same example (claim = No):**
+- Worked hours: 17:30 − 08:30 = 9 hrs (actual only, ignoring scheduled)
+- Pay: 8 hrs ordinary + 1 hr OT = 9.5 base-rate units (same total in this case)
+- No lift-up/layback flags
+
+**Worked example showing scheduled-hours guarantee (claim = Yes):**
+- Scheduled: 09:00 to 17:00 (8 hrs)
+- Actual: 09:30 to 16:30 (7 hrs — driver came late, left early)
+- Effective window: 09:00 to 17:00 = 8 hrs (scheduled guarantee)
+- Pay: 8 hrs ordinary = 8 base-rate units
+
+**Same example (claim = No):**
+- Worked hours: 16:30 − 09:30 = 7 hrs (actual only)
+- Pay: 7 hrs ordinary = 7 base-rate units (1 hr less)
+
+**Important note on the pre-v3.10 implementation:** Versions v3.6 to v3.9 double-counted lift-up/layback by adding gap components on top of the actual_hrs computation that already included those minutes. v3.10's effective-window approach uses one window for hours computation, eliminating the double-count. The frontend live preview (`calcPreview.ts`) and the backend calculator (`calculator.py`) MUST both implement the new logic and produce identical components for the same input.
 
 ### 5.8 ADO pay
 - Short fortnight: ADO = 8 hrs ordinary rate paid out
@@ -304,6 +345,14 @@ This restores the natural reading order: left column's diagram fully extracted b
 - File size: 10 MB maximum
 - Rejected files return a clear error message
 
+### 6.10 Cache invalidation on parser changes (new in v3.10)
+
+When the schedule parser changes in a way that affects the structure or correctness of cached data (e.g. the v3.8 fix for 2-column PDFs), the frontend MUST invalidate stale schedule caches in `localStorage` so the user is forced to re-upload and get fresh data.
+
+The frontend stores a `mvwc_cache_version` key in localStorage. On app load, if the stored version differs from the current code's `CACHE_SCHEMA_VERSION` constant, the app MUST clear `mvwc_weekday_schedule` and `mvwc_weekend_schedule` from localStorage, then update the version key. This ensures users running v3.10+ never silently consume stale schedule data parsed by v3.7 or earlier.
+
+(Master and fortnight roster caches are NOT invalidated by this mechanism, as their parser was not affected by the 2-column bug.)
+
 ---
 
 ## 7. Functional Requirements
@@ -339,19 +388,20 @@ Each day row in the Daily Entry tab MUST display:
    - `✓ Schedule` (green) — times came from uploaded weekday/weekend schedule
    - `ⓘ Master roster` (amber) — schedule didn't have this diagram, fell back to master roster's own time fields
    - `ⓘ Built-in` (amber) — no master roster uploaded, fell back to built-in roster.json
-   - `✏ Manual` (purple) — user manually overrode the diagram
+   - `✏ Manual` (purple) — user manually overrode the diagram OR manually edited the scheduled times
    - `—` (grey) — OFF/ADO with no diagram
-5. **KM distance** — auto-populated from schedule file's `Distance: NNN.NNN Km` field for the day's diagram number. Editable by user.
+5. **KM distance** — auto-populated from schedule file's `Distance: NNN.NNN Km` field for the day's diagram number. **Editable by user** at any time.
 
 #### FR-02-B: Scheduled vs Actual times
 
 Each work day row has TWO time-input sections, both always visible:
 
-**Scheduled times (read-only display):**
+**Scheduled times (editable — updated v3.10):**
 - Label: "Scheduled start" / "Scheduled end"
-- Source: looked up from schedule file using the diagram number; falls back to master roster if not found
-- Read-only — cannot be edited by user (but updates if a manual diagram override is applied)
-- Shown alongside the time-source indicator
+- Source priority: uploaded schedule file (by diagram number) → master roster → built-in fallback. The source determines the initial pre-populated value and the source badge.
+- **The fields are EDITABLE.** The user CAN override the auto-populated values at any time — for example if the schedule file is wrong, if a diagram has been temporarily re-timed, or if the user wants to enter custom scheduled values.
+- When the user edits a scheduled time directly, the time-source badge updates to `✏ Manual` to indicate the value is no longer authoritative-from-schedule.
+- Manual edits are preserved on subsequent re-renders of the same session; they only get overwritten if the user re-loads the line, applies a manual diagram override, or clicks "Reset" on a previously-overridden day.
 
 **Actual times (user-editable inputs):**
 - Label: "Actual start" / "Actual end"
@@ -359,7 +409,9 @@ Each work day row has TWO time-input sections, both always visible:
 - User can override at any time to record actual start/end (lift-up, layback, late sign-off)
 - A **"Same as scheduled"** button next to the actual-time inputs copies scheduled → actual in one click (used to re-sync if user edited and wants to revert)
 
-The pay calculator uses **actual times** for hours-worked computation. The difference between scheduled and actual drives lift-up/layback computation.
+**The pay calculator uses the times per §5.7 and FR-02-F**:
+- If `Claim lift-up/layback = Yes` (default): effective window = min(scheduled, actual) start to max(scheduled, actual) end
+- If `Claim lift-up/layback = No`: actual times only
 
 #### FR-02-C: Manual diagram override (all day types)
 
@@ -395,21 +447,40 @@ KMs MUST be auto-populated from the schedule file's `Distance` field via three t
 - **Trigger 2 — On manual diagram override:** Look up the override diagram in BOTH schedules and set KM
 - **Trigger 3 — On schedule upload after roster is already loaded:** A `useEffect` runs and re-applies KMs **and scheduled times** to all existing work days that haven't been manually overridden
 
-The KM field remains editable for manual adjustment.
+**The KM field is editable** — the user can adjust the value at any time, and the manual value is preserved (until a re-load or manual diagram override).
 
 #### FR-02-E: Other daily entry controls
 - Actual start / end time inputs (covered in FR-02-B)
-- KMs field (auto-filled from schedule or manual)
+- Scheduled start / end / KMs fields (now editable per FR-02-B and FR-02-D)
 - WOBOD toggle
 - Cross-midnight toggle
-- "Use rostered" button (copies rostered times to actual fields)
+- Claim lift-up/layback toggle (FR-02-F, new in v3.10)
+- "Use rostered" / "Same as scheduled" button (copies scheduled times to actual fields)
 - Leave type selector
-- Live pay preview per day (must include lift-up/layback components per §5.7)
+- Live pay preview per day (must compute hours per §5.7)
+
+#### FR-02-F: Claim lift-up/layback toggle (new in v3.10)
+
+Each day row has a Yes/No selector labelled **"Claim lift-up/layback?"** with the following behaviour:
+
+- **Default value: Yes** — set automatically for every day when:
+  - A roster line is loaded (`loadLine()`)
+  - The user manually overrides a diagram (`applyManualDiag()`)
+  - The user marks an OFF/ADO day as worked (`markWorkedOnOff()`)
+  - A day is reset (`resetDay()`)
+- **When set to Yes:** the pay calculation uses the effective window per §5.7. The driver is paid for at least the scheduled duration plus any extension before/after.
+- **When set to No:** the pay calculation uses only the actual times (`actual_end − actual_start`). No lift-up/layback components or flags. The driver is paid only for time physically on duty between actual sign-on and sign-off.
+- The toggle is positioned in the day body alongside the WOBOD and Cross-midnight selects.
+- The selected value drives both the live preview (`calcPreview.ts`) and the server-side calculation (`calculator.py`).
+- The toggle has no effect on OFF days, ADO days, leave days, or WOBOD days (those follow their own pay rules).
+
+This toggle exists to support edge cases such as: driver doesn't want to claim layback (e.g. social agreement with manager), informal lift-up not on the timesheet, or any situation where the driver wants to compute pay strictly from sign-on/sign-off times.
 
 ### FR-03: Pay calculation
 - `POST /api/calculate` — server-side EA 2025 engine (authoritative)
 - Client-side preview (`calcPreview.ts`) for immediate feedback while typing — must produce identical output to backend for the same input
-- Uses **actual** times for worked hours; difference vs scheduled drives lift-up/layback
+- Hours basis driven by `Claim lift-up/layback` toggle per §5.7
+- Shift penalty class determined by actual sign-on time
 - KM credits calculated from the km field (auto-filled or manual)
 
 ### FR-04: Results
@@ -439,9 +510,10 @@ The KM field remains editable for manual adjustment.
 - Short: ADO paid; Long: ADO accruing
 
 ### FR-09: Lift-up / Layback / Buildup
-- Auto-detected from actual vs scheduled times
-- Ordinary/OT split at 8-hr boundary
-- Components shown in BOTH live preview and server calculation (per §5.7)
+- Per-day toggle (FR-02-F) controls whether claimed
+- When claimed: effective window calc per §5.7 (no separate component lines, included in base hours)
+- Informational flags emitted showing the lift-up and layback durations
+- Components appear in BOTH live preview and server calculation
 
 ### FR-10: Cross-midnight shifts
 - Auto-detected from schedule data (cm flag) or manual override
@@ -471,11 +543,13 @@ The KM field remains editable for manual adjustment.
 - Config saved to localStorage
 - No long-term user data storage (no accounts, no database)
 - Uploaded files processed in-memory only; not stored server-side
+- Cached parser output (rosters, schedules) versioned via `mvwc_cache_version` key — incompatible caches are auto-cleared on app load (§6.10)
 
 ### NFR-05: Accuracy
 - All amounts rounded to 2 decimal places
 - EA rounding rules applied exactly (Cl. 134.3(b))
 - KM credit table exact per EA 2025
+- The frontend live preview and the backend calculation MUST produce identical output for the same input (per §5.7)
 
 ### NFR-06: Security
 - CORS: `allow_origins=["*"]` (personal tool, no sensitive data)
@@ -509,11 +583,11 @@ interface DayState {
   _origDiag?: string;        // Original diagram name before any manual override
   _origDiagNum?: string | null;  // Original diagNum before override
 
-  // Scheduled times (read-only after load; updated by manual override)
-  rStart: string | null;     // Scheduled start HH:MM (label: "Scheduled start")
-  rEnd: string | null;       // Scheduled end HH:MM (label: "Scheduled end")
+  // Scheduled times (editable as of v3.10)
+  rStart: string | null;     // Scheduled start HH:MM (label: "Scheduled start") — editable
+  rEnd: string | null;       // Scheduled end HH:MM (label: "Scheduled end") — editable
   cm: boolean;
-  rHrs: number;              // Scheduled hours
+  rHrs: number;              // Scheduled hours (derived from schedule file's Total shift)
 
   // Actual times (user-editable; pre-filled from scheduled on load)
   aStart: string;            // Actual start HH:MM
@@ -522,8 +596,11 @@ interface DayState {
   // Source tracking
   timeSource: 'schedule' | 'master' | 'builtin' | 'manual' | 'none';
 
-  // Distance
-  km: number;                // KM distance — from schedule's Distance field; editable
+  // Distance (editable, auto-filled from schedule's Distance field)
+  km: number;
+
+  // Per-day pay-calc toggles (added v3.10)
+  claimLiftupLayback: boolean;  // default true; controls effective-window vs actual-only pay calc (§5.7)
 
   // Other
   wobod: boolean;
@@ -535,12 +612,14 @@ interface DayState {
 }
 ```
 
-**Key rule:** `_origDiag` is set whenever a manual override is applied (whether the day was originally a workday, Saturday, Sunday, PH, OFF, or ADO). Resetting always restores to `_origDiag`.
+**Key rule:** `_origDiag` is set whenever a manual override is applied (whether the day was originally a workday, Saturday, Sunday, PH, OFF, or ADO). Resetting always restores to `_origDiag`. The `claimLiftupLayback` field defaults to `true` for every day (set by `loadLine`, `applyManualDiag`, `markWorkedOnOff`, `resetDay`).
 
 ### 9.2 Backend `DayState` model
 
 ```python
 class DayState(BaseModel):
+    model_config = ConfigDict(extra='ignore')
+
     date: str
     dow: int
     ph: bool = False
@@ -557,9 +636,10 @@ class DayState(BaseModel):
     km: float = 0.0
     leave_cat: str = "none"
     is_short_fortnight: bool = False
-
-    model_config = ConfigDict(extra='ignore')
+    claim_liftup_layback: bool = True   # NEW v3.10 — see §5.7 / FR-02-F
 ```
+
+The `claim_liftup_layback` field defaults to `True` so older clients (without this field in their payload) continue to get the effective-window calculation.
 
 ### 9.3 API request — `POST /api/calculate`
 ```json
@@ -770,10 +850,13 @@ Each day row has two sections: **header** (always visible) and **body** (expande
 - Live pay summary
 - Chevron expand/collapse
 
-**Body — Scheduled times block (read-only):**
-- Two columns: "Scheduled start" | "Scheduled end"
-- Read-only display (greyed out)
-- Source label below: "Loaded from weekday schedule (3151)" or similar
+**Body — Scheduled times block (editable as of v3.10):**
+- Two columns: "Scheduled start" | "Scheduled end" | "Scheduled hours"
+- All three are `<input>` fields:
+  - Start and end are `<input type="time">` and EDITABLE
+  - Scheduled hours is a derived/display field showing `r_hrs` (read-only, derived from schedule's Total shift)
+- Source label below: e.g. "Loaded from weekday schedule (3151)" or "From master roster" or "Manually edited"
+- When the user edits a scheduled time, the time-source badge updates to `✏ Manual`
 
 **Body — Actual times block (editable):**
 - Two columns: "Actual start" | "Actual end"
@@ -786,11 +869,13 @@ Each day row has two sections: **header** (always visible) and **body** (expande
 - **Load diagram ↗** button — looks up schedule and pre-fills times + KMs
 - When override is active: purple `✏ Manual` badge in header + reset banner showing original diagram name and a **Reset** button
 
-**Body — Other controls:**
+**Body — Other controls (per-day toggles):**
 - KMs (editable, auto-filled)
-- WOBOD toggle, Cross-midnight toggle
+- WOBOD toggle (Yes/No)
+- Cross-midnight toggle (Yes/No)
+- **Claim lift-up/layback?** toggle (Yes/No, default Yes — added v3.10) — see FR-02-F
 - Leave type selector
-- Live pay breakdown table (must include lift-up/layback per §5.7)
+- Live pay breakdown table (must compute hours per §5.7)
 
 **Body — OFF/ADO state (no override applied):**
 - Informational text ("Day off — no pay unless worked")
@@ -858,7 +943,8 @@ Each day row has two sections: **header** (always visible) and **body** (expande
 | 3.6 | April 2026 | (1) **Bug fix:** Frontend live preview now computes lift-up/layback components, matching the backend calculator. Previously the per-day preview omitted these entirely so the user only saw ordinary time + shift penalty. (2) **Added RDO (Roster Day Off) as a leave category** — unpaid, treated as regular RDO. (3) Frontend preview also now handles all leave types (previously only WOBOD/PH/Sat/Sun/weekday were rendered in preview). |
 | 3.7 | April 2026 | **Bug fix:** Schedule diagram-block detection hardened — requires 3-4 digit numbers and line-start anchoring (previously `\d+` matched arbitrary text like "No. 2 of 5", which truncated real blocks and caused spurious extraction failures). Label matching is now case-insensitive and tolerates internal whitespace/hyphen variations (Sign on, Signon, Sign-on). |
 | 3.8 | April 2026 | **Critical bug fix:** Schedule PDFs are a TWO-COLUMN layout. Default pdfplumber `extract_text()` interleaved both columns line-by-line, causing the parser to (a) miss ~half the diagrams entirely (3155, 3158, 3160, 3162, 3164, 3168 etc.) and (b) pull `Time off duty` from the wrong column (e.g. reporting 10:32 instead of 11:21 for diagram 3154 — picking up 3155's value because the columns were jumbled). Now crops each PDF page at `page.width/2` into LEFT and RIGHT halves, extracts each separately, and concatenates with newlines. Verified locally against the user's actual MTVICDRWD191025 and MTVICDRWE191025 PDFs: 18/18 weekday + 14/14 weekend diagrams extracted, 0 failures, 3154 correctly returns Sign on 01:51 and Time off duty 11:21. |
-| 3.9 | April 2026 | **Documentation restoration.** Earlier versions (v3.2 onward) progressively replaced section content with placeholder text like *"unchanged from v3.X"*, leaving the PRD unreadable as a standalone document — to know what any single requirement actually said, the reader had to manually walk through git history and reassemble fragments. v3.9 restores every section to its full content (drawing on v3.1 baseline + every subsequent change), so the PRD reads as a single complete document. **Process rule 2 added** at the top: when bumping versions, content must be preserved verbatim and only changed sections may be edited; "unchanged from..." placeholders are never acceptable. NFR-07 also updated to reference this rule. No functional code changes in this version. |
+| 3.9 | April 2026 | **Documentation restoration.** Earlier versions (v3.2 onward) progressively replaced section content with placeholder text like *"unchanged from v3.X"*, leaving the PRD unreadable as a standalone document. v3.9 restores every section to its full content. **Process rule 2 added** at the top: when bumping versions, content must be preserved verbatim and only changed sections may be edited. NFR-07 also updated to reference this rule. No functional code changes in this version. |
+| 3.10 | April 2026 | (1) **NEW per-day toggle** — `Claim lift-up/layback?` (default Yes) per FR-02-F. When Yes, pay calc uses the **effective window** (`min(scheduled_start, actual_start)` to `max(scheduled_end, actual_end)`); when No, uses actual times only with no lift-up/layback. See §5.7 worked examples. (2) **Scheduled times now editable** — the Scheduled start and Scheduled end inputs are no longer read-only; user can override (FR-02-B updated). KM field continues to be editable (FR-02-D). (3) **§5.7 rewritten** to use the effective-window model. This fixes a long-standing **double-counting bug** in v3.6–v3.9 where lift-up/layback gap components were added on top of `actual_hrs` that already included those minutes — e.g. a 9-hr actual against an 8-hr scheduled was over-paid as 10.25 base-rate units instead of the correct 9.5. (4) **Stale schedule cache invalidation** (§6.10) — frontend stores a `mvwc_cache_version` key; v3.10 clears `mvwc_weekday_schedule` and `mvwc_weekend_schedule` from localStorage on first load to force users to re-upload schedules with the v3.8 column-aware parser, resolving the user-visible bug where Daily Entry was displaying master-roster times because the cached schedule was missing diagrams. (5) Lift-up/layback are now emitted as **informational flags only** (no separate pay components), since they're already part of the effective-window total. (6) Shift penalty class continues to be determined by **actual sign-on time** regardless of the toggle, because the penalty depends on when the driver physically signs on. |
 
 ---
 
