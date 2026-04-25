@@ -4,7 +4,7 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 
-# ─── Request models ──────────────────────────────────────────────────────────
+# ─── Request models ────────────────────────────────────────────────────────────
 
 class DayState(BaseModel):
     """State for a single day in the fortnight. PRD §9.1"""
@@ -74,7 +74,7 @@ class CalculateRequest(BaseModel):
     unassoc_amt: float = 0.0
 
 
-# ─── Response models ─────────────────────────────────────────────────────────
+# ─── Response models ────────────────────────────────────────────────────────────
 
 class PayComponent(BaseModel):
     """Single pay line item. PRD §9.2"""
@@ -120,10 +120,10 @@ class CalculateResponse(BaseModel):
     audit: AuditResult
 
 
-# ─── Upload response models ───────────────────────────────────────────────────
+# ─── Upload response models ──────────────────────────────────────────────────────
 
 class ParsedDayEntry(BaseModel):
-    """One day parsed from a roster PDF. PRD §9.4"""
+    """One day parsed from a fortnight roster PDF. PRD §9.4"""
     date: str
     diagram: str
     sign_on: Optional[str] = None      # HH:MM
@@ -153,4 +153,49 @@ class ParsePayslipResponse(BaseModel):
     period_end: Optional[str] = None
     total_gross: float
     line_items: list[PayslipLineItem]
+    warnings: list[str] = Field(default_factory=list)
+
+
+# ─── New: Roster ZIP upload models ──────────────────────────────────────────────────
+
+class RosterDayEntry(BaseModel):
+    """One day entry parsed from a roster ZIP. Covers master and fortnight rosters."""
+    diag: str                          # diagram name e.g. '3151 SMB', 'OFF', 'ADO', 'SBY'
+    r_start: Optional[str] = None      # HH:MM sign-on
+    r_end: Optional[str] = None        # HH:MM sign-off (without L suffix)
+    cm: bool = False                   # cross-midnight (was L suffix in roster)
+    r_hrs: float = 0.0                 # rostered working hours
+
+
+class ParsedRosterResponse(BaseModel):
+    """Parsed master or fortnight roster ZIP."""
+    source_file: str
+    line_type: str                     # 'master' or 'fortnight'
+    fn_start: Optional[str] = None     # YYYY-MM-DD
+    fn_end: Optional[str] = None       # YYYY-MM-DD
+    lines: dict[str, list[RosterDayEntry]]  # '1' -> [14 entries], '201' -> [14 entries]
+    warnings: list[str] = Field(default_factory=list)
+
+
+# ─── New: Schedule ZIP upload models ─────────────────────────────────────────────────
+
+class DiagramInfo(BaseModel):
+    """Timing and KM data for a single diagram from a schedule file."""
+    diag_num: str                      # e.g. '3151'
+    day_type: str                      # 'weekday' | 'saturday' | 'sunday'
+    sign_on: Optional[str] = None      # HH:MM
+    sign_off: Optional[str] = None     # HH:MM
+    r_hrs: float = 8.0
+    km: float = 0.0
+    cm: bool = False
+
+
+class ParsedScheduleResponse(BaseModel):
+    """Parsed weekday or weekend schedule ZIP."""
+    source_file: str
+    schedule_type: str                 # 'weekday' | 'weekend'
+    # Keys: diagram number as string e.g. '3151'
+    # For diagrams with multiple day-type variants, stores the most general entry.
+    # Full per-day-type lookup available in diagrams_by_day.
+    diagrams: dict[str, DiagramInfo]
     warnings: list[str] = Field(default_factory=list)
