@@ -11,15 +11,19 @@ from pathlib import Path
 from models import (
     CalculateRequest, CalculateResponse,
     ParseRosterResponse, ParsePayslipResponse,
+    ParsedRosterResponse, ParsedScheduleResponse,
 )
 from calculator import compute_fortnight
-from parsers import parse_roster_pdf, parse_payslip_file
+from parsers import (
+    parse_roster_pdf, parse_payslip_file,
+    parse_roster_zip, parse_schedule_zip,
+)
 from exporters import render_pdf, render_csv
 
 app = FastAPI(
     title="Mt Victoria Driver Wage Calculator API",
     description="EA 2025 pay calculation engine for Mt Victoria intercity train drivers.",
-    version="3.0.0",
+    version="3.1.0",
 )
 
 # CORS — allow all origins (personal tool, no sensitive data)
@@ -34,14 +38,14 @@ app.add_middleware(
 DATA_DIR = Path(__file__).parent / "data"
 
 
-# ─── Health ───────────────────────────────────────────────────────────────────
+# ─── Health ──────────────────────────────────────────────────────────────────
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": "3.0.0"}
+    return {"status": "ok", "version": "3.1.0"}
 
 
-# ─── Roster and config data ───────────────────────────────────────────────────
+# ─── Roster and config data ──────────────────────────────────────────────────
 
 @app.get("/api/roster")
 def get_roster():
@@ -61,27 +65,70 @@ def get_config():
         return yaml.safe_load(f)
 
 
-# ─── Core calculation ─────────────────────────────────────────────────────────
+# ─── Core calculation ────────────────────────────────────────────────────────
 
 @app.post("/api/calculate", response_model=CalculateResponse)
 def calculate(req: CalculateRequest):
-    """
-    Calculate gross pay for a full fortnight.
-    PRD §FR-03, Solution Design §4.2
-    """
+    """Calculate gross pay for a full fortnight. PRD §FR-03"""
     try:
         return compute_fortnight(req)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Calculation error: {str(e)}")
 
 
-# ─── File uploads ─────────────────────────────────────────────────────────────
+# ─── File uploads: new roster ZIP endpoints ─────────────────────────────────────
+
+@app.post("/api/parse-master-roster", response_model=ParsedRosterResponse)
+async def upload_master_roster(file: UploadFile = File(...)):
+    """
+    Parse the annual master roster ZIP file.
+    Used for lines 1–22 (and optionally 201–210 as a template).
+    File format: ZIP archive containing manifest.json + .txt + .jpeg pages.
+    """
+    content = await file.read()
+    try:
+        return parse_roster_zip(content, filename=file.filename or "master_roster")
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"Master roster parse failed: {str(e)}")
+
+
+@app.post("/api/parse-fortnight-roster", response_model=ParsedRosterResponse)
+async def upload_fortnight_roster(file: UploadFile = File(...)):
+    """
+    Parse the per-fortnight roster ZIP file.
+    Used for swinger lines 201–210 (changes each fortnight).
+    File format: same ZIP structure as master roster.
+    """
+    content = await file.read()
+    try:
+        return parse_roster_zip(content, filename=file.filename or "fortnight_roster")
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"Fortnight roster parse failed: {str(e)}")
+
+
+@app.post("/api/parse-schedule", response_model=ParsedScheduleResponse)
+async def upload_schedule(file: UploadFile = File(...)):
+    """
+    Parse a weekday or weekend schedule ZIP file.
+    Provides diagram-level detail: sign-on, sign-off, KMs, cross-midnight.
+    The schedule type (weekday/weekend) is auto-detected from the filename.
+    File format: ZIP archive containing manifest.json + .txt + .jpeg pages.
+    """
+    content = await file.read()
+    try:
+        return parse_schedule_zip(content, filename=file.filename or "schedule")
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"Schedule parse failed: {str(e)}")
+
+
+# ─── File uploads: legacy fortnight roster PDF ─────────────────────────────────────
 
 @app.post("/api/parse-roster", response_model=ParseRosterResponse)
 async def upload_roster(file: UploadFile = File(...)):
     """
-    Parse a Sydney Trains fortnightly roster PDF.
-    PRD §FR-U1, Solution Design §4.4
+    Legacy endpoint: parse a Sydney Trains fortnightly roster PDF (table-based format).
+    For the new ZIP-based roster format, use /api/parse-master-roster or
+    /api/parse-fortnight-roster instead.
     """
     _validate_upload(file, allowed_types=["application/pdf"], max_mb=10)
     content = await file.read()
@@ -93,10 +140,7 @@ async def upload_roster(file: UploadFile = File(...)):
 
 @app.post("/api/parse-payslip", response_model=ParsePayslipResponse)
 async def upload_payslip(file: UploadFile = File(...)):
-    """
-    Parse a Sydney Trains payslip (XLSX or PDF).
-    PRD §FR-U2, Solution Design §4.4
-    """
+    """Parse a Sydney Trains payslip (XLSX or PDF)."""
     allowed = [
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "application/pdf",
@@ -114,12 +158,10 @@ async def upload_payslip(file: UploadFile = File(...)):
 
 @app.post("/api/export/pdf")
 def export_pdf(result: CalculateResponse):
-    """Render a PDF report from a CalculateResponse. PRD §FR-04"""
     try:
         pdf_bytes = render_pdf(result)
         return StreamingResponse(
-            io.BytesIO(pdf_bytes),
-            media_type="application/pdf",
+            io.BytesIO(pdf_bytes), media_type="application/pdf",
             headers={"Content-Disposition": f'attachment; filename="wage_calc_{result.fortnight_start}.pdf"'},
         )
     except Exception as e:
@@ -128,12 +170,10 @@ def export_pdf(result: CalculateResponse):
 
 @app.post("/api/export/csv")
 def export_csv(result: CalculateResponse):
-    """Render a CSV report from a CalculateResponse. PRD §FR-04"""
     try:
         csv_text = render_csv(result)
         return StreamingResponse(
-            io.StringIO(csv_text),
-            media_type="text/csv",
+            io.StringIO(csv_text), media_type="text/csv",
             headers={"Content-Disposition": f'attachment; filename="wage_calc_{result.fortnight_start}.csv"'},
         )
     except Exception as e:
@@ -143,7 +183,6 @@ def export_csv(result: CalculateResponse):
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _validate_upload(file: UploadFile, allowed_types: list[str], max_mb: int):
-    """PRD §FR-U4 — file validation."""
     if file.content_type and file.content_type not in allowed_types:
         raise HTTPException(
             status_code=415,
