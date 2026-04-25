@@ -33,11 +33,11 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
 
   return (
     <>
-      {/* ── Step 1: Upload rosters & schedules ───────────────────────────── */}
+      {/* ── Step 1 ──────────────────────────────────────────────────────── */}
       <div className="card">
         <h2>Step 1 — Upload rosters &amp; schedules
           <span className="note" style={{fontWeight:400,marginLeft:8,textTransform:'none',letterSpacing:0}}>
-            Upload before loading a line so times and KMs auto-fill
+            Upload once — data is saved in your browser and reloaded automatically
           </span>
         </h2>
         <div className="g2" style={{marginBottom:8}}>
@@ -53,7 +53,7 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
           />
           <UploadCard
             title="Fortnight Roster (swinger lines 201–210)"
-            hint="Changes every fortnight — upload at start of each fortnight"
+            hint="Changes every fortnight — upload at the start of each new fortnight"
             icon="🔄"
             state={ctx.fnRosterUpload}
             onFile={ctx.uploadFnRoster}
@@ -86,7 +86,7 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
         </div>
       </div>
 
-      {/* ── Step 2: Load roster line ─────────────────────────────────────── */}
+      {/* ── Step 2 ──────────────────────────────────────────────────────── */}
       <div className="card">
         <h2>Step 2 — Load roster line {srcBadge}</h2>
 
@@ -103,7 +103,7 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
           <div className="alert alert-info" style={{marginBottom:10,fontSize:11}}>
             ⓘ Lines 1–22 use the <strong>Master Roster</strong> for diagram assignments.{' '}
             {ctx.masterRosterUpload.status === 'success'
-              ? <span style={{color:'var(--green-text)'}}>✓ Master Roster uploaded.</span>
+              ? <span style={{color:'var(--green-text)'}}>✓ Master Roster ready.</span>
               : <span style={{color:'var(--amber-text)'}}>Not yet uploaded — built-in data will be used.</span>}
           </div>
         )}
@@ -138,9 +138,8 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
               {srcBadge}
               {' · '}{ctx.days[0].date} – {ctx.days[13].date}
               {' · '}{ctx.days.filter(d => d.diag !== 'OFF' && d.diag !== 'ADO').length} work days
-              {' · '}{ctx.days.filter(d => d.diag === 'ADO').length} ADO
-              {' · '}
-              <span style={{color: ctx.fnType === 'short' ? 'var(--amber-text)' : 'var(--blue-text)', fontWeight: 600}}>
+              {' · '}{ctx.days.filter(d => d.diag === 'ADO').length} ADO{' · '}
+              <span style={{color: ctx.fnType === 'short' ? 'var(--amber-text)' : 'var(--blue-text)', fontWeight:600}}>
                 {ctx.fnType === 'short' ? '⚡ SHORT fortnight — ADO paid out' : '📋 LONG fortnight — ADO accruing'}
               </span>
               {(ctx.weekdayScheduleUpload.status === 'success' || ctx.weekendScheduleUpload.status === 'success') && (
@@ -158,9 +157,11 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
         )}
       </div>
 
-      {/* ── Step 3: Upload payslip (optional, for comparison) ────────────── */}
+      {/* ── Step 3 ──────────────────────────────────────────────────────── */}
       <div className="card">
-        <h2>Step 3 — Upload payslip <span className="note" style={{fontWeight:400,textTransform:'none',letterSpacing:0}}>optional — for comparing calculated vs actual pay</span></h2>
+        <h2>Step 3 — Upload payslip
+          <span className="note" style={{fontWeight:400,textTransform:'none',letterSpacing:0,marginLeft:8}}>optional — compare calculated vs actual pay</span>
+        </h2>
         <div style={{maxWidth:480}}>
           <UploadCard
             title="Payslip"
@@ -177,7 +178,7 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
         </div>
       </div>
 
-      {/* ── Penalty reference ─────────────────────────────────────────────── */}
+      {/* ── Penalty reference ────────────────────────────────────────────── */}
       <div className="card">
         <h3>Shift Penalty Rules — Cl. 134 (EA 2025)</h3>
         <table>
@@ -197,27 +198,22 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
   )
 }
 
-// ── UploadCard ─────────────────────────────────────────────────────────────────
+// ── UploadCard ──────────────────────────────────────────────────────────────────
 
 interface UploadCardProps {
-  title: string
-  hint: string
-  icon?: string
-  state: SimpleUploadState<any>
-  onFile: (f: File) => void
-  successMsg: string
-  fileRef?: React.RefObject<HTMLInputElement>
-  accept?: string
-  extraAction?: { label: string; onClick: () => void }
-  applied?: boolean
+  title: string; hint: string; icon?: string
+  state: SimpleUploadState<any>; onFile: (f: File) => void; successMsg: string
+  fileRef?: React.RefObject<HTMLInputElement>; accept?: string
+  extraAction?: { label: string; onClick: () => void }; applied?: boolean
 }
 
 function UploadCard({ title, hint, icon = '📄', state, onFile, successMsg, fileRef, accept = '*', extraAction, applied }: UploadCardProps) {
   const [drag, setDrag] = useState(false)
   const localRef = useRef<HTMLInputElement>(null)
   const ref = fileRef || localRef
-  const { status, error } = state
+  const { status, error, cached } = state
   const cardCls = `upload-card${drag ? ' drag-over' : ''}${status === 'success' ? ' success' : ''}${status === 'error' ? ' error' : ''}`
+
   return (
     <div style={{marginBottom:0}}>
       <div
@@ -228,20 +224,33 @@ function UploadCard({ title, hint, icon = '📄', state, onFile, successMsg, fil
         onClick={() => ref.current?.click()}
       >
         <div className="upload-icon">{status === 'uploading' ? '⏳' : status === 'success' ? '✅' : status === 'error' ? '❌' : icon}</div>
-        <div style={{fontWeight: 600, fontSize: 12, marginBottom: 4}}>{title}</div>
-        {status === 'idle'      && <div style={{fontSize: 11, color: 'var(--text2)'}}>Drop file here or click to browse</div>}
-        {status === 'idle'      && <div style={{fontSize: 10, color: 'var(--text3)', marginTop: 4}}>{hint}</div>}
-        {status === 'uploading' && <div style={{fontSize: 11, color: 'var(--text2)'}}>Parsing…</div>}
-        {status === 'success'   && <div style={{fontSize: 11, color: 'var(--green-text)'}}>{successMsg}</div>}
-        {status === 'error'     && <div style={{fontSize: 11, color: 'var(--red-text)'}}>{error}</div>}
-        <input ref={ref} type="file" accept={accept} style={{display: 'none'}}
+        <div style={{fontWeight:600, fontSize:12, marginBottom:4}}>{title}</div>
+
+        {status === 'idle'      && <div style={{fontSize:11, color:'var(--text2)'}}>Drop file here or click to browse</div>}
+        {status === 'idle'      && <div style={{fontSize:10, color:'var(--text3)', marginTop:4}}>{hint}</div>}
+        {status === 'uploading' && <div style={{fontSize:11, color:'var(--text2)'}}>Parsing…</div>}
+        {status === 'success'   && (
+          <div style={{fontSize:11, color:'var(--green-text)'}}>
+            {successMsg}
+            {cached && (
+              <span style={{marginLeft:6, fontSize:10, padding:'1px 6px', borderRadius:10,
+                background:'rgba(26,122,60,.12)', color:'var(--green-text)', border:'1px solid #8fcca8'}}>
+                cached · click to replace
+              </span>
+            )}
+          </div>
+        )}
+        {status === 'error' && <div style={{fontSize:11, color:'var(--red-text)'}}>{error}</div>}
+
+        <input ref={ref} type="file" accept={accept} style={{display:'none'}}
           onChange={e => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = '' }}
           onClick={e => e.stopPropagation()} />
       </div>
+
       {state.result && (state.result as any).warnings?.length > 0 && (
         <div style={{paddingTop:6}}>
           {(state.result as any).warnings.map((w: string, i: number) => (
-            <p key={i} className="note" style={{color: 'var(--amber-text)'}}>⚠ {w}</p>
+            <p key={i} className="note" style={{color:'var(--amber-text)'}}>⚠ {w}</p>
           ))}
         </div>
       )}
@@ -252,7 +261,7 @@ function UploadCard({ title, hint, icon = '📄', state, onFile, successMsg, fil
       )}
       {applied && (
         <div style={{paddingTop:6}}>
-          <span style={{fontSize: 11, padding: '3px 8px', borderRadius: 4, background: 'var(--green-bg)', color: 'var(--green-text)', display: 'inline-block'}}>✓ Applied to daily entry</span>
+          <span style={{fontSize:11, padding:'3px 8px', borderRadius:4, background:'var(--green-bg)', color:'var(--green-text)', display:'inline-block'}}>✓ Applied to daily entry</span>
         </div>
       )}
     </div>
