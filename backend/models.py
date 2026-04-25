@@ -14,10 +14,10 @@ class DayState(BaseModel):
     dow: int                           # 0=Sun, 6=Sat
     ph: bool = False
     diag: str                          # full name e.g. '3151 SMB' / 'OFF' / 'ADO'
-    diag_num: Optional[str] = None     # NEW v3.4: parsed 4-digit number e.g. '3151'
-    time_source: str = 'none'          # NEW v3.4: 'schedule' | 'master' | 'builtin' | 'manual' | 'none'
-    r_start: Optional[str] = None      # scheduled start HH:MM
-    r_end: Optional[str] = None        # scheduled end HH:MM
+    diag_num: Optional[str] = None     # parsed 4-digit number e.g. '3151' (v3.4)
+    time_source: str = 'none'          # 'schedule' | 'master' | 'builtin' | 'manual' | 'none' (v3.4)
+    r_start: Optional[str] = None      # scheduled start HH:MM (editable from v3.10)
+    r_end: Optional[str] = None        # scheduled end HH:MM (editable from v3.10)
     cm: bool = False
     r_hrs: float = 0.0                 # scheduled hours
     a_start: str = ''                  # actual start HH:MM
@@ -26,6 +26,7 @@ class DayState(BaseModel):
     km: float = 0.0
     leave_cat: str = 'none'
     is_short_fortnight: bool = False
+    claim_liftup_layback: bool = True  # NEW v3.10 — per-day toggle (PRD §5.7 / FR-02-F)
 
 
 class RateConfig(BaseModel):
