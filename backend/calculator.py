@@ -5,6 +5,15 @@ in sync (PRD §5.7).
 PRD ref: Section 5 (all EA rules)
 
 DO NOT modify pay logic without first updating PRD.md.
+
+v3.10 — effective-window pay calculation:
+  When day.claim_liftup_layback is True (default) AND scheduled times exist,
+  worked_hrs is computed from the effective window:
+      effective_start = min(actual_start, scheduled_start)
+      effective_end   = max(actual_end,   scheduled_end)
+      worked_hrs      = (effective_end - effective_start) / 60
+  When False, worked_hrs comes strictly from actual times.
+  See PRD §5.7 for full rules and worked examples.
 """
 from __future__ import annotations
 from typing import Optional
@@ -79,6 +88,10 @@ def _get_shift_penalty(
     is_sat: bool, is_sun: bool, is_ph: bool, dow: int,
     cfg: RateConfig, codes,
 ) -> _PenaltyResult:
+    """Penalty class is determined from ACTUAL sign-on (s_min) / sign-off (e_min).
+    Penalty hours apply to ord_hrs (which is from the effective window per §5.7).
+    PRD §5.4.
+    """
     if is_sat or is_sun or is_ph:
         return _PenaltyResult(0, "", "", "", 0, None, False)
 
@@ -112,6 +125,50 @@ def _get_shift_penalty(
         shift_type=shift_type,
         add_load=add_load,
     )
+
+
+# ─── Effective window helper (v3.10, PRD §5.7) ─────────────────────────────
+
+def _resolve_window(day: DayState) -> tuple[int, int, int, int, float, float, bool]:
+    """Resolve the time window used for hours/OT calculation per the toggle.
+
+    Returns: (a_s, a_e, eff_s, eff_e, liftup_hrs, layback_hrs, claim_active)
+        a_s, a_e         - actual sign-on/off in minutes (always returned;
+                           used downstream for shift penalty class)
+        eff_s, eff_e     - effective window start/end in minutes
+        liftup_hrs       - informational: hrs signed on before scheduled start
+        layback_hrs      - informational: hrs signed off after scheduled end
+        claim_active     - True iff effective-window expansion was applied
+
+    Cross-midnight is handled by adding 1440 to end times when the end is
+    earlier than the start (or the cm flag is set).
+    """
+    a_s = _to_mins(day.a_start)
+    a_e = _to_mins(day.a_end)
+    if a_s is None or a_e is None:
+        return 0, 0, 0, 0, 0.0, 0.0, False
+    if day.cm or a_e <= a_s:
+        a_e += 1440
+
+    # WOBOD ignores the toggle — there's no scheduled time on a book-off day
+    if day.wobod:
+        return a_s, a_e, a_s, a_e, 0.0, 0.0, False
+
+    if not day.claim_liftup_layback or not day.r_start or not day.r_end:
+        return a_s, a_e, a_s, a_e, 0.0, 0.0, False
+
+    r_s = _to_mins(day.r_start)
+    r_e = _to_mins(day.r_end)
+    if r_s is None or r_e is None:
+        return a_s, a_e, a_s, a_e, 0.0, 0.0, False
+    if day.cm or r_e <= r_s:
+        r_e += 1440
+
+    eff_s = min(a_s, r_s)
+    eff_e = max(a_e, r_e)
+    liftup_hrs = _to_hrs(max(0, r_s - a_s))
+    layback_hrs = _to_hrs(max(0, a_e - r_e))
+    return a_s, a_e, eff_s, eff_e, liftup_hrs, layback_hrs, True
 
 
 # ─── Core per-day calculation ─────────────────────────────────────────
@@ -162,34 +219,38 @@ def compute_day(day: DayState, cfg: RateConfig, codes, unassoc_amt: float = 0.0)
     components: list[PayComponent] = []
     flags: list[str] = []
 
-    s_min = _to_mins(day.a_start)
-    e_min = _to_mins(day.a_end)
-    if day.cm or (e_min is not None and s_min is not None and e_min <= s_min):
-        e_min += 1440
-    actual_hrs = _to_hrs(e_min - s_min)
-    ord_hrs = min(actual_hrs, 8.0)
-    ot_hrs = max(0.0, actual_hrs - 8.0)
+    # ─── Resolve time window per §5.7 / FR-02-F ──────────────────────────────
+    a_s, a_e, eff_s, eff_e, liftup_hrs, layback_hrs, claim_active = _resolve_window(day)
+    actual_hrs = _to_hrs(a_e - a_s)        # what driver was physically on duty
+    worked_hrs = _to_hrs(eff_e - eff_s)    # what gets paid (effective when claim, else actual)
+
+    ord_hrs = min(worked_hrs, 8.0)
+    ot_hrs = max(0.0, worked_hrs - 8.0)
     ot1h = min(ot_hrs, 2.0)
     ot2h = max(0.0, ot_hrs - 2.0)
 
+    # ─── KM credit (Cl. 146.4) ──────────────────────────────────────────────
     km_credited = None
     km_bonus = 0.0
     km_applied = False
     if day.km > 0:
         km_credited = get_km_credit(day.km)
-        if km_credited is not None and km_credited > actual_hrs:
-            km_bonus = km_credited - actual_hrs
+        if km_credited is not None and km_credited > worked_hrs:
+            km_bonus = km_credited - worked_hrs
             km_applied = True
 
-    if km_credited is not None and km_credited >= 257 and actual_hrs > 10:
+    if km_credited is not None and km_credited >= 257 and worked_hrs > 10:
         flags.append("ALERT: Double shift >10 hrs — driver must be relieved at terminal on return (Cl. 146.4(f)).")
     if km_credited is not None and km_credited >= 370:
         flags.append(">370 km shift — max 4/week, relieved at terminal, 8 hr traffic cap (Cl. 146.4(g-i)).")
-        if actual_hrs > 8:
-            flags.append(f"ALERT: >370 km shift — {actual_hrs:.2f} hrs in traffic exceeds 8 hr cap (Cl. 146.4(i)).")
+        if worked_hrs > 8:
+            flags.append(f"ALERT: >370 km shift — {worked_hrs:.2f} hrs in traffic exceeds 8 hr cap (Cl. 146.4(i)).")
 
     day_type = "ph" if is_ph else ("sunday" if is_sun else ("saturday" if is_sat else "weekday"))
-    pen = _get_shift_penalty(s_min, e_min, ord_hrs, is_sat, is_sun, is_ph, day.dow, cfg, codes)
+
+    # Penalty class is determined from ACTUAL sign-on (a_s, a_e), not the effective window.
+    # See PRD §5.4 — penalty depends on when the driver physically signs on.
+    pen = _get_shift_penalty(a_s, a_e, ord_hrs, is_sat, is_sun, is_ph, day.dow, cfg, codes)
 
     if day.wobod:
         wh = max(actual_hrs, float(cfg.wobod_min))
@@ -203,7 +264,7 @@ def compute_day(day: DayState, cfg: RateConfig, codes, unassoc_amt: float = 0.0)
     elif is_ph:
         rate = cfg.ph_wke if (is_sat or is_sun) else cfg.ph_wkd
         code = codes.ph_wke if (is_sat or is_sun) else codes.ph_wkd
-        ph_hrs = max(actual_hrs, km_credited or 0)
+        ph_hrs = max(worked_hrs, km_credited or 0)
         components.append(PayComponent(
             name=f"Public holiday — {'weekend' if is_sat or is_sun else 'weekday'} ({rate}×)",
             ea="Cl. 31", code=code or "—",
@@ -284,7 +345,7 @@ def compute_day(day: DayState, cfg: RateConfig, codes, unassoc_amt: float = 0.0)
             hrs=f"{km_bonus:.2f}", rate="Ordinary rate — NOT included in OT (Cl. 146.4(b))",
             amount=round(km_bonus * B * b_rate, 2), cls="km-row",
         ))
-        flags.append(f"KM credit: {day.km:.0f} km → {km_credited} hrs. Actual: {actual_hrs:.2f} hrs. Bonus {km_bonus:.2f} hrs.")
+        flags.append(f"KM credit: {day.km:.0f} km → {km_credited} hrs. Worked: {worked_hrs:.2f} hrs. Bonus {km_bonus:.2f} hrs.")
 
     if day.km > 0 and km_credited is None:
         flags.append(f"{day.km:.0f} km < 161 — all actual time paid normally (Cl. 146.4(c)).")
@@ -296,114 +357,39 @@ def compute_day(day: DayState, cfg: RateConfig, codes, unassoc_amt: float = 0.0)
             amount=round(unassoc_amt, 2), cls="km-row",
         ))
 
-    if not day.wobod:
-        liftup_gap = _calc_liftup_gap(day)
-        layback_gap = _calc_layback_gap(day)
-        for gap, label, ea_ref in [
-            (liftup_gap, "Lift-up / buildup (started before scheduled)", "Cl. 131 / Cl. 140.1"),
-            (layback_gap, "Layback / extend (finished after scheduled)", "Cl. 131 / Cl. 140.1"),
-        ]:
-            if gap > 0:
-                _add_gap_components(components, flags, gap, label, ea_ref,
-                                     actual_hrs, B, cfg, codes, is_sat, is_sun, is_ph)
+    # ─── Lift-up / Layback informational flags (PRD §5.7) ──────────────────────
+    # Effective-window approach (v3.10): the lift-up and layback minutes are
+    # ALREADY baked into worked_hrs above — we do NOT add them as separate
+    # pay components. Just emit informational flags so the user can see what
+    # was claimed.
+    if claim_active:
+        if liftup_hrs > 0:
+            flags.append(
+                f"Lift-up / buildup: {liftup_hrs:.2f} hrs before scheduled start "
+                f"({day.r_start} ← {day.a_start}) — included in effective window (Cl. 131)."
+            )
+        if layback_hrs > 0:
+            flags.append(
+                f"Layback / extend: {layback_hrs:.2f} hrs after scheduled end "
+                f"({day.r_end} → {day.a_end}) — included in effective window (Cl. 131)."
+            )
+        if liftup_hrs == 0 and layback_hrs == 0 and day.r_start and day.a_start != day.r_start:
+            # Driver came late but Claim=Yes guarantees scheduled hours
+            flags.append("Scheduled-hours guarantee applied — actual window narrower than scheduled (Cl. 131).")
+    elif day.r_start and day.a_start and (day.a_start != day.r_start or day.a_end != day.r_end) and not day.wobod:
+        flags.append("Lift-up/layback claim disabled for this day — paid strictly on actual times.")
 
     if ot_hrs > 0 and not day.wobod:
         flags.append(f"Daily OT: {ot_hrs:.2f} hrs beyond 8-hr ordinary limit (Cl. 140.1).")
 
     total = round(sum(c.amount for c in components), 2)
-    paid_hrs = max(actual_hrs, km_credited or 0) if km_applied else actual_hrs
+    paid_hrs = max(worked_hrs, km_credited or 0) if km_applied else worked_hrs
 
     return DayResult(
         date=day.date, diag=day.diag, day_type=day_type,
-        hours=round(actual_hrs, 2), paid_hrs=round(paid_hrs, 2),
+        hours=round(worked_hrs, 2), paid_hrs=round(paid_hrs, 2),
         total_pay=total, components=components, flags=flags,
     )
-
-
-# ─── Lift-up / Layback helpers ────────────────────────────────────────────
-
-def _calc_liftup_gap(day: DayState) -> float:
-    """Hours driver worked before scheduled start. PRD §5.7"""
-    if not (day.r_start and day.a_start):
-        return 0.0
-    rs = _to_mins(day.r_start)
-    a_s = _to_mins(day.a_start)
-    if rs is None or a_s is None or a_s >= rs:
-        return 0.0
-    return _to_hrs(rs - a_s)
-
-
-def _calc_layback_gap(day: DayState) -> float:
-    """Hours driver worked after scheduled end. PRD §5.7"""
-    if not (day.r_end and day.a_end):
-        return 0.0
-    re = _to_mins(day.r_end)
-    ae = _to_mins(day.a_end)
-    if re is None or ae is None:
-        return 0.0
-    if day.cm:
-        re += 1440
-        ae += 1440
-    return _to_hrs(max(0, ae - re))
-
-
-def _add_gap_components(
-    components, flags, gap_hrs, label, ea_ref,
-    actual_hrs, B, cfg, codes, is_sat, is_sun, is_ph,
-):
-    """Add pay components for a lift-up or layback gap. PRD §5.7"""
-    ord_remainder = max(0.0, 8.0 - (actual_hrs - gap_hrs))
-    gap_ord = min(gap_hrs, ord_remainder)
-    gap_ot = max(0.0, gap_hrs - gap_ord)
-    gap_ot1 = min(gap_ot, 2.0)
-    gap_ot2 = max(0.0, gap_ot - 2.0)
-
-    def _ord_rate():
-        if is_ph:
-            return cfg.ph_wke if (is_sat or is_sun) else cfg.ph_wkd
-        if is_sun: return cfg.sun_rate
-        if is_sat: return cfg.sat_rate
-        return 1.0
-
-    def _ot1_rate():
-        if is_ph:
-            return cfg.ph_wke if (is_sat or is_sun) else cfg.ph_wkd
-        if is_sun: return cfg.sun_rate
-        if is_sat: return cfg.sat_ot
-        return cfg.ot1
-
-    def _ot2_rate():
-        if is_ph:
-            return cfg.ph_wke if (is_sat or is_sun) else cfg.ph_wkd
-        if is_sun: return cfg.sun_rate
-        if is_sat: return cfg.sat_ot
-        return cfg.ot2
-
-    if gap_ord > 0:
-        r = _ord_rate()
-        components.append(PayComponent(
-            name=f"{label} — ordinary rate ({gap_ord:.2f} hrs within 8-hr limit)",
-            ea=ea_ref, code=codes.liftup or "—",
-            hrs=f"{gap_ord:.2f}", rate=f"{r if r != 1.0 else 'ordinary'}",
-            amount=round(gap_ord * B * r, 2), cls="pen-row",
-        ))
-    if gap_ot1 > 0:
-        r = _ot1_rate()
-        components.append(PayComponent(
-            name=f"{label} — OT rate (first 2 hrs beyond 8)",
-            ea=ea_ref, code=codes.liftup or "—",
-            hrs=f"{gap_ot1:.2f}", rate=f"{r}×",
-            amount=round(gap_ot1 * B * r, 2), cls="pen-row",
-        ))
-    if gap_ot2 > 0:
-        r = _ot2_rate()
-        components.append(PayComponent(
-            name=f"{label} — OT rate (beyond 2 hrs)",
-            ea=ea_ref, code=codes.liftup or "—",
-            hrs=f"{gap_ot2:.2f}", rate=f"{r}×",
-            amount=round(gap_ot2 * B * r, 2), cls="pen-row",
-        ))
-    flags.append(f"{label}: {gap_hrs:.2f} hrs — {gap_ord:.2f} at ordinary, {gap_ot:.2f} at OT rate.")
 
 
 # ─── Leave calculation ──────────────────────────────────────────────────────────
