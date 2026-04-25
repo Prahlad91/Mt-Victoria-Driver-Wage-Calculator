@@ -1,5 +1,7 @@
 """File parsing — roster PDFs, schedule ZIPs, payslip XLSXs / PDFs.
 PRD ref: Section 6 (File Upload Requirements)
+
+v3.8 deployed (2-column PDF support — see _extract_schedule_text_from_file below).
 """
 from __future__ import annotations
 import io
