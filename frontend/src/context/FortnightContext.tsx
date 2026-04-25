@@ -19,6 +19,36 @@ const LS_MR      = 'mvwc_master_roster'
 const LS_FR      = 'mvwc_fn_roster'
 const LS_WD      = 'mvwc_weekday_schedule'
 const LS_WE      = 'mvwc_weekend_schedule'
+const LS_VERSION = 'mvwc_cache_version'
+
+// PRD §6.10 — cache invalidation. When the schedule parser changes in a way
+// that affects the structure or correctness of cached data (e.g. the v3.8 fix
+// for 2-column PDFs), bump this constant. On first load with the new value,
+// stale schedule caches are cleared and the user is forced to re-upload.
+//
+// v3.10 forces a clear because v3.7 and earlier cached schedules are missing
+// roughly half the diagrams (column interleave bug) and have wrong
+// "Time off duty" values for several others.
+const CACHE_SCHEMA_VERSION = '3.10'
+
+// Run synchronously at module load — BEFORE any FortnightProvider mounts and
+// BEFORE useState() runs restoreCached(). This guarantees the initial state
+// reads fresh (empty) localStorage when there's a version mismatch.
+if (typeof window !== 'undefined') {
+  try {
+    const stored = window.localStorage.getItem(LS_VERSION)
+    if (stored !== CACHE_SCHEMA_VERSION) {
+      window.localStorage.removeItem(LS_WD)
+      window.localStorage.removeItem(LS_WE)
+      window.localStorage.setItem(LS_VERSION, CACHE_SCHEMA_VERSION)
+      // eslint-disable-next-line no-console
+      console.info(
+        `[mvwc] Cache schema bumped to ${CACHE_SCHEMA_VERSION} ` +
+        `(was ${stored ?? 'unset'}). Cleared cached schedule data — please re-upload weekday + weekend schedules.`
+      )
+    }
+  } catch { /* localStorage unavailable (private mode, etc.) — proceed */ }
+}
 
 function fromLS<T>(k: string, fb: T): T {
   try { const s = localStorage.getItem(k); return s ? JSON.parse(s) : fb } catch { return fb }
@@ -249,6 +279,7 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
           rStart, rEnd, cm, rHrs,
           aStart: rStart || '', aEnd: rEnd || '',
           timeSource, km,
+          claimLiftupLayback: true,        // v3.10 default — see PRD §FR-02-F
           wobod: false, leaveCat: 'none',
           manualDiag: null, manualDiagInput: '', workedOnOff: false,
           isShortFortnight: isShort,
@@ -289,6 +320,7 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
           rStart, rEnd, cm, rHrs,
           aStart: rStart || '', aEnd: rEnd || '',
           timeSource, km,
+          claimLiftupLayback: true,        // v3.10 default — see PRD §FR-02-F
           wobod: false, leaveCat: 'none',
           manualDiag: null, manualDiagInput: '', workedOnOff: false,
           isShortFortnight: isShort,
@@ -382,6 +414,7 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
         aStart: rStart || '',
         aEnd:   rEnd   || '',
         timeSource: 'manual',
+        claimLiftupLayback: day.claimLiftupLayback ?? true,  // v3.10 — preserve, defaulting true
         workedOnOff: true,
       }
       return arr
@@ -400,6 +433,7 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
         rStart: null, rEnd: null, cm: false, rHrs: 8,
         aStart: '', aEnd: '',
         timeSource: 'manual',
+        claimLiftupLayback: day.claimLiftupLayback ?? true,  // v3.10 — preserve, defaulting true
         wobod: false, km: 0,
       }
       return n
@@ -432,6 +466,7 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
         manualDiag: null, manualDiagInput: '', workedOnOff: false,
         rStart, rEnd, cm, rHrs, km, timeSource,
         aStart: rStart || '', aEnd: rEnd || '',
+        claimLiftupLayback: true,        // v3.10 — reset to default
         wobod: false, leaveCat: 'none',
       }
       return n
