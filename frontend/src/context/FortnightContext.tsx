@@ -4,9 +4,9 @@ import {
 } from 'react'
 import type {
   DayState, RateConfig, PayrollCodes,
-  CalculateResponse, ParseRosterResponse, ParsePayslipResponse,
-  RosterUploadState, PayslipUploadState,
+  CalculateResponse, RosterUploadState, PayslipUploadState,
   ParsedRosterData, ParsedScheduleData, DiagramInfo, SimpleUploadState,
+  TimeSource,
 } from '../types'
 import { DEFAULT_CONFIG, DEFAULT_CODES, previewDay } from '../utils/calcPreview'
 import { ROSTER } from '../constants/roster'
@@ -35,6 +35,21 @@ function restoreCached<T>(lsKey: string): SimpleUploadState<T> {
 const isSwinger = (line: number) => line >= 201
 export type RosterSource = 'builtin' | 'master' | 'fortnight'
 
+/**
+ * Extract the 4-digit diagram number from a diagram name.
+ * '3151 SMB'   -> '3151'
+ * '3158 RK'    -> '3158'
+ * 'SBY'        -> null
+ * 'OFF', 'ADO' -> null
+ * '3651 [manual]' -> '3651'
+ */
+function extractDiagNum(diag: string | null | undefined): string | null {
+  if (!diag) return null
+  if (diag === 'OFF' || diag === 'ADO' || diag === 'WORKED') return null
+  const first = diag.trim().split(/\s+/)[0]
+  return /^\d{3,4}$/.test(first) ? first : null
+}
+
 interface Ctx {
   rosterLine: number; fnStart: string; publicHolidays: string[]; payslipTotal: number | null
   fnLoaded: boolean; fnType: 'short' | 'long' | null; rosterSource: RosterSource
@@ -50,6 +65,7 @@ interface Ctx {
   result: CalculateResponse | null; calculating: boolean; calcError: string | null
   loadLine:            (line: number, start: string, phs: string[], psTotal: number | null) => void
   fillAllRostered:     () => void
+  copyScheduledToActual: (i: number) => void
   setDay:              (i: number, patch: Partial<DayState>) => void
   applyManualDiag:     (i: number, diagInput: string) => void
   markWorkedOnOff:     (i: number) => void
@@ -96,8 +112,7 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
   const [calculating, setCalcing]   = useState(false)
   const [calcError,   setCalcError] = useState<string | null>(null)
 
-  // ── Refs so stable callbacks always see the latest schedule data ──────────
-  // Updated every render — safe to read in useCallback with empty deps.
+  // Refs so callbacks always see latest schedules without being recreated
   const wdSchedRef = useRef<ParsedScheduleData | null>(null)
   const weSchedRef = useRef<ParsedScheduleData | null>(null)
   wdSchedRef.current = weekdayScheduleUpload.result
@@ -117,34 +132,66 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
   const saveConfig = useCallback(() => { toLS(LS_CFG, config); toLS(LS_UNASSOC, unassocAmt) }, [config, unassocAmt])
   const saveCodes  = useCallback(() => toLS(LS_CODES, codes), [codes])
 
-  // ── Schedule lookup helper ────────────────────────────────────────────────
-  const getScheduleInfo = useCallback((
-    diagName: string, dow: number,
-    wdSched: ParsedScheduleData | null, weSched: ParsedScheduleData | null,
+  // ── Schedule lookups ──────────────────────────────────────────────────────
+
+  /**
+   * Look up a diagram in BOTH schedules — returns the first match.
+   * Used for manual diagram override (user could enter a weekend diagram on a
+   * weekday or vice versa).
+   */
+  const findInBothSchedules = useCallback((
+    diagNum: string,
+    wd: ParsedScheduleData | null, we: ParsedScheduleData | null,
   ): DiagramInfo | null => {
-    if (!diagName || diagName === 'OFF' || diagName === 'ADO') return null
-    const diagNum = diagName.split(' ')[0]
-    if (!diagNum.match(/^\d+$/)) return null
-    const sched = (dow === 0 || dow === 6) ? weSched : wdSched
+    if (!diagNum) return null
+    if (wd?.diagrams[diagNum]) return wd.diagrams[diagNum]
+    if (we?.diagrams[diagNum]) return we.diagrams[diagNum]
+    return null
+  }, [])
+
+  /**
+   * Look up a diagram in the day-of-week appropriate schedule.
+   * Used for roster-loaded days (we know which schedule to consult based on dow).
+   */
+  const findByDow = useCallback((
+    diagNum: string | null, dow: number,
+    wd: ParsedScheduleData | null, we: ParsedScheduleData | null,
+  ): DiagramInfo | null => {
+    if (!diagNum) return null
+    const sched = (dow === 0 || dow === 6) ? we : wd
     return sched?.diagrams[diagNum] ?? null
   }, [])
 
-  // ── Trigger 3: re-apply KMs when a schedule is uploaded after roster load ─
-  // Runs whenever weekday or weekend schedule result changes. If days are
-  // already loaded it patches km (and times if still unset) for every work day.
+  // ── Trigger 3: re-apply scheduled times AND KMs when a schedule arrives
+  // AFTER a roster has been loaded. Also triggers on initial mount if cached
+  // schedules are restored from localStorage.
   useEffect(() => {
     if (!fnLoaded || days.length === 0) return
-    const wdSched = weekdayScheduleUpload.result
-    const weSched = weekendScheduleUpload.result
-    if (!wdSched && !weSched) return
+    const wd = weekdayScheduleUpload.result
+    const we = weekendScheduleUpload.result
+    if (!wd && !we) return
+
     setDays(prev => prev.map(d => {
-      // Skip OFF/ADO days and manually-overridden days (user chose a specific diagram)
-      if (d.diag === 'OFF' || d.diag === 'ADO') return d
-      const sched = getScheduleInfo(d.diag, d.dow, wdSched, weSched)
+      // Skip OFF/ADO and any day that user manually overrode
+      if (d.diag === 'OFF' || d.diag === 'ADO' || d.timeSource === 'manual') return d
+      const sched = findByDow(d.diagNum, d.dow, wd, we)
       if (!sched) return d
-      // Only set km — don't overwrite times the user may already have edited
-      return { ...d, km: sched.km }
+      // Re-apply schedule data; preserve user-edited actual times
+      const actualWasScheduled = d.aStart === d.rStart && d.aEnd === d.rEnd
+      return {
+        ...d,
+        rStart: sched.sign_on,
+        rEnd: sched.sign_off,
+        cm: sched.cm,
+        rHrs: sched.r_hrs,
+        km: sched.km,
+        timeSource: 'schedule',
+        // If actual was previously synced to scheduled, keep them in sync
+        aStart: actualWasScheduled ? (sched.sign_on || '') : d.aStart,
+        aEnd:   actualWasScheduled ? (sched.sign_off || '') : d.aEnd,
+      }
     }))
+  // Only react to schedule changes; intentionally not depending on fnLoaded/days
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [weekdayScheduleUpload.result, weekendScheduleUpload.result])
 
@@ -156,8 +203,8 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
     const dates   = makeFortnight(snapped)
     const mrData  = masterRosterUpload.result
     const frData  = fnRosterUpload.result
-    const wdSched = weekdayScheduleUpload.result
-    const weSched = weekendScheduleUpload.result
+    const wd      = weekdayScheduleUpload.result
+    const we      = weekendScheduleUpload.result
 
     let source: RosterSource = 'builtin'
     let rosterEntries: ParsedRosterData['lines'][string] | undefined
@@ -174,36 +221,77 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
       const isShort = rosterEntries.some(e => e.diag === 'ADO')
       newDays = rosterEntries.map((entry, i) => {
         const date = dates[i]; const d = parseDate(date); const dow = d.getDay()
-        const sched = getScheduleInfo(entry.diag, dow, wdSched, weSched)
-        const rStart = sched?.sign_on  ?? entry.r_start ?? null
-        const rEnd   = sched?.sign_off ?? entry.r_end   ?? null
+        const diagNum = extractDiagNum(entry.diag)
+        const sched = findByDow(diagNum, dow, wd, we)
+
+        // Determine time source and times
+        let timeSource: TimeSource
+        let rStart: string | null, rEnd: string | null, cm: boolean, rHrs: number, km: number
+
+        if (entry.diag === 'OFF' || entry.diag === 'ADO') {
+          timeSource = 'none'
+          rStart = null; rEnd = null; cm = false; rHrs = 0; km = 0
+        } else if (sched) {
+          // Schedule wins — authoritative source for times + KMs
+          timeSource = 'schedule'
+          rStart = sched.sign_on; rEnd = sched.sign_off; cm = sched.cm
+          rHrs = sched.r_hrs; km = sched.km
+        } else {
+          // No schedule entry — fall back to master roster's own times
+          timeSource = entry.r_start ? 'master' : 'none'
+          rStart = entry.r_start; rEnd = entry.r_end; cm = entry.cm
+          rHrs = entry.r_hrs; km = 0
+        }
+
         return {
-          date, dow, ph: phs.includes(date), diag: entry.diag,
-          rStart, rEnd, cm: sched?.cm ?? entry.cm, rHrs: sched?.r_hrs ?? entry.r_hrs,
+          date, dow, ph: phs.includes(date),
+          diag: entry.diag, diagNum,
+          rStart, rEnd, cm, rHrs,
           aStart: rStart || '', aEnd: rEnd || '',
-          wobod: false, km: sched?.km ?? 0, leaveCat: 'none',
-          manualDiag: null, manualDiagInput: '', workedOnOff: false, isShortFortnight: isShort,
+          timeSource, km,
+          wobod: false, leaveCat: 'none',
+          manualDiag: null, manualDiagInput: '', workedOnOff: false,
+          isShortFortnight: isShort,
         }
       })
     } else {
+      // Built-in fallback
       source = 'builtin'
       const roster = ROSTER[String(line)]
       if (!roster) return
       const isShort = roster.some(e => e[4] === 'ADO')
       newDays = roster.map((entry, i) => {
-        const [rS, rE, cm, rHrs, diag] = entry
+        const [rS, rE, cmFlag, rHrsBuilt, diagBuilt] = entry
+        const diag = String(diagBuilt)
         const date = dates[i]; const d = parseDate(date); const dow = d.getDay()
-        const sched = getScheduleInfo(String(diag), dow, wdSched, weSched)
+        const diagNum = extractDiagNum(diag)
+        const sched = findByDow(diagNum, dow, wd, we)
+
+        let timeSource: TimeSource
+        let rStart: string | null, rEnd: string | null, cm: boolean, rHrs: number, km: number
+
+        if (diag === 'OFF' || diag === 'ADO') {
+          timeSource = 'none'
+          rStart = null; rEnd = null; cm = false; rHrs = 0; km = 0
+        } else if (sched) {
+          timeSource = 'schedule'
+          rStart = sched.sign_on; rEnd = sched.sign_off; cm = sched.cm
+          rHrs = sched.r_hrs; km = sched.km
+        } else {
+          timeSource = rS ? 'builtin' : 'none'
+          rStart = rS as string | null; rEnd = rE as string | null
+          cm = Boolean(cmFlag); rHrs = Number(rHrsBuilt); km = 0
+        }
+
         return {
-          date, dow, ph: phs.includes(date), diag: String(diag),
-          rStart: sched?.sign_on  ?? (rS  as string | null),
-          rEnd:   sched?.sign_off ?? (rE  as string | null),
-          cm:     sched?.cm       ?? Boolean(cm),
-          rHrs:   sched?.r_hrs    ?? Number(rHrs),
-          aStart: sched?.sign_on  ?? (rS as string) ?? '',
-          aEnd:   sched?.sign_off ?? (rE as string) ?? '',
-          wobod: false, km: sched?.km ?? 0, leaveCat: 'none',
-          manualDiag: null, manualDiagInput: '', workedOnOff: false, isShortFortnight: isShort,
+          date, dow, ph: phs.includes(date),
+          diag, diagNum,
+          rStart, rEnd, cm, rHrs,
+          aStart: rStart || '', aEnd: rEnd || '',
+          timeSource, km,
+          wobod: false, leaveCat: 'none',
+          manualDiag: null, manualDiagInput: '', workedOnOff: false,
+          isShortFortnight: isShort,
         }
       })
     }
@@ -211,7 +299,10 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
     setRosterLine(line); setFnStart(snapped); setPHs(phs); setPsTotal(psTotal)
     setDays(newDays); setFnLoaded(true); setResult(null); setCalcError(null)
     setRosterSource(source)
-  }, [masterRosterUpload.result, fnRosterUpload.result, weekdayScheduleUpload.result, weekendScheduleUpload.result, getScheduleInfo])
+  }, [
+    masterRosterUpload.result, fnRosterUpload.result,
+    weekdayScheduleUpload.result, weekendScheduleUpload.result, findByDow,
+  ])
 
   const fillAllRostered = useCallback(() =>
     setDays(prev => prev.map(d =>
@@ -219,82 +310,132 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
         : { ...d, aStart: d.rStart || '', aEnd: d.rEnd || '' }
     )), [])
 
+  const copyScheduledToActual = useCallback((i: number) =>
+    setDays(prev => {
+      const day = prev[i]
+      if (!day.rStart) return prev
+      const n = [...prev]
+      n[i] = { ...day, aStart: day.rStart || '', aEnd: day.rEnd || '' }
+      return n
+    }), [])
+
   const setDay = useCallback((i: number, patch: Partial<DayState>) =>
     setDays(prev => { const n = [...prev]; n[i] = { ...n[i], ...patch }; return n }), [])
 
   // ── applyManualDiag (Trigger 2) ───────────────────────────────────────────
-  // Looks up: (1) uploaded schedule for times + KMs, then (2) built-in ROSTER
-  // as fallback for times only. KMs always come from the schedule.
+  // Searches BOTH weekday and weekend schedules for the entered diagram number.
+  // Sets timeSource='manual' on success. Falls back to built-in ROSTER if the
+  // diagram is not in either schedule.
   const applyManualDiag = useCallback((i: number, raw: string) => {
-    if (!raw.trim()) return
+    const trimmed = raw.trim()
+    if (!trimmed) return
     setDays(prev => {
       const day = prev[i]
       const orig = day._origDiag || day.diag
-      const diagNum = raw.trim().split(' ')[0]
+      const origDiagNum = day._origDiagNum !== undefined ? day._origDiagNum : day.diagNum
 
-      // Step 1: look up schedule for this diagram on this day-of-week
-      const sched = getScheduleInfo(raw.trim(), day.dow, wdSchedRef.current, weSchedRef.current)
+      // Extract clean diagram number from input
+      const inputNum = extractDiagNum(trimmed)
 
-      // Step 2: determine times — prefer schedule, fall back to built-in ROSTER
-      let rStart: string | null = sched?.sign_on  ?? null
-      let rEnd:   string | null = sched?.sign_off ?? null
-      let cm       = sched?.cm       ?? false
-      let rHrs     = sched?.r_hrs    ?? 8.0
-      const km     = sched?.km       ?? 0      // KMs always from schedule
-      let diagName = raw.trim() + ' [manual]'
+      let rStart: string | null = null, rEnd: string | null = null
+      let cm = false, rHrs = 8.0, km = 0
+      let diagName = trimmed + ' [manual]'
+      let diagNum: string | null = inputNum
+      let foundInSchedule = false
 
-      if (!rStart) {
-        // Schedule lookup missed — try built-in ROSTER by line number
-        const n = parseInt(diagNum)
+      // Step 1 — try BOTH schedules using the parsed diagram number
+      if (inputNum) {
+        const sched = findInBothSchedules(inputNum, wdSchedRef.current, weSchedRef.current)
+        if (sched) {
+          rStart = sched.sign_on; rEnd = sched.sign_off
+          cm = sched.cm; rHrs = sched.r_hrs; km = sched.km
+          diagName = `${inputNum} [manual]`
+          diagNum = inputNum
+          foundInSchedule = true
+        }
+      }
+
+      // Step 2 — fall back to built-in ROSTER if no schedule hit
+      if (!foundInSchedule) {
+        const n = parseInt(trimmed, 10)
         if (!isNaN(n) && ROSTER[String(n)]) {
           const e = ROSTER[String(n)]![i]
           if (e && e[0]) {
             rStart = e[0] as string; rEnd = e[1] as string
-            cm = Boolean(e[2]); rHrs = Number(e[3]); diagName = String(e[4]) + ' [manual]'
-          }
-        } else {
-          // Try partial diagram name match in built-in ROSTER
-          let found = false
-          for (const entries of Object.values(ROSTER)) {
-            if (found || !entries) break
-            for (const e of entries) {
-              if (e[4] && String(e[4]).toLowerCase().includes(raw.toLowerCase()) && e[0]) {
-                rStart = e[0] as string; rEnd = e[1] as string
-                cm = Boolean(e[2]); rHrs = Number(e[3]); diagName = String(e[4]) + ' [manual]'
-                found = true; break
-              }
-            }
+            cm = Boolean(e[2]); rHrs = Number(e[3])
+            diagName = String(e[4]) + ' [manual]'
+            diagNum = extractDiagNum(String(e[4]))
           }
         }
-      } else {
-        // Schedule hit — use schedule diagram number for a cleaner name
-        diagName = diagNum + ' [manual]'
       }
 
       const arr = [...prev]
       arr[i] = {
-        ...day, _origDiag: orig, manualDiag: raw, manualDiagInput: raw,
-        diag: diagName, rStart, rEnd, cm, rHrs, km,
-        aStart: rStart || '', aEnd: rEnd || '', workedOnOff: true,
+        ...day,
+        _origDiag: orig,
+        _origDiagNum: origDiagNum,
+        manualDiag: trimmed,
+        manualDiagInput: trimmed,
+        diag: diagName,
+        diagNum,
+        rStart, rEnd, cm, rHrs, km,
+        aStart: rStart || '',
+        aEnd:   rEnd   || '',
+        timeSource: 'manual',
+        workedOnOff: true,
       }
       return arr
     })
-  // wdSchedRef and weSchedRef are refs — always current, no need in deps
-  }, [getScheduleInfo]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [findInBothSchedules])
 
   const markWorkedOnOff = useCallback((i: number) =>
     setDays(prev => {
       const day = prev[i]; const n = [...prev]
-      n[i] = { ...day, _origDiag: day._origDiag || day.diag, manualDiag: 'WORKED', workedOnOff: true, diag: 'WORKED', rStart: null, rEnd: null, cm: false, rHrs: 8, aStart: '', aEnd: '', wobod: false, km: 0 }
+      n[i] = {
+        ...day,
+        _origDiag: day._origDiag || day.diag,
+        _origDiagNum: day._origDiagNum !== undefined ? day._origDiagNum : day.diagNum,
+        manualDiag: 'WORKED', workedOnOff: true,
+        diag: 'WORKED', diagNum: null,
+        rStart: null, rEnd: null, cm: false, rHrs: 8,
+        aStart: '', aEnd: '',
+        timeSource: 'manual',
+        wobod: false, km: 0,
+      }
       return n
     }), [])
 
   const resetDay = useCallback((i: number) =>
     setDays(prev => {
-      const day = prev[i]; const orig = day._origDiag || 'OFF'; const n = [...prev]
-      n[i] = { ...day, diag: orig, _origDiag: undefined, manualDiag: null, manualDiagInput: '', workedOnOff: false, rStart: null, rEnd: null, cm: false, rHrs: 0, aStart: '', aEnd: '', wobod: false, km: 0, leaveCat: 'none' }
+      const day = prev[i]
+      const orig = day._origDiag || 'OFF'
+      const origDiagNum = day._origDiagNum !== undefined ? day._origDiagNum : null
+      const n = [...prev]
+      // Re-apply original by looking up schedule using original diagNum
+      const sched = findByDow(origDiagNum, day.dow, wdSchedRef.current, weSchedRef.current)
+      let timeSource: TimeSource
+      let rStart: string | null, rEnd: string | null, cm: boolean, rHrs: number, km: number
+      if (orig === 'OFF' || orig === 'ADO') {
+        timeSource = 'none'
+        rStart = null; rEnd = null; cm = false; rHrs = 0; km = 0
+      } else if (sched) {
+        timeSource = 'schedule'
+        rStart = sched.sign_on; rEnd = sched.sign_off; cm = sched.cm
+        rHrs = sched.r_hrs; km = sched.km
+      } else {
+        timeSource = 'none'
+        rStart = null; rEnd = null; cm = false; rHrs = 0; km = 0
+      }
+      n[i] = {
+        ...day, diag: orig, diagNum: origDiagNum,
+        _origDiag: undefined, _origDiagNum: undefined,
+        manualDiag: null, manualDiagInput: '', workedOnOff: false,
+        rStart, rEnd, cm, rHrs, km, timeSource,
+        aStart: rStart || '', aEnd: rEnd || '',
+        wobod: false, leaveCat: 'none',
+      }
       return n
-    }), [])
+    }), [findByDow])
 
   const applyUploadedRoster = useCallback(() => {
     if (!rosterUpload.result) return
@@ -309,7 +450,7 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
     setRU(prev => ({ ...prev, applied: true }))
   }, [rosterUpload.result])
 
-  // ── ZIP uploader factory ──────────────────────────────────────────────────
+  // ── Upload factory ────────────────────────────────────────────────────────
   function makeZipUploader<T>(endpoint: string, setter: (s: SimpleUploadState<T>) => void, lsKey: string) {
     return async (file: File) => {
       setter({ status: 'uploading', result: null, error: null })
@@ -326,14 +467,12 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  /* eslint-disable react-hooks/exhaustive-deps */
   const uploadMasterRoster    = useCallback(makeZipUploader<ParsedRosterData>('/api/parse-master-roster',    setMR, LS_MR), [])
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const uploadFnRoster        = useCallback(makeZipUploader<ParsedRosterData>('/api/parse-fortnight-roster', setFR, LS_FR), [])
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const uploadWeekdaySchedule = useCallback(makeZipUploader<ParsedScheduleData>('/api/parse-schedule', setWD, LS_WD), [])
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const uploadWeekendSchedule = useCallback(makeZipUploader<ParsedScheduleData>('/api/parse-schedule', setWE, LS_WE), [])
+  /* eslint-enable react-hooks/exhaustive-deps */
 
   const uploadRoster = useCallback(async (file: File) => {
     setRU({ status: 'uploading', result: null, error: null, applied: false })
@@ -359,7 +498,7 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
     if (!days.length) return
     setCalcing(true); setCalcError(null)
     const isShort = days.some(d => d.diag === 'ADO')
-    const tagged  = days.map(d => ({ ...d, isShortFortnight: isShort }))
+    const tagged = days.map(d => ({ ...d, isShortFortnight: isShort }))
     try {
       const r = await fetch('/api/calculate', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -369,7 +508,7 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
       setResult(await r.json())
     } catch (e) {
       const msg = (e as Error).message
-      setCalcError(msg.includes('fetch') ? 'Cannot reach backend. Start it: cd backend && uvicorn main:app --reload' : msg)
+      setCalcError(msg.includes('fetch') ? 'Cannot reach backend.' : msg)
     } finally { setCalcing(false) }
   }, [days, fnStart, rosterLine, publicHolidays, payslipTotal, config, codes, unassocAmt])
 
@@ -399,7 +538,7 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
       rosterUpload, payslipUpload,
       masterRosterUpload, fnRosterUpload, weekdayScheduleUpload, weekendScheduleUpload,
       result, calculating, calcError,
-      loadLine, fillAllRostered, setDay, applyManualDiag, markWorkedOnOff,
+      loadLine, fillAllRostered, copyScheduledToActual, setDay, applyManualDiag, markWorkedOnOff,
       resetDay, applyUploadedRoster,
       uploadRoster, uploadPayslip,
       uploadMasterRoster, uploadFnRoster, uploadWeekdaySchedule, uploadWeekendSchedule,
