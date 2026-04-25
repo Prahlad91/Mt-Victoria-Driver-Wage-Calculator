@@ -5,6 +5,16 @@
  *
  * MUST stay in sync with backend/calculator.py (PRD §5.7).
  * PRD ref: NFR-01 (offline fallback), §5.7 (lift-up/layback)
+ *
+ * v3.10 — effective-window pay calculation per PRD §5.7 / FR-02-F.
+ *   When day.claimLiftupLayback is true (default) AND scheduled times exist:
+ *     effective_start = min(actual_start, scheduled_start)
+ *     effective_end   = max(actual_end,   scheduled_end)
+ *     workedHrs       = (effective_end - effective_start) / 60
+ *   When false: workedHrs = (actual_end - actual_start) / 60.
+ *   Lift-up/layback are emitted as INFORMATIONAL FLAGS only — they're
+ *   already baked into workedHrs. Replaces the v3.6-v3.9 gap-component
+ *   approach which double-counted lift-up minutes.
  */
 import type { DayState, RateConfig, PayrollCodes, PayComponent, DayResult } from '../types';
 import { getKmCredit, roundHrsEA, getShiftType } from './eaRules';
@@ -25,6 +35,45 @@ export const DEFAULT_CODES: PayrollCodes = {
   ph_wkd: '', ph_wke: '', afternoon: '', night: '', early: '',
   add_load: '', wobod: '', liftup: '', ado: '', unassoc: '',
 };
+
+/**
+ * Resolve the effective window for hours/OT calc per PRD §5.7.
+ * Returns: { aS, aE, effS, effE, liftupHrs, laybackHrs, claimActive }
+ *   aS/aE  - actual sign-on/off in minutes (used for shift penalty class)
+ *   effS/effE - effective window in minutes (used for hours/OT)
+ *   liftup/layback - informational flag durations
+ *   claimActive - true iff the effective window expanded beyond actual
+ */
+function resolveWindow(day: DayState): {
+  aS: number; aE: number; effS: number; effE: number;
+  liftupHrs: number; laybackHrs: number; claimActive: boolean;
+} | null {
+  const aS = toMins(day.aStart);
+  let aE = toMins(day.aEnd);
+  if (aS === null || aE === null) return null;
+  if (day.cm || aE <= aS) aE += 1440;
+
+  // WOBOD ignores the toggle (no scheduled time on a book-off day)
+  if (day.wobod) return { aS, aE, effS: aS, effE: aE, liftupHrs: 0, laybackHrs: 0, claimActive: false };
+
+  // claim disabled OR no scheduled times → use actual
+  if (!day.claimLiftupLayback || !day.rStart || !day.rEnd) {
+    return { aS, aE, effS: aS, effE: aE, liftupHrs: 0, laybackHrs: 0, claimActive: false };
+  }
+
+  const rS = toMins(day.rStart);
+  let rE = toMins(day.rEnd);
+  if (rS === null || rE === null) {
+    return { aS, aE, effS: aS, effE: aE, liftupHrs: 0, laybackHrs: 0, claimActive: false };
+  }
+  if (day.cm || rE <= rS) rE += 1440;
+
+  const effS = Math.min(aS, rS);
+  const effE = Math.max(aE, rE);
+  const liftupHrs = toHrs(Math.max(0, rS - aS));
+  const laybackHrs = toHrs(Math.max(0, aE - rE));
+  return { aS, aE, effS, effE, liftupHrs, laybackHrs, claimActive: true };
+}
 
 /** Compute a preview pay result for a single day. */
 export function previewDay(
@@ -65,15 +114,16 @@ export function previewDay(
 
   if (!day.aStart || !day.aEnd) return null;
 
+  const win = resolveWindow(day);
+  if (!win) return null;
+
   const components: PayComponent[] = [];
   const flags: string[] = [];
 
-  let sMin = toMins(day.aStart)!;
-  let eMin = toMins(day.aEnd)!;
-  if (day.cm || eMin <= sMin) eMin += 1440;
-  const actualHrs = toHrs(eMin - sMin);
-  const ordHrs = Math.min(actualHrs, 8);
-  const otHrs = Math.max(0, actualHrs - 8);
+  const actualHrs = toHrs(win.aE - win.aS);          // physical on-duty time
+  const workedHrs = toHrs(win.effE - win.effS);      // pays at this duration
+  const ordHrs = Math.min(workedHrs, 8);
+  const otHrs = Math.max(0, workedHrs - 8);
   const ot1h = Math.min(otHrs, 2);
   const ot2h = Math.max(0, otHrs - 2);
 
@@ -83,13 +133,15 @@ export function previewDay(
   let kmApplied = false;
   if (day.km > 0) {
     kmCredited = getKmCredit(day.km);
-    if (kmCredited !== null && kmCredited > actualHrs) {
-      kmBonus = kmCredited - actualHrs;
+    if (kmCredited !== null && kmCredited > workedHrs) {
+      kmBonus = kmCredited - workedHrs;
       kmApplied = true;
     }
   }
 
-  const shiftType = getShiftType(sMin, eMin);
+  // Shift penalty class — uses ACTUAL sign-on (win.aS, win.aE), not effective
+  // window. Penalty hours apply to ordHrs (which is from the effective window).
+  const shiftType = getShiftType(win.aS, win.aE);
   const penHrs = shiftType && !isSat && !isSun && !isPH ? roundHrsEA(ordHrs) : 0;
   const penRate = shiftType === 'night' ? cfg.night_rate : shiftType === 'early' ? cfg.early_rate : cfg.afternoon_rate;
   const penAmt = penHrs * penRate;
@@ -100,8 +152,8 @@ export function previewDay(
     components.push({ name: 'WOBOD', ea: 'Cl. 136', code: codes.wobod || '—', hrs: wh.toFixed(2), rate: `${cfg.wobod_rate}×`, amount: round2(wh * B * cfg.wobod_rate), cls: '' });
   } else if (isPH) {
     const r = (isSat || isSun) ? cfg.ph_wke : cfg.ph_wkd;
-    const ph_hrs = Math.max(actualHrs, kmCredited ?? 0);
-    components.push({ name: `PH (${r}×)`, ea: 'Cl. 31', code: codes.ph_wkd || '—', hrs: ph_hrs.toFixed(2), rate: `${r}×`, amount: round2(ph_hrs * B * r), cls: '' });
+    const phHrs = Math.max(workedHrs, kmCredited ?? 0);
+    components.push({ name: `PH (${r}×)`, ea: 'Cl. 31', code: codes.ph_wkd || '—', hrs: phHrs.toFixed(2), rate: `${r}×`, amount: round2(phHrs * B * r), cls: '' });
   } else if (isSun) {
     components.push({ name: 'Sunday', ea: 'Cl. 133/54', code: codes.sun || '—', hrs: ordHrs.toFixed(2), rate: `${cfg.sun_rate}×`, amount: round2(ordHrs * B * cfg.sun_rate), cls: '' });
     if (ot1h + ot2h > 0) components.push({ name: 'Sunday OT', ea: 'Cl. 140', code: codes.sun || '—', hrs: (ot1h + ot2h).toFixed(2), rate: `${cfg.sun_rate}×`, amount: round2((ot1h + ot2h) * B * cfg.sun_rate), cls: '' });
@@ -122,101 +174,34 @@ export function previewDay(
     flags.push(`KM: bonus ${kmBonus.toFixed(2)} hrs.`);
   }
 
-  // ─── Lift-up / Layback (PRD §5.7) — added in v3.6 ──────────────────────────────────
-  if (!day.wobod) {
-    const liftupGap = calcLiftupGap(day);
-    const laybackGap = calcLaybackGap(day);
-    if (liftupGap > 0) {
-      addGapComponents(components, flags, liftupGap,
-        'Lift-up / buildup (started before scheduled)', 'Cl. 131 / Cl. 140.1',
-        actualHrs, B, cfg, codes, isSat, isSun, isPH);
+  // ─── Lift-up / Layback informational flags (v3.10) ──────────────────────────
+  // The effective-window approach means lift-up/layback are ALREADY part of
+  // workedHrs. We emit them as flags only, never as separate pay components.
+  if (win.claimActive) {
+    if (win.liftupHrs > 0) {
+      flags.push(`Lift-up: ${win.liftupHrs.toFixed(2)} hrs before scheduled (${day.rStart} ← ${day.aStart}) — included in window.`);
     }
-    if (laybackGap > 0) {
-      addGapComponents(components, flags, laybackGap,
-        'Layback / extend (finished after scheduled)', 'Cl. 131 / Cl. 140.1',
-        actualHrs, B, cfg, codes, isSat, isSun, isPH);
+    if (win.laybackHrs > 0) {
+      flags.push(`Layback: ${win.laybackHrs.toFixed(2)} hrs after scheduled (${day.rEnd} → ${day.aEnd}) — included in window.`);
     }
+    if (win.liftupHrs === 0 && win.laybackHrs === 0 && day.rStart && day.aStart !== day.rStart) {
+      flags.push('Scheduled-hours guarantee applied (actual narrower than scheduled).');
+    }
+  } else if (day.rStart && day.aStart && (day.aStart !== day.rStart || day.aEnd !== day.rEnd) && !day.wobod) {
+    flags.push('Lift-up/layback claim disabled — paid on actual times only.');
   }
 
   if (otHrs > 0) flags.push(`Daily OT: ${otHrs.toFixed(2)} hrs.`);
 
   const total = round2(components.reduce((s, c) => s + c.amount, 0));
-  const paidHrs = kmApplied ? Math.max(actualHrs, kmCredited ?? 0) : actualHrs;
+  const paidHrs = kmApplied ? Math.max(workedHrs, kmCredited ?? 0) : workedHrs;
 
   return {
     date: day.date, diag: day.diag,
     day_type: isPH ? 'ph' : isSun ? 'sunday' : isSat ? 'saturday' : 'weekday',
-    hours: round2(actualHrs), paid_hrs: round2(paidHrs),
+    hours: round2(workedHrs), paid_hrs: round2(paidHrs),
     total_pay: total, components, flags,
   };
-}
-
-// ─── Lift-up / Layback helpers (mirror of backend) ─────────────────────────────────
-
-function calcLiftupGap(day: DayState): number {
-  if (!day.rStart || !day.aStart) return 0;
-  const rs = toMins(day.rStart);
-  const as = toMins(day.aStart);
-  if (rs === null || as === null || as >= rs) return 0;
-  return toHrs(rs - as);
-}
-
-function calcLaybackGap(day: DayState): number {
-  if (!day.rEnd || !day.aEnd) return 0;
-  let re = toMins(day.rEnd);
-  let ae = toMins(day.aEnd);
-  if (re === null || ae === null) return 0;
-  if (day.cm) {
-    re += 1440;
-    ae += 1440;
-  }
-  return toHrs(Math.max(0, ae - re));
-}
-
-function addGapComponents(
-  components: PayComponent[], flags: string[],
-  gapHrs: number, label: string, eaRef: string,
-  actualHrs: number, B: number, cfg: RateConfig, codes: PayrollCodes,
-  isSat: boolean, isSun: boolean, isPH: boolean,
-) {
-  const ordRemainder = Math.max(0, 8 - (actualHrs - gapHrs));
-  const gapOrd = Math.min(gapHrs, ordRemainder);
-  const gapOt = Math.max(0, gapHrs - gapOrd);
-  const gapOt1 = Math.min(gapOt, 2);
-  const gapOt2 = Math.max(0, gapOt - 2);
-
-  const ordRate = isPH ? (isSat || isSun ? cfg.ph_wke : cfg.ph_wkd)
-    : isSun ? cfg.sun_rate : isSat ? cfg.sat_rate : 1.0;
-  const ot1Rate = isPH ? (isSat || isSun ? cfg.ph_wke : cfg.ph_wkd)
-    : isSun ? cfg.sun_rate : isSat ? cfg.sat_ot : cfg.ot1;
-  const ot2Rate = isPH ? (isSat || isSun ? cfg.ph_wke : cfg.ph_wkd)
-    : isSun ? cfg.sun_rate : isSat ? cfg.sat_ot : cfg.ot2;
-
-  if (gapOrd > 0) {
-    components.push({
-      name: `${label} — ordinary rate (${gapOrd.toFixed(2)} hrs within 8-hr limit)`,
-      ea: eaRef, code: codes.liftup || '—',
-      hrs: gapOrd.toFixed(2), rate: ordRate === 1.0 ? 'ordinary' : `${ordRate}×`,
-      amount: round2(gapOrd * B * ordRate), cls: 'pen-row',
-    });
-  }
-  if (gapOt1 > 0) {
-    components.push({
-      name: `${label} — OT rate (first 2 hrs beyond 8)`,
-      ea: eaRef, code: codes.liftup || '—',
-      hrs: gapOt1.toFixed(2), rate: `${ot1Rate}×`,
-      amount: round2(gapOt1 * B * ot1Rate), cls: 'pen-row',
-    });
-  }
-  if (gapOt2 > 0) {
-    components.push({
-      name: `${label} — OT rate (beyond 2 hrs)`,
-      ea: eaRef, code: codes.liftup || '—',
-      hrs: gapOt2.toFixed(2), rate: `${ot2Rate}×`,
-      amount: round2(gapOt2 * B * ot2Rate), cls: 'pen-row',
-    });
-  }
-  flags.push(`${label}: ${gapHrs.toFixed(2)} hrs — ${gapOrd.toFixed(2)} ord, ${gapOt.toFixed(2)} OT.`);
 }
 
 // ─── Leave preview (mirror of backend _compute_leave) ──────────────────────────────
