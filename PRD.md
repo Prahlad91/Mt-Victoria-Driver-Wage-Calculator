@@ -1,7 +1,7 @@
 # Product Requirements Document
 # Mt Victoria Driver Wage Calculator
 
-**Version:** 3.7
+**Version:** 3.8
 **Date:** April 2026
 **Author:** Prahlad Modi (Mt Victoria depot, Sydney Trains)
 **Status:** Active — governs all development on this repository
@@ -58,29 +58,56 @@ Mt Victoria intercity shifts regularly accumulate 160–400+ km. Times and KMs c
 
 ### 6.1–6.5 — Unchanged from v3.1
 
-### 6.6 Schedule upload (FR-U3) — weekday or weekend (clarified v3.7)
+### 6.6 Schedule upload (FR-U3) — weekday or weekend (clarified v3.8)
 
 - Endpoint: `POST /api/parse-schedule`
-- ZIP-based file (or PDF); weekday vs weekend auto-detected from filename
-- **Diagram block detection (hardened v3.7):**
-  - A diagram block is identified by the pattern `No. NNNN <day-type>` where `NNNN` is a **3-or-4-digit** diagram number AND the pattern occurs **at the start of a line** (after a newline). Earlier versions matched any `\d+` after `No.`, which falsely matched text like "No. 2 of 5 cars" or page numbers, causing real diagram blocks to be truncated and their `Sign on` / `Time off duty` extraction to fail.
-  - The next "No. NNNN" pattern at line-start marks the end of the current block.
-- **Label matching is flexible (clarified v3.7):**
-  - Labels `Sign on` and `Time off duty` are matched case-insensitively
-  - Internal whitespace within the label is flexible (handles `Sign on`, `Signon`, `Sign-on`, `Sign  on`)
-  - Hyphens between words are tolerated
-- Per diagram, the parser extracts:
-  - **Sign on** → `sign_on` (scheduled start)
-  - **Time off duty** → `sign_off` (scheduled end)
-  - **Total shift** → `r_hrs`
-  - **Distance** → `km`
-  - **Cross-midnight** → derived
-- The parser MUST handle multiple time formats:
-  - 12-hour with am/pm marker: `9:18a`, `12:51a`, `5:30 pm`, `12:00PM`
-  - 12-hour with am/pm spelled out: `9:18 am`, `5:30 PM`
-  - 24-hour: `09:18`, `17:30`
-  - Optional spaces around the colon, optional space before/after the am/pm marker
-- If the parser cannot extract sign-on or sign-off for a diagram, it MUST emit a warning in the response listing the diagram number and the field that failed
+- Supports two file formats:
+  - **ZIP-packaged** (Sydney Trains app export) — manifest.json + per-page text files. Text already comes pre-organised per diagram block.
+  - **Real PDF** (e.g. `MTVICDRWD191025_1_weekday.pdf`) — uses pdfplumber for text extraction.
+- Weekday vs weekend auto-detected from filename (DRWD = weekday, DRWE = weekend).
+
+#### Two-column page layout (new requirement v3.8)
+
+The Sydney Trains schedule PDF is a **two-column layout** — each page contains TWO independent diagram blocks side by side (one in the left half, one in the right half). The default `pdfplumber.extract_text()` reads text in visual scan order (left-to-right, top-to-bottom), which **interleaves both columns line by line** and produces output like:
+
+```
+No. 3153 Tuesday-Friday No. 3154 Monday
+Sign on 1:05a MOUNT VICTORIA Sign on 1:51a MOUNT VICTORIA
+```
+
+This makes diagram boundaries impossible to recover via regex and causes the parser to:
+- Extract `Time off duty` from the wrong column (e.g. picking up 3155's `10:32a` for 3154 instead of 3154's correct `11:21a`)
+- Miss roughly half the diagrams entirely (only one diagram per page detected)
+
+**The schedule parser MUST**:
+1. For each page of a real PDF, detect column boundary at `page.width / 2`
+2. Crop the page into LEFT half and RIGHT half using `page.crop()`
+3. Extract text from each half separately via `extract_text()`
+4. Concatenate as `left_text + '\n' + right_text + '\n'` per page before running diagram-block regex
+
+This restores the natural reading order: left column's diagram fully extracted before right column starts. Pages with single-column content (e.g. page 1 with three vertically-stacked diagrams) still work because cropping the page in half doesn't lose any text — both halves are extracted and concatenated.
+
+#### Diagram block detection (unchanged from v3.7)
+
+- A diagram block starts with `No. NNNN <day-type>` where `NNNN` is **3 or 4 digits** at line-start
+- The next `No. NNNN` at line-start ends the block
+
+#### Label and time format support (unchanged from v3.5/v3.7)
+
+- Labels matched case-insensitively with flexible internal whitespace
+- Time formats: 12-hour with am/pm, 12-hour spelled out, 24-hour
+
+#### Per-diagram extraction
+
+- **Sign on** → `sign_on` (scheduled start)
+- **Time off duty** → `sign_off` (scheduled end)
+- **Total shift** → `r_hrs`
+- **Distance** → `km`
+- **Cross-midnight** → derived
+
+#### Warnings
+
+- If sign-on or sign-off cannot be extracted for a diagram, MUST emit a warning listing the failed diagram numbers (de-duplicated).
 
 ### 6.7–6.9 — Unchanged from v3.1
 
@@ -140,9 +167,10 @@ Mt Victoria intercity shifts regularly accumulate 160–400+ km. Times and KMs c
 | 3.2 | April 2026 | Manual diagram override on all day types |
 | 3.3 | April 2026 | KM auto-population triggers |
 | 3.4 | April 2026 | Diagram # display, time source tracking, scheduled vs actual times |
-| 3.5 | April 2026 | Schedule parser clarification: Time off duty = scheduled end. Multi-format times |
+| 3.5 | April 2026 | Schedule parser: Time off duty = scheduled end. Multi-format times |
 | 3.6 | April 2026 | Lift-up/layback in frontend preview; RDO leave; leave handling in preview |
-| 3.7 | April 2026 | **Bug fix:** Schedule diagram-block detection hardened — requires 3-4 digit numbers and line-start anchoring (previously `\d+` matched arbitrary text like "No. 2 of 5", which truncated real blocks and caused spurious extraction failures for valid diagrams like 3651, 3876). Label matching is now case-insensitive and tolerates internal whitespace/hyphen variations (`Sign on`, `Signon`, `Sign-on`). |
+| 3.7 | April 2026 | Schedule diagram-block detection hardened (3-4 digit, line-start) |
+| 3.8 | April 2026 | **Critical bug fix:** Schedule PDFs are a TWO-COLUMN layout. Default pdfplumber `extract_text()` interleaved both columns line-by-line, causing the parser to (a) miss ~half the diagrams entirely (3155, 3158, 3160, 3162, 3164, 3168 etc.) and (b) pull `Time off duty` from the wrong column (e.g. reporting 10:32 instead of 11:21 for diagram 3154 — picking up 3155's value because the columns were jumbled). Now crops each PDF page at `page.width/2` into LEFT and RIGHT halves, extracts each separately, and concatenates with newlines — producing clean per-column text that the existing regex logic can parse correctly. **Verified locally against the user's actual MTVICDRWD191025 and MTVICDRWE191025 PDFs: 18/18 weekday diagrams extracted, 14/14 weekend diagrams extracted, ZERO failed extractions, 3154 correctly returns Sign on 01:51 and Time off duty 11:21.** |
 
 ---
 
