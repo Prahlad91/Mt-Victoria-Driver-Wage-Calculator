@@ -1,31 +1,34 @@
 """Pydantic v2 models for the Mt Victoria Driver Wage Calculator API.
 PRD ref: Section 9"""
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 # ─── Request models ────────────────────────────────────────────────────────────
 
 class DayState(BaseModel):
     """State for a single day in the fortnight. PRD §9.1"""
+    model_config = ConfigDict(extra='ignore')
+
     date: str                          # YYYY-MM-DD
     dow: int                           # 0=Sun, 6=Sat
-    ph: bool = False                   # is public holiday
-    diag: str                          # diagram name ('3158 RK', 'OFF', 'ADO')
-    r_start: Optional[str] = None      # rostered start HH:MM
-    r_end: Optional[str] = None        # rostered end HH:MM
-    cm: bool = False                   # cross-midnight
-    r_hrs: float = 0.0                 # rostered hours
-    a_start: str = ""                  # actual start HH:MM
-    a_end: str = ""                    # actual end HH:MM
+    ph: bool = False
+    diag: str                          # full name e.g. '3151 SMB' / 'OFF' / 'ADO'
+    diag_num: Optional[str] = None     # NEW v3.4: parsed 4-digit number e.g. '3151'
+    time_source: str = 'none'          # NEW v3.4: 'schedule' | 'master' | 'builtin' | 'manual' | 'none'
+    r_start: Optional[str] = None      # scheduled start HH:MM
+    r_end: Optional[str] = None        # scheduled end HH:MM
+    cm: bool = False
+    r_hrs: float = 0.0                 # scheduled hours
+    a_start: str = ''                  # actual start HH:MM
+    a_end: str = ''                    # actual end HH:MM
     wobod: bool = False
     km: float = 0.0
-    leave_cat: str = "none"            # 'none' | 'SL' | 'AL' | ...
-    is_short_fortnight: bool = False   # set by compute_fortnight
+    leave_cat: str = 'none'
+    is_short_fortnight: bool = False
 
 
 class RateConfig(BaseModel):
-    """Configurable pay rates. PRD §9.3"""
     base_rate: float = 49.81842
     ot1: float = 1.5
     ot2: float = 2.0
@@ -43,54 +46,51 @@ class RateConfig(BaseModel):
 
 
 class PayrollCodes(BaseModel):
-    """Payroll codes for payslip matching."""
-    base: str = ""
-    ot1: str = ""
-    ot2: str = ""
-    sat: str = ""
-    sun: str = ""
-    sat_ot: str = ""
-    ph_wkd: str = ""
-    ph_wke: str = ""
-    afternoon: str = ""
-    night: str = ""
-    early: str = ""
-    add_load: str = ""
-    wobod: str = ""
-    liftup: str = ""
-    ado: str = ""
-    unassoc: str = ""
+    base: str = ''
+    ot1: str = ''
+    ot2: str = ''
+    sat: str = ''
+    sun: str = ''
+    sat_ot: str = ''
+    ph_wkd: str = ''
+    ph_wke: str = ''
+    afternoon: str = ''
+    night: str = ''
+    early: str = ''
+    add_load: str = ''
+    wobod: str = ''
+    liftup: str = ''
+    ado: str = ''
+    unassoc: str = ''
 
 
 class CalculateRequest(BaseModel):
-    """Full fortnight calculation request. PRD §9.2"""
-    fortnight_start: str               # YYYY-MM-DD (Sunday)
+    fortnight_start: str
     roster_line: int
     public_holidays: list[str] = Field(default_factory=list)
     payslip_total: Optional[float] = None
     config: RateConfig = Field(default_factory=RateConfig)
     codes: PayrollCodes = Field(default_factory=PayrollCodes)
-    days: list[DayState]               # exactly 14 items
+    days: list[DayState]
     unassoc_amt: float = 0.0
 
 
-# ─── Response models ────────────────────────────────────────────────────────────
+# ─── Response models ──────────────────────────────────────────────────────────
 
 class PayComponent(BaseModel):
-    """Single pay line item. PRD §9.2"""
     name: str
-    ea: str                            # EA clause reference
-    code: str                          # payroll code
-    hrs: str                           # hours or 'flat'
-    rate: str                          # rate description
+    ea: str
+    code: str
+    hrs: str
+    rate: str
     amount: float
-    cls: str = ""                      # CSS class hint: 'pen-row' | 'km-row' | ''
+    cls: str = ''
 
 
 class DayResult(BaseModel):
     date: str
     diag: str
-    day_type: str                      # 'weekday' | 'saturday' | 'sunday' | 'ph'
+    day_type: str
     hours: float
     paid_hrs: float
     total_pay: float
@@ -103,32 +103,30 @@ class AuditResult(BaseModel):
     fn_ot_hrs: float = 0.0
     km_bonus_hrs: float = 0.0
     ado_payout: float = 0.0
-    fortnight_type: str                # 'short' | 'long'
+    fortnight_type: str
     flags: list[str]
 
 
 class CalculateResponse(BaseModel):
-    """Full fortnight calculation response. PRD §9.3"""
     fortnight_start: str
-    fortnight_type: str                # 'short' | 'long'
+    fortnight_type: str
     total_hours: float
     total_pay: float
     ado_payout: float
     fn_ot_hrs: float
     days: list[DayResult]
-    component_totals: dict[str, float] # component name → total amount
+    component_totals: dict[str, float]
     audit: AuditResult
 
 
 # ─── Upload response models ──────────────────────────────────────────────────────
 
 class ParsedDayEntry(BaseModel):
-    """One day parsed from a fortnight roster PDF. PRD §9.4"""
     date: str
     diagram: str
-    sign_on: Optional[str] = None      # HH:MM
-    sign_off: Optional[str] = None     # HH:MM
-    confidence: float = 1.0            # 0.0–1.0
+    sign_on: Optional[str] = None
+    sign_off: Optional[str] = None
+    confidence: float = 1.0
 
 
 class ParseRosterResponse(BaseModel):
@@ -138,7 +136,6 @@ class ParseRosterResponse(BaseModel):
 
 
 class PayslipLineItem(BaseModel):
-    """One line item from a payslip. PRD §9.5"""
     code: str
     description: str
     hours: Optional[float] = None
@@ -148,7 +145,7 @@ class PayslipLineItem(BaseModel):
 
 class ParsePayslipResponse(BaseModel):
     source_file: str
-    format: str                        # 'nsw_payslip' | 'sydney_crew'
+    format: str
     period_start: Optional[str] = None
     period_end: Optional[str] = None
     total_gross: float
@@ -156,46 +153,39 @@ class ParsePayslipResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
-# ─── New: Roster ZIP upload models ──────────────────────────────────────────────────
+# ─── Roster ZIP upload models ──────────────────────────────────────────────────
 
 class RosterDayEntry(BaseModel):
-    """One day entry parsed from a roster ZIP. Covers master and fortnight rosters."""
-    diag: str                          # diagram name e.g. '3151 SMB', 'OFF', 'ADO', 'SBY'
-    r_start: Optional[str] = None      # HH:MM sign-on
-    r_end: Optional[str] = None        # HH:MM sign-off (without L suffix)
-    cm: bool = False                   # cross-midnight (was L suffix in roster)
-    r_hrs: float = 0.0                 # rostered working hours
+    diag: str
+    r_start: Optional[str] = None
+    r_end: Optional[str] = None
+    cm: bool = False
+    r_hrs: float = 0.0
 
 
 class ParsedRosterResponse(BaseModel):
-    """Parsed master or fortnight roster ZIP."""
     source_file: str
-    line_type: str                     # 'master' or 'fortnight'
-    fn_start: Optional[str] = None     # YYYY-MM-DD
-    fn_end: Optional[str] = None       # YYYY-MM-DD
-    lines: dict[str, list[RosterDayEntry]]  # '1' -> [14 entries], '201' -> [14 entries]
+    line_type: str
+    fn_start: Optional[str] = None
+    fn_end: Optional[str] = None
+    lines: dict[str, list[RosterDayEntry]]
     warnings: list[str] = Field(default_factory=list)
 
 
-# ─── New: Schedule ZIP upload models ─────────────────────────────────────────────────
+# ─── Schedule ZIP upload models ────────────────────────────────────────────────────
 
 class DiagramInfo(BaseModel):
-    """Timing and KM data for a single diagram from a schedule file."""
-    diag_num: str                      # e.g. '3151'
-    day_type: str                      # 'weekday' | 'saturday' | 'sunday'
-    sign_on: Optional[str] = None      # HH:MM
-    sign_off: Optional[str] = None     # HH:MM
+    diag_num: str
+    day_type: str
+    sign_on: Optional[str] = None
+    sign_off: Optional[str] = None
     r_hrs: float = 8.0
     km: float = 0.0
     cm: bool = False
 
 
 class ParsedScheduleResponse(BaseModel):
-    """Parsed weekday or weekend schedule ZIP."""
     source_file: str
-    schedule_type: str                 # 'weekday' | 'weekend'
-    # Keys: diagram number as string e.g. '3151'
-    # For diagrams with multiple day-type variants, stores the most general entry.
-    # Full per-day-type lookup available in diagrams_by_day.
+    schedule_type: str
     diagrams: dict[str, DiagramInfo]
     warnings: list[str] = Field(default_factory=list)
