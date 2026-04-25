@@ -14,7 +14,7 @@ function sourceBadge(src: TimeSource, diagNum: string | null) {
     case 'schedule': return { label: '✓ Schedule', cls: 'src-schedule', tip: `Times loaded from uploaded schedule (diagram ${diagNum ?? '?'})` }
     case 'master':   return { label: 'ⓘ Master roster', cls: 'src-master',  tip: 'Diagram not found in uploaded schedule — using master roster times' }
     case 'builtin':  return { label: 'ⓘ Built-in', cls: 'src-master', tip: 'No master roster uploaded — using built-in fallback times' }
-    case 'manual':   return { label: '✏ Manual', cls: 'src-manual',   tip: 'Manually overridden by user' }
+    case 'manual':   return { label: '✏ Manual', cls: 'src-manual',   tip: 'Manually overridden by user (diagram or scheduled times edited)' }
     case 'none':     return null
   }
 }
@@ -91,11 +91,20 @@ function WorkForm({
   const preview = ctx.previews[i]
   const ch = (k: keyof typeof day, v: any) => ctx.setDay(i, { [k]: v } as any)
 
+  // When user edits scheduled time/end, also flip timeSource to 'manual' so
+  // the badge correctly indicates the value is no longer authoritative-from-source
+  // PRD §FR-02-B v3.10
+  const editScheduledTime = (k: 'rStart' | 'rEnd', v: string) =>
+    ctx.setDay(i, { [k]: v, timeSource: 'manual' } as any)
+
   const diagInput    = day.manualDiagInput || ''
   const setDiagInput = (v: string) => ctx.setDay(i, { manualDiagInput: v })
 
   const showWorkInputs = hasManual || !isOffOrAdo
   const srcInfo = sourceBadge(day.timeSource, day.diagNum)
+
+  // Default Yes when undefined (legacy session state from before v3.10)
+  const claimYes = day.claimLiftupLayback !== false
 
   return (
     <>
@@ -150,7 +159,7 @@ function WorkForm({
 
       {showWorkInputs && (
         <>
-          {/* Scheduled times (read-only) */}
+          {/* Scheduled times — EDITABLE in v3.10 (PRD §FR-02-B) */}
           <div style={{
             padding:10, background:'var(--bg2)', borderRadius:6, marginBottom:8,
             border:'1px solid var(--border)',
@@ -159,17 +168,18 @@ function WorkForm({
               <strong style={{fontSize:12}}>Scheduled times</strong>
               {srcInfo && <span className={`badge ${srcInfo.cls}`} title={srcInfo.tip}>{srcInfo.label}</span>}
               {day.diagNum && <span style={{fontSize:11,color:'var(--text3)'}}>diagram #{day.diagNum}</span>}
+              <span style={{fontSize:10,color:'var(--text3)',marginLeft:'auto'}}>editable — overrides schedule data</span>
             </div>
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8}}>
               <div>
                 <label style={{fontSize:10,color:'var(--text3)'}}>Scheduled start</label>
-                <input type="time" value={day.rStart || ''} disabled
-                  style={{background:'var(--bg3)',color:'var(--text2)',cursor:'not-allowed'}} />
+                <input type="time" value={day.rStart || ''}
+                  onChange={e => editScheduledTime('rStart', e.target.value)} />
               </div>
               <div>
                 <label style={{fontSize:10,color:'var(--text3)'}}>Scheduled end</label>
-                <input type="time" value={day.rEnd || ''} disabled
-                  style={{background:'var(--bg3)',color:'var(--text2)',cursor:'not-allowed'}} />
+                <input type="time" value={day.rEnd || ''}
+                  onChange={e => editScheduledTime('rEnd', e.target.value)} />
               </div>
               <div>
                 <label style={{fontSize:10,color:'var(--text3)'}}>Scheduled hours</label>
@@ -179,12 +189,12 @@ function WorkForm({
             </div>
             {day.timeSource === 'master' && (
               <p className="note" style={{marginTop:6,color:'var(--amber-text)'}}>
-                ⚠ Schedule didn't have diagram #{day.diagNum} — times taken from master roster instead.
+                ⚠ Schedule didn't have diagram #{day.diagNum} — times taken from master roster instead. You can edit them above.
               </p>
             )}
             {day.timeSource === 'builtin' && (
               <p className="note" style={{marginTop:6,color:'var(--amber-text)'}}>
-                ⚠ Times from built-in fallback. Upload master roster + schedule for accurate data.
+                ⚠ Times from built-in fallback. Upload master roster + schedule for accurate data, or edit above.
               </p>
             )}
           </div>
@@ -216,12 +226,14 @@ function WorkForm({
             </div>
             {day.rStart && day.aStart && (day.aStart !== day.rStart || day.aEnd !== day.rEnd) && (
               <p className="note" style={{marginTop:6,color:'var(--blue-text)'}}>
-                ⓘ Actual times differ from scheduled — lift-up/layback will be calculated.
+                {claimYes
+                  ? 'ⓘ Actual differs from scheduled — pay computed on effective window (earliest start to latest end).'
+                  : 'ⓘ Actual differs from scheduled — pay computed strictly on actual times (lift-up/layback claim disabled).'}
               </p>
             )}
           </div>
 
-          {/* Other inputs */}
+          {/* Other inputs (3-column) */}
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginBottom:8}}>
             <div>
               <label>KMs <span style={{color:'var(--text3)',fontWeight:400,fontSize:10}}>
@@ -243,6 +255,28 @@ function WorkForm({
                 <option value="0">No</option><option value="1">Yes</option>
               </select>
             </div>
+          </div>
+
+          {/* Claim lift-up/layback toggle — NEW v3.10 (PRD §FR-02-F) */}
+          <div style={{
+            display:'grid', gridTemplateColumns:'auto 1fr', gap:10, alignItems:'center',
+            marginBottom:8, padding:8, background:'var(--bg2)', borderRadius:6,
+            border:'1px solid var(--border)',
+          }}>
+            <div>
+              <label style={{fontSize:11,fontWeight:600}}>Claim lift-up / layback / buildup?</label>
+              <select value={claimYes ? '1' : '0'}
+                style={{marginTop:2}}
+                onChange={e => ch('claimLiftupLayback', e.target.value === '1')}>
+                <option value="1">Yes (default)</option>
+                <option value="0">No — actual times only</option>
+              </select>
+            </div>
+            <p style={{fontSize:11,color:'var(--text3)',margin:0,lineHeight:1.4}}>
+              {claimYes
+                ? <><strong>Yes:</strong> hours = max(scheduled end, actual end) − min(scheduled start, actual start). Driver paid for full scheduled shift PLUS any extension before/after (Cl. 131).</>
+                : <><strong>No:</strong> hours = actual end − actual start. No lift-up/layback components, no scheduled-hours guarantee.</>}
+            </p>
           </div>
 
           <div style={{marginBottom:8}}>
