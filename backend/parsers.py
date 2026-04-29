@@ -170,12 +170,16 @@ def _parse_day_entries(section_text: str) -> list[RosterDayEntry]:
     i = 0
     if words and re.match(r'^\d{1,3}$', words[0]):
         i = 1
+    pending_diag: str | None = None
     while i < len(words) and len(days) < 14:
         w = words[i]
         if w.upper() == 'OFF':
-            days.append(RosterDayEntry(diag='OFF')); i += 1
+            days.append(RosterDayEntry(diag='OFF')); i += 1; pending_diag = None
         elif w.upper() == 'ADO':
-            days.append(RosterDayEntry(diag='ADO')); i += 1
+            days.append(RosterDayEntry(diag='ADO')); i += 1; pending_diag = None
+        elif re.match(r'^\d{3,4}$', w) and i + 1 < len(words) and _TIME_RE.match(words[i + 1]):
+            # Diagram number immediately before a time — e.g. "3154 01:51 - 11:21W …"
+            pending_diag = w; i += 1
         elif _TIME_RE.match(w) and i + 2 < len(words) and words[i + 1] == '-':
             r_start = _norm_time(w)
             end_raw = words[i + 2]
@@ -195,12 +199,14 @@ def _parse_day_entries(section_text: str) -> list[RosterDayEntry]:
                 if tok.upper() in ('OFF', 'ADO'): break
                 if _TIME_RE.match(tok) and i + 1 < len(words) and words[i + 1] == '-': break
                 diag_parts.append(tok); i += 1
-            diag = ' '.join(diag_parts).strip()
+            # prefer a diagram number that appeared before the time over anything found after
+            diag = pending_diag or ' '.join(diag_parts).strip()
+            pending_diag = None
             days.append(RosterDayEntry(
                 diag=diag, r_start=r_start, r_end=r_end, cm=cm, r_hrs=r_hrs
             ))
         else:
-            i += 1
+            pending_diag = None; i += 1
     return days
 
 
