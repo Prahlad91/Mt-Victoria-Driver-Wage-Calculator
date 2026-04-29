@@ -239,9 +239,12 @@ def _parse_day_entries(section_text: str) -> list[RosterDayEntry]:
                     h_str, m_str = hrs_str.split(':')
                     raw[work_slots[wi]]['r_hrs'] = round(int(h_str) + int(m_str) / 60, 4)
                     j += 1
-                    if j < len(toks) and re.match(r'^\d{3,4}$', toks[j]):
-                        raw[work_slots[wi]]['diag'] = toks[j]
-                        j += 1
+                    # Accept numeric diagram (e.g. 3154) OR alpha code (e.g. SBY, SMB)
+                    if j < len(toks) and not _WHRS_RE.match(toks[j]) and not _FAT_RE.match(toks[j]):
+                        tok2 = toks[j]
+                        if re.match(r'^\d{3,4}$', tok2) or re.match(r'^[A-Za-z]{2,5}$', tok2):
+                            raw[work_slots[wi]]['diag'] = tok2
+                            j += 1
                     while j < len(toks) and _FAT_RE.match(toks[j]):
                         j += 1
                     wi += 1
