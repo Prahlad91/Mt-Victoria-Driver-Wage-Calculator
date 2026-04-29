@@ -9,15 +9,31 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
   const ctx = useFortnightContext()
   const [lineInput, setLine] = useState('1')
   const [dateInput, setDate] = useState('2025-08-10')
-  const [phInput,   setPH]   = useState('')
+  const [phs,       setPHs]  = useState<string[]>([])
+  const [phAdd,     setPhAdd] = useState('')
   const [psInput,   setPS]   = useState('')
   const [err, setErr]        = useState('')
   const pRef = useRef<HTMLInputElement>(null)
 
+  function addPH() {
+    if (phAdd && !phs.includes(phAdd)) {
+      setPHs(prev => [...prev, phAdd].sort())
+      setPhAdd('')
+    }
+  }
+
+  function removePH(d: string) {
+    setPHs(prev => prev.filter(x => x !== d))
+  }
+
+  const fnEnd = dateInput ? (() => {
+    const d = new Date(dateInput + 'T00:00:00'); d.setDate(d.getDate() + 13)
+    return d.toISOString().slice(0, 10)
+  })() : ''
+
   function handleLoad() {
     const line = parseInt(lineInput)
     if (isNaN(line) || line < 1) { setErr('Enter a valid line number (1–22 or 201–210)'); return }
-    const phs   = phInput.split(',').map(s => s.trim()).filter(Boolean)
     const psVal = parseFloat(psInput)
     ctx.loadLine(line, dateInput, phs, isNaN(psVal) ? null : psVal)
     setErr('')
@@ -119,8 +135,29 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
             <input type="date" value={dateInput} onChange={e => setDate(e.target.value)} />
           </div>
           <div>
-            <label>Public holidays <span style={{color:'var(--text3)'}}>YYYY-MM-DD, comma-sep</span></label>
-            <input type="text" placeholder="e.g. 2025-08-11" value={phInput} onChange={e => setPH(e.target.value)} />
+            <label>Public holidays</label>
+            {phs.length > 0 && (
+              <div style={{display:'flex',gap:4,flexWrap:'wrap',marginBottom:5}}>
+                {phs.map(d => (
+                  <span key={d} style={{display:'inline-flex',alignItems:'center',gap:3,
+                    fontSize:11,padding:'2px 8px',borderRadius:4,
+                    background:'var(--blue-bg)',color:'var(--blue-text)',
+                    border:'1px solid #93c5fd'}}>
+                    {d}
+                    <button style={{background:'none',border:'none',cursor:'pointer',
+                      color:'inherit',padding:0,lineHeight:1,fontSize:14}}
+                      title="Remove" onClick={() => removePH(d)}>×</button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <div style={{display:'flex',gap:4}}>
+              <input type="date" value={phAdd} min={dateInput} max={fnEnd}
+                style={{flex:1}}
+                onChange={e => setPhAdd(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && addPH()} />
+              <button className="btn-sm btn-primary" onClick={addPH} disabled={!phAdd}>+ Add</button>
+            </div>
           </div>
         </div>
         <div className="g2" style={{marginBottom:12}}>
