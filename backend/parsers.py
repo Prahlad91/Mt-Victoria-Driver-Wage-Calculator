@@ -165,26 +165,42 @@ def parse_roster_zip(file_bytes: bytes, filename: str) -> ParsedRosterResponse:
 
 
 def _parse_day_entries(section_text: str) -> list[RosterDayEntry]:
-    words = section_text.split()
-    days: list[RosterDayEntry] = []
-    i = 0
-    if words and re.match(r'^\d{1,3}$', words[0]):
-        i = 1
+    """
+    Two-pass parser for roster sections.
+
+    Master-roster PDFs have a two-row layout per line:
+      Row 1:  <line_num>  OFF  OFF  01:52 - 11:21  02:32 - 10:32  …  OFF
+      Row 2:  09:29W 3154  08:00W 3155  09:30W 3157 F74  …
+    Times come from row 1; r_hrs and diagram numbers come from row 2 (in
+    work-day order).  Some fortnight/legacy formats put everything on one
+    row, which pass 1 handles exactly as before.
+    """
+    text_lines = [l.strip() for l in section_text.strip().splitlines() if l.strip()]
+    if not text_lines:
+        return []
+
+    # ── Pass 1: parse the first text line for OFF / ADO / time-ranges ──────────
+    words = text_lines[0].split()
+    start = 1 if (words and re.match(r'^\d{1,3}$', words[0])) else 0
+
+    raw: list[dict] = []   # keys: diag, r_start, r_end, cm, r_hrs
+    i = start
     pending_diag: str | None = None
-    while i < len(words) and len(days) < 14:
+    while i < len(words) and len(raw) < 14:
         w = words[i]
         if w.upper() == 'OFF':
-            days.append(RosterDayEntry(diag='OFF')); i += 1; pending_diag = None
+            raw.append({'diag': 'OFF', 'r_start': None, 'r_end': None, 'cm': False, 'r_hrs': 8.0})
+            i += 1; pending_diag = None
         elif w.upper() == 'ADO':
-            days.append(RosterDayEntry(diag='ADO')); i += 1; pending_diag = None
+            raw.append({'diag': 'ADO', 'r_start': None, 'r_end': None, 'cm': False, 'r_hrs': 8.0})
+            i += 1; pending_diag = None
         elif re.match(r'^\d{3,4}$', w) and i + 1 < len(words) and _TIME_RE.match(words[i + 1]):
-            # Diagram number immediately before a time — e.g. "3154 01:51 - 11:21W …"
             pending_diag = w; i += 1
         elif _TIME_RE.match(w) and i + 2 < len(words) and words[i + 1] == '-':
             r_start = _norm_time(w)
             end_raw = words[i + 2]
             cm      = end_raw.upper().endswith('L')
-            r_end   = _norm_time(end_raw.rstrip('LlLl'))
+            r_end   = _norm_time(end_raw.rstrip('LlWw'))
             i += 3
             r_hrs = 8.0
             if i < len(words) and _WHRS_RE.match(words[i]):
@@ -198,16 +214,44 @@ def _parse_day_entries(section_text: str) -> list[RosterDayEntry]:
                 if _FAT_RE.match(tok): i += 1; break
                 if tok.upper() in ('OFF', 'ADO'): break
                 if _TIME_RE.match(tok) and i + 1 < len(words) and words[i + 1] == '-': break
+                if re.match(r'^\d{3,4}$', tok) and i + 1 < len(words) and _TIME_RE.match(words[i + 1]): break
                 diag_parts.append(tok); i += 1
-            # prefer a diagram number that appeared before the time over anything found after
             diag = pending_diag or ' '.join(diag_parts).strip()
             pending_diag = None
-            days.append(RosterDayEntry(
-                diag=diag, r_start=r_start, r_end=r_end, cm=cm, r_hrs=r_hrs
-            ))
+            raw.append({'diag': diag, 'r_start': r_start, 'r_end': r_end, 'cm': cm, 'r_hrs': r_hrs})
         else:
             pending_diag = None; i += 1
-    return days
+
+    # ── Pass 2: fill r_hrs + diag from subsequent lines (two-row format) ───────
+    # Only work days that still have no diagram get updated.
+    work_slots = [k for k, d in enumerate(raw) if d['r_start'] is not None and not d['diag']]
+    if work_slots:
+        wi = 0
+        for line in text_lines[1:]:
+            if wi >= len(work_slots):
+                break
+            toks = line.split()
+            j = 0
+            while j < len(toks) and wi < len(work_slots):
+                tok = toks[j]
+                if _WHRS_RE.match(tok):
+                    hrs_str = tok[:-1]
+                    h_str, m_str = hrs_str.split(':')
+                    raw[work_slots[wi]]['r_hrs'] = round(int(h_str) + int(m_str) / 60, 4)
+                    j += 1
+                    if j < len(toks) and re.match(r'^\d{3,4}$', toks[j]):
+                        raw[work_slots[wi]]['diag'] = toks[j]
+                        j += 1
+                    while j < len(toks) and _FAT_RE.match(toks[j]):
+                        j += 1
+                    wi += 1
+                else:
+                    j += 1
+
+    return [
+        RosterDayEntry(diag=d['diag'] or '', r_start=d['r_start'], r_end=d['r_end'], cm=d['cm'], r_hrs=d['r_hrs'])
+        for d in raw
+    ]
 
 
 # ─── Schedule parser (v3.8: 2-column PDF support) ──────────────────────────────

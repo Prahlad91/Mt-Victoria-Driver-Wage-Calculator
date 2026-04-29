@@ -167,6 +167,7 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
   }, [])
 
   // Reverse lookup: when the master roster has no diagram number, match by sign-on+sign-off.
+  // Uses exact match first, then ±2 min tolerance (master roster can differ by 1 min from schedule).
   const findByTimes = useCallback((
     rStart: string | null, rEnd: string | null, dow: number,
     wd: ParsedScheduleData | null, we: ParsedScheduleData | null,
@@ -176,6 +177,13 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
     if (!sched) return null
     for (const [diagNum, info] of Object.entries(sched.diagrams)) {
       if (info.sign_on === rStart && info.sign_off === rEnd) return { diagNum, info }
+    }
+    const toMins = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + (m || 0) }
+    const s0 = toMins(rStart), e0 = toMins(rEnd)
+    for (const [diagNum, info] of Object.entries(sched.diagrams)) {
+      if (!info.sign_on || !info.sign_off) continue
+      if (Math.abs(toMins(info.sign_on) - s0) <= 5 && Math.abs(toMins(info.sign_off) - e0) <= 5)
+        return { diagNum, info }
     }
     return null
   }, [])
@@ -188,7 +196,6 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
 
     setDays(prev => prev.map(d => {
       if (d.diag === 'OFF' || d.diag === 'ADO' || d.timeSource === 'manual') return d
-      const actualWasScheduled = d.aStart === d.rStart && d.aEnd === d.rEnd
       const sched = findByDow(d.diagNum, d.dow, wd, we)
       if (sched) {
         return {
@@ -196,8 +203,6 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
           rStart: sched.sign_on, rEnd: sched.sign_off,
           cm: sched.cm, rHrs: sched.r_hrs, km: sched.km,
           timeSource: 'schedule',
-          aStart: actualWasScheduled ? (sched.sign_on || '') : d.aStart,
-          aEnd:   actualWasScheduled ? (sched.sign_off || '') : d.aEnd,
         }
       }
       const ts = findByTimes(d.rStart, d.rEnd, d.dow, wd, we)
@@ -208,8 +213,6 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
         rStart: ts.info.sign_on, rEnd: ts.info.sign_off,
         cm: ts.info.cm, rHrs: ts.info.r_hrs, km: ts.info.km,
         timeSource: 'schedule',
-        aStart: actualWasScheduled ? (ts.info.sign_on || '') : d.aStart,
-        aEnd:   actualWasScheduled ? (ts.info.sign_off || '') : d.aEnd,
       }
     }))
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -240,6 +243,23 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
       const isShort = rosterEntries.some(e => e.diag === 'ADO')
       newDays = rosterEntries.map((entry, i) => {
         const date = dates[i]; const d = parseDate(date); const dow = d.getDay()
+
+        // PH days become PHNW regardless of what the roster says
+        if (phs.includes(date)) {
+          return {
+            date, dow, ph: true,
+            diag: 'PHNW', diagNum: null,
+            rStart: null, rEnd: null, cm: false, rHrs: 8,
+            aStart: '', aEnd: '',
+            timeSource: 'none' as TimeSource, km: 0,
+            claimLiftupLayback: false,
+            wobod: false, leaveCat: 'PHNW',
+            manualDiag: null, manualDiagInput: '', workedOnOff: false,
+            isShortFortnight: isShort,
+            wasAdo: entry.diag === 'ADO',
+          }
+        }
+
         let diagNum = extractDiagNum(entry.diag)
         const sched = findByDow(diagNum, dow, wd, we)
 
@@ -268,10 +288,10 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
         }
 
         return {
-          date, dow, ph: phs.includes(date),
+          date, dow, ph: false,
           diag: entry.diag, diagNum,
           rStart, rEnd, cm, rHrs,
-          aStart: rStart || '', aEnd: rEnd || '',
+          aStart: '', aEnd: '',
           timeSource, km,
           claimLiftupLayback: true,
           wobod: false, leaveCat: 'none',
@@ -289,6 +309,23 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
         const [rS, rE, cmFlag, rHrsBuilt, diagBuilt] = entry
         const diag = String(diagBuilt)
         const date = dates[i]; const d = parseDate(date); const dow = d.getDay()
+
+        // PH days become PHNW regardless of what the roster says
+        if (phs.includes(date)) {
+          return {
+            date, dow, ph: true,
+            diag: 'PHNW', diagNum: null,
+            rStart: null, rEnd: null, cm: false, rHrs: 8,
+            aStart: '', aEnd: '',
+            timeSource: 'none' as TimeSource, km: 0,
+            claimLiftupLayback: false,
+            wobod: false, leaveCat: 'PHNW',
+            manualDiag: null, manualDiagInput: '', workedOnOff: false,
+            isShortFortnight: isShort,
+            wasAdo: diag === 'ADO',
+          }
+        }
+
         let diagNum = extractDiagNum(diag)
         const sched = findByDow(diagNum, dow, wd, we)
 
@@ -319,10 +356,10 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
         }
 
         return {
-          date, dow, ph: phs.includes(date),
+          date, dow, ph: false,
           diag, diagNum,
           rStart, rEnd, cm, rHrs,
-          aStart: rStart || '', aEnd: rEnd || '',
+          aStart: '', aEnd: '',
           timeSource, km,
           claimLiftupLayback: true,
           wobod: false, leaveCat: 'none',
