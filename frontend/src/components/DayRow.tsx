@@ -207,6 +207,12 @@ function WorkForm({
             <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
               <strong style={{fontSize:12}}>Actual times</strong>
               <span style={{fontSize:11,color:'var(--text3)'}}>what really happened</span>
+              {day.km > 0 && (
+                <span style={{fontSize:11,color:'var(--text2)',background:'var(--bg2)',
+                  padding:'1px 6px',borderRadius:4,border:'1px solid var(--border)'}}>
+                  {day.km.toFixed(day.km % 1 === 0 ? 0 : 1)} km
+                </span>
+              )}
               <button className="btn-sm" style={{marginLeft:'auto'}}
                 onClick={() => ctx.copyScheduledToActual(i)}
                 disabled={!day.rStart}
@@ -256,6 +262,19 @@ function WorkForm({
               </select>
             </div>
           </div>
+
+          {/* Auto-suppress warning chip — shown when low overlap detected */}
+          {preview && preview.flags.some(f => f.includes('shift swap') || f.includes('suppressed')) && (
+            <div style={{
+              padding:'6px 10px', borderRadius:6, marginBottom:8, fontSize:11,
+              background:'var(--amber-bg,#fff8e1)', color:'var(--amber-text,#7a5c00)',
+              border:'1px solid var(--amber-border,#f5c842)',
+            }}>
+              ⚠ Auto-detected shift swap — low overlap between scheduled and actual times.
+              Lift-up/layback claim suppressed regardless of toggle.
+              You can still override by setting Claim to Yes.
+            </div>
+          )}
 
           {/* Claim lift-up/layback toggle — NEW v3.10 (PRD §FR-02-F) */}
           <div style={{
