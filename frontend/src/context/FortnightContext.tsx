@@ -166,6 +166,20 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
     return sched?.diagrams[diagNum] ?? null
   }, [])
 
+  // Reverse lookup: when the master roster has no diagram number, match by sign-on+sign-off.
+  const findByTimes = useCallback((
+    rStart: string | null, rEnd: string | null, dow: number,
+    wd: ParsedScheduleData | null, we: ParsedScheduleData | null,
+  ): { diagNum: string; info: DiagramInfo } | null => {
+    if (!rStart || !rEnd) return null
+    const sched = (dow === 0 || dow === 6) ? we : wd
+    if (!sched) return null
+    for (const [diagNum, info] of Object.entries(sched.diagrams)) {
+      if (info.sign_on === rStart && info.sign_off === rEnd) return { diagNum, info }
+    }
+    return null
+  }, [])
+
   useEffect(() => {
     if (!fnLoaded || days.length === 0) return
     const wd = weekdayScheduleUpload.result
@@ -174,19 +188,28 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
 
     setDays(prev => prev.map(d => {
       if (d.diag === 'OFF' || d.diag === 'ADO' || d.timeSource === 'manual') return d
-      const sched = findByDow(d.diagNum, d.dow, wd, we)
-      if (!sched) return d
       const actualWasScheduled = d.aStart === d.rStart && d.aEnd === d.rEnd
+      const sched = findByDow(d.diagNum, d.dow, wd, we)
+      if (sched) {
+        return {
+          ...d,
+          rStart: sched.sign_on, rEnd: sched.sign_off,
+          cm: sched.cm, rHrs: sched.r_hrs, km: sched.km,
+          timeSource: 'schedule',
+          aStart: actualWasScheduled ? (sched.sign_on || '') : d.aStart,
+          aEnd:   actualWasScheduled ? (sched.sign_off || '') : d.aEnd,
+        }
+      }
+      const ts = findByTimes(d.rStart, d.rEnd, d.dow, wd, we)
+      if (!ts) return d
       return {
         ...d,
-        rStart: sched.sign_on,
-        rEnd: sched.sign_off,
-        cm: sched.cm,
-        rHrs: sched.r_hrs,
-        km: sched.km,
+        diagNum: ts.diagNum,
+        rStart: ts.info.sign_on, rEnd: ts.info.sign_off,
+        cm: ts.info.cm, rHrs: ts.info.r_hrs, km: ts.info.km,
         timeSource: 'schedule',
-        aStart: actualWasScheduled ? (sched.sign_on || '') : d.aStart,
-        aEnd:   actualWasScheduled ? (sched.sign_off || '') : d.aEnd,
+        aStart: actualWasScheduled ? (ts.info.sign_on || '') : d.aStart,
+        aEnd:   actualWasScheduled ? (ts.info.sign_off || '') : d.aEnd,
       }
     }))
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -217,7 +240,7 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
       const isShort = rosterEntries.some(e => e.diag === 'ADO')
       newDays = rosterEntries.map((entry, i) => {
         const date = dates[i]; const d = parseDate(date); const dow = d.getDay()
-        const diagNum = extractDiagNum(entry.diag)
+        let diagNum = extractDiagNum(entry.diag)
         const sched = findByDow(diagNum, dow, wd, we)
 
         let timeSource: TimeSource
@@ -231,9 +254,17 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
           rStart = sched.sign_on; rEnd = sched.sign_off; cm = sched.cm
           rHrs = sched.r_hrs; km = sched.km
         } else {
-          timeSource = entry.r_start ? 'master' : 'none'
-          rStart = entry.r_start; rEnd = entry.r_end; cm = entry.cm
-          rHrs = entry.r_hrs; km = 0
+          const ts = findByTimes(entry.r_start, entry.r_end, dow, wd, we)
+          if (ts) {
+            timeSource = 'schedule'
+            diagNum = ts.diagNum
+            rStart = ts.info.sign_on; rEnd = ts.info.sign_off
+            cm = ts.info.cm; rHrs = ts.info.r_hrs; km = ts.info.km
+          } else {
+            timeSource = entry.r_start ? 'master' : 'none'
+            rStart = entry.r_start; rEnd = entry.r_end; cm = entry.cm
+            rHrs = entry.r_hrs; km = 0
+          }
         }
 
         return {
@@ -258,7 +289,7 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
         const [rS, rE, cmFlag, rHrsBuilt, diagBuilt] = entry
         const diag = String(diagBuilt)
         const date = dates[i]; const d = parseDate(date); const dow = d.getDay()
-        const diagNum = extractDiagNum(diag)
+        let diagNum = extractDiagNum(diag)
         const sched = findByDow(diagNum, dow, wd, we)
 
         let timeSource: TimeSource
@@ -272,9 +303,19 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
           rStart = sched.sign_on; rEnd = sched.sign_off; cm = sched.cm
           rHrs = sched.r_hrs; km = sched.km
         } else {
-          timeSource = rS ? 'builtin' : 'none'
-          rStart = rS as string | null; rEnd = rE as string | null
-          cm = Boolean(cmFlag); rHrs = Number(rHrsBuilt); km = 0
+          const builtinStart = rS as string | null
+          const builtinEnd   = rE as string | null
+          const ts = findByTimes(builtinStart, builtinEnd, dow, wd, we)
+          if (ts) {
+            timeSource = 'schedule'
+            diagNum = ts.diagNum
+            rStart = ts.info.sign_on; rEnd = ts.info.sign_off
+            cm = ts.info.cm; rHrs = ts.info.r_hrs; km = ts.info.km
+          } else {
+            timeSource = builtinStart ? 'builtin' : 'none'
+            rStart = builtinStart; rEnd = builtinEnd
+            cm = Boolean(cmFlag); rHrs = Number(rHrsBuilt); km = 0
+          }
         }
 
         return {
@@ -297,7 +338,7 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
     setRosterSource(source)
   }, [
     masterRosterUpload.result, fnRosterUpload.result,
-    weekdayScheduleUpload.result, weekendScheduleUpload.result, findByDow,
+    weekdayScheduleUpload.result, weekendScheduleUpload.result, findByDow, findByTimes,
   ])
 
   const fillAllRostered = useCallback(() =>
