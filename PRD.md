@@ -1,7 +1,7 @@
 # Product Requirements Document
 # Mt Victoria Driver Wage Calculator
 
-**Version:** 3.10
+**Version:** 3.11
 **Date:** April 2026
 **Author:** Prahlad Modi (Mt Victoria depot, Sydney Trains)
 **Status:** Active — governs all development on this repository
@@ -33,7 +33,7 @@ Sydney Trains drivers receive fortnightly payslips containing 10–25 line items
 - KM credits for intercity services grant additional credited hours above actual worked hours under a 26-band table (Cl. 146.4)
 - Lift-up, layback, and buildup (working before scheduled start or after scheduled end) must be paid at ordinary rate within the 8-hr limit and OT rate beyond it
 - ADO days are paid as 8 hrs ordinary only in a short fortnight; in the alternating long fortnight, the ADO accrues without payout
-- WOBOD (working on a book-off day) is double time with a 4-hour minimum (Cl. 136)
+- WOBOD (working on a book-off day): Cl. 140.4 primary rate (150% weekday, 200% Sat, 250% Sun, with weekday OT-shift counter) + Cl. 140.7 50% Train Crew loading on top; no 4-hour minimum
 
 Without a calculation tool, drivers cannot easily verify their pay and underpayments go unchallenged.
 
@@ -103,7 +103,7 @@ Mt Victoria is an intercity depot on the Blue Mountains line. Key characteristic
 | **Claim lift-up/layback** | Per-day Yes/No setting (default **Yes**) that controls whether the pay calculation includes lift-up/layback/buildup. When **Yes**, total shift duration = `max(scheduled_end, actual_end) − min(scheduled_start, actual_start)` (effective window — guarantees scheduled hours plus any extension). When **No**, total shift duration = `actual_end − actual_start` (driver paid only for hours physically on duty). See §5.7 and FR-02-F. |
 | **Swinger line** | Roster lines 201–210. Standby/flexible positions whose diagram assignments change each fortnight (sourced from the Fortnight Roster). |
 | **OT** | Overtime. Hours beyond 8 in a single day. 1.5× first 2 hrs, 2.0× beyond. |
-| **WOBOD** | Work on Book-Off Day. Working on a rostered day off. Double time, minimum 4 hours (Cl. 136). |
+| **WOBOD** | Work on Book-Off Day. Working on a rostered day off. Cl. 140.4 primary rate (150%/200%/250% by day type and weekday OT-shift counter) + Cl. 140.7 50% Train Crew loading. No 4-hour minimum. |
 | **Lift-up / Buildup** | Driver signs on **before** scheduled start. The duration = `max(0, scheduled_start − actual_start)`. Treatment depends on the **Claim lift-up/layback** toggle — see §5.7. |
 | **Layback / Extend** | Driver signs off **after** scheduled end. The duration = `max(0, actual_end − scheduled_end)`. Treatment depends on the **Claim lift-up/layback** toggle — see §5.7. |
 | **KM credit** | Under Cl. 146.4, intercity drivers doing ≥161 km are credited more hours than actually worked (26-band table). Credited excess paid at ordinary rate, excluded from OT. KMs always come from the schedule file (subject to user override). |
@@ -134,7 +134,7 @@ Mt Victoria is an intercity depot on the Blue Mountains line. Key characteristic
 - Shift penalties not payable on PH (Cl. 134.3(a))
 
 ### 5.4 Shift penalties (Sch. 4B / Cl. 134.3)
-- Item 6 (Afternoon): $4.84/hr — commences before AND concludes after 18:00
+- Item 6 (Afternoon): $4.84/hr — sign-on at or after 10:00 and before 18:00 (this guarantees the first 8h of ordinary time ends after 18:00); triggering is based on when ordinary time ends, NOT on actual sign-off
 - Item 7 (Night): $5.69/hr — commences at or between 18:00 and 03:59
 - Item 8 (Early morning): $4.84/hr — commences at or between 04:00 and 05:30
 - Item 9 (Additional loading): $5.69 flat/shift — sign on/off 01:01–03:59 Mon–Fri only
@@ -149,14 +149,38 @@ Mt Victoria is an intercity depot on the Blue Mountains line. Key characteristic
 - Cl. 157.1: greater-of rule (scheduled shift time vs km-credited hrs + un-associated time)
 - The comparison is against **total worked hours** as defined by §5.7 (effective window when Claim lift-up/layback = Yes; actual times when No)
 
-### 5.6 WOBOD (Cl. 136)
-- Double time on all hours, minimum 4 hours paid
+### 5.6 WOBOD (Cl. 140.4 + Cl. 140.7)
+
+WOBOD applies when a driver works on a day that was rostered as OFF or ADO.
+
+**Primary rate (Cl. 140.4) by day type:**
+- Weekday (Mon–Fri): 150% for the 1st and 2nd weekday WOBOD shifts in the fortnight (code 1100); 200% for the 3rd and subsequent weekday WOBOD shifts (code 1110). The counter is fortnight-scoped; Sat/Sun WOBOD shifts do NOT increment it.
+- Saturday: 200% (code 1110)
+- Sunday: 250% (code 1110)
+
+**Train Crew loading (Cl. 140.7):** +50% on top of the primary rate for all WOBOD shifts (code 1059).
+
+**Combined effective rates:**
+- Weekday WOBOD #1 and #2: 150% + 50% = 200% total
+- Weekday WOBOD #3+: 200% + 50% = 250% total
+- Saturday WOBOD: 200% + 50% = 250% total
+- Sunday WOBOD: 250% + 50% = 300% total
+
+**No 4-hour minimum.** The "Cl. 136 double-time min 4 hrs" rule referenced in v3.10 and earlier was hallucinated — no such rule exists in EA 2025 for WOBOD. Hours are paid on actual time worked only.
+
+**No OT split, no shift penalties, no KM credit** on WOBOD shifts. The full WOBOD shift is paid at the applicable WOBOD rate regardless of duration.
 
 ### 5.7 Lift-up / Layback / Buildup (Cl. 131 / Cl. 140.1) — rewritten v3.10
 
 Lift-up (driver started before scheduled start) and Layback (driver finished after scheduled end) are determined per-day by the **Claim lift-up/layback** toggle (FR-02-F).
 
-**When `claim_liftup_layback = True` (default for every day):**
+**Auto-suppress rule (new v3.11):**
+
+If the overlap between the scheduled window and the actual window is less than 50% of the shorter shift, the system treats the day as a **shift swap** and forces `claim_liftup_layback = False` regardless of the user's toggle setting. A warning chip is emitted in the DayRow UI and the flag is included in the results audit section. The user can still manually override the toggle to force `claim = Yes` if needed.
+
+*Example:* Scheduled 04:43–12:58 (8.25h), Actual 12:00–20:00 (8h). Overlap = 0:58 / shorter shift 8h = 12% — auto-suppressed. Without this rule the effective window would be 04:43–20:00 = 15.28h, which is incorrect for a shift-swap situation where the driver simply worked a different shift.
+
+**When `claim_liftup_layback = True` (default for every day, subject to auto-suppress):**
 
 The pay calculation is based on the **effective window**:
 - `effective_start = min(scheduled_start, actual_start)` (across both, with cross-midnight handled)
@@ -205,8 +229,10 @@ This rule guarantees the driver receives at least the scheduled shift duration e
 **Important note on the pre-v3.10 implementation:** Versions v3.6 to v3.9 double-counted lift-up/layback by adding gap components on top of the actual_hrs computation that already included those minutes. v3.10's effective-window approach uses one window for hours computation, eliminating the double-count. The frontend live preview (`calcPreview.ts`) and the backend calculator (`calculator.py`) MUST both implement the new logic and produce identical components for the same input.
 
 ### 5.8 ADO pay
-- Short fortnight: ADO = 8 hrs ordinary rate paid out
-- Long fortnight: ADO accruing, no payout
+- Short fortnight: ADO = 8 hrs ordinary rate paid out (+4h Adjustment line, code 1462)
+- Long fortnight: ADO accruing, applied as −4h Adjustment
+
+A fortnight is **short** if ANY day in the original rostered line was an ADO, even if the driver subsequently overrode that day to WOBOD. The frontend tracks this via a `wasAdo: boolean` flag on each `DayState`, which is preserved across all override mutations (`loadLine`, `applyManualDiag`, `markWorkedOnOff`, `resetDay`). The `is_short_fortnight` flag is sent explicitly in the `/api/calculate` request body as the source of truth — the backend does not attempt to re-derive it from the day list.
 
 ### 5.9 Leave categories
 
@@ -550,6 +576,8 @@ This toggle exists to support edge cases such as: driver doesn't want to claim l
 - EA rounding rules applied exactly (Cl. 134.3(b))
 - KM credit table exact per EA 2025
 - The frontend live preview and the backend calculation MUST produce identical output for the same input (per §5.7)
+- **Hours rounded to 2dp BEFORE multiplying by rate** — `amount = round(hours, 2) × rate`, NOT `round(hours × rate, 2)`. This matches the payroll system exactly (v3.11 fix).
+- **Pooled 1001 Ordinary line uses sum-of-rounded-per-day amounts**, NOT `total_hours × rate`. For example, 8 days × 8h at $49.81842/h: per-day amount = `round(8.00, 2) × 49.81842 = $398.55` (rounded to cent), fortnight total = 8 × $398.55 = $3,188.40. Computing 64h × $49.81842 = $3,188.38 is wrong by 2 cents.
 
 ### NFR-06: Security
 - CORS: `allow_origins=["*"]` (personal tool, no sensitive data)
@@ -602,13 +630,16 @@ interface DayState {
   // Per-day pay-calc toggles (added v3.10)
   claimLiftupLayback: boolean;  // default true; controls effective-window vs actual-only pay calc (§5.7)
 
+  // ADO tracking (added v3.11)
+  wasAdo: boolean;              // true if this day was originally a rostered ADO (preserved across WOBOD overrides)
+
   // Other
   wobod: boolean;
   leaveCat: string;          // 'none' | 'SL' | 'CL' | 'AL' | 'PHNW' | 'PHW' | 'BL' | 'JD' | 'PD' | 'RDO' | 'LWOP'
   manualDiag: string | null; // Set when user has applied a manual diagram override
   manualDiagInput: string;   // Current value of the diagram input field
   workedOnOff: boolean;      // True when user chose "Worked (no diagram)" on an OFF/ADO day
-  isShortFortnight: boolean;
+  isShortFortnight: boolean; // Sent to backend as is_short_fortnight (source of truth for ADO type)
 }
 ```
 
@@ -636,10 +667,11 @@ class DayState(BaseModel):
     km: float = 0.0
     leave_cat: str = "none"
     is_short_fortnight: bool = False
+    was_ado: bool = False               # NEW v3.11 — preserved across WOBOD overrides (§5.8)
     claim_liftup_layback: bool = True   # NEW v3.10 — see §5.7 / FR-02-F
 ```
 
-The `claim_liftup_layback` field defaults to `True` so older clients (without this field in their payload) continue to get the effective-window calculation.
+The `claim_liftup_layback` field defaults to `True` so older clients (without this field in their payload) continue to get the effective-window calculation. The `was_ado` field is informational — the backend uses `is_short_fortnight` from the request body as the authoritative source for ADO type.
 
 ### 9.3 API request — `POST /api/calculate`
 ```json
@@ -647,6 +679,7 @@ The `claim_liftup_layback` field defaults to `True` so older clients (without th
   "fortnight_start": "2025-08-10",
   "roster_line": 7,
   "public_holidays": ["2025-08-11"],
+  "is_short_fortnight": true,
   "payslip_total": 4250.00,
   "config": { "base_rate": 49.81842, "...": "..." },
   "codes": { "base": "ORD", "...": "..." },
@@ -945,6 +978,7 @@ Each day row has two sections: **header** (always visible) and **body** (expande
 | 3.8 | April 2026 | **Critical bug fix:** Schedule PDFs are a TWO-COLUMN layout. Default pdfplumber `extract_text()` interleaved both columns line-by-line, causing the parser to (a) miss ~half the diagrams entirely (3155, 3158, 3160, 3162, 3164, 3168 etc.) and (b) pull `Time off duty` from the wrong column (e.g. reporting 10:32 instead of 11:21 for diagram 3154 — picking up 3155's value because the columns were jumbled). Now crops each PDF page at `page.width/2` into LEFT and RIGHT halves, extracts each separately, and concatenates with newlines. Verified locally against the user's actual MTVICDRWD191025 and MTVICDRWE191025 PDFs: 18/18 weekday + 14/14 weekend diagrams extracted, 0 failures, 3154 correctly returns Sign on 01:51 and Time off duty 11:21. |
 | 3.9 | April 2026 | **Documentation restoration.** Earlier versions (v3.2 onward) progressively replaced section content with placeholder text like *"unchanged from v3.X"*, leaving the PRD unreadable as a standalone document. v3.9 restores every section to its full content. **Process rule 2 added** at the top: when bumping versions, content must be preserved verbatim and only changed sections may be edited. NFR-07 also updated to reference this rule. No functional code changes in this version. |
 | 3.10 | April 2026 | (1) **NEW per-day toggle** — `Claim lift-up/layback?` (default Yes) per FR-02-F. When Yes, pay calc uses the **effective window** (`min(scheduled_start, actual_start)` to `max(scheduled_end, actual_end)`); when No, uses actual times only with no lift-up/layback. See §5.7 worked examples. (2) **Scheduled times now editable** — the Scheduled start and Scheduled end inputs are no longer read-only; user can override (FR-02-B updated). KM field continues to be editable (FR-02-D). (3) **§5.7 rewritten** to use the effective-window model. This fixes a long-standing **double-counting bug** in v3.6–v3.9 where lift-up/layback gap components were added on top of `actual_hrs` that already included those minutes — e.g. a 9-hr actual against an 8-hr scheduled was over-paid as 10.25 base-rate units instead of the correct 9.5. (4) **Stale schedule cache invalidation** (§6.10) — frontend stores a `mvwc_cache_version` key; v3.10 clears `mvwc_weekday_schedule` and `mvwc_weekend_schedule` from localStorage on first load to force users to re-upload schedules with the v3.8 column-aware parser, resolving the user-visible bug where Daily Entry was displaying master-roster times because the cached schedule was missing diagrams. (5) Lift-up/layback are now emitted as **informational flags only** (no separate pay components), since they're already part of the effective-window total. (6) Shift penalty class continues to be determined by **actual sign-on time** regardless of the toggle, because the penalty depends on when the driver physically signs on. |
+| 3.11 | April 2026 | **Six backend accuracy fixes, all verified against the canonical Line 8 payslip (2026-03-22, $7,336.55 to the cent).** (1) **WOBOD rule corrected** (§5.6) — replaced the hallucinated "Cl. 136 double-time min 4 hrs" rule with the correct Cl. 140.4 primary rate (150%/200%/250% by day type, weekday OT-shift counter) + Cl. 140.7 50% Train Crew loading. No 4-hour minimum. Weekday counter is fortnight-scoped; Sat/Sun WOBOD do not increment it. (2) **Afternoon penalty fix** (§5.4) — trigger condition tightened to `10:00 ≤ sign-on < 18:00`, which guarantees ordinary time ends after 18:00. Previously used `actual_sign_off > 18:00` which over-triggered on late-finishing day shifts. (3) **Hours rounding fix** (NFR-05) — `amount = round(hours, 2) × rate` (round hours first, then multiply). Previously rounded the product, which diverged from the payroll system by up to 3 cents per line. (4) **Pooled 1001 line uses sum-of-rounded-per-day** (NFR-05) — e.g. 8 × round($398.547, 2) = $3,188.40, not 64h × $49.81842 = $3,188.38. (5) **Auto-suppress shift-swap** (§5.7) — if the scheduled/actual overlap is < 50% of the shorter shift, `claim_liftup_layback` is forced to `False` with a warning flag. Prevents the effective-window from spanning two non-overlapping shifts (e.g. Mar 28: sched 04:43–12:58, actual 12:00–20:00, 12% overlap → auto-suppressed). (6) **Short-fortnight tracking via `wasAdo`** (§5.8) — `wasAdo: boolean` added to `DayState`; preserved across all override mutations. `is_short_fortnight` sent explicitly in the `/api/calculate` request body; backend uses it as source of truth so converting a rostered ADO to WOBOD does not flip the fortnight type. (7) **Pydantic camelCase bug fixed** — `CamelModel` base with `alias_generator=to_camel` + `populate_by_name=True` added to all backend input models; previously every camelCase field from the frontend was silently dropped and all calculations returned $0. |
 
 ---
 
