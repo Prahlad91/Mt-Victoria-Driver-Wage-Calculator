@@ -29,7 +29,7 @@ export const DEFAULT_CONFIG: RateConfig = {
 
 export const DEFAULT_CODES: PayrollCodes = {
   base: '1001', ot1: '1026', ot2: '1110',
-  sat: '1064', sun: '', sat_ot: '',
+  sat: '1064', sun: '1076', sat_ot: '1027',
   ph_wkd: '5042', ph_wke: '1010',
   afternoon: '', night: '1487', early: '1483',
   add_load: '1470',
@@ -222,7 +222,7 @@ export function previewDay(
     if (ot1h + ot2h > 0) {
       const ot = r2Hrs(ot1h + ot2h);
       components.push({
-        name: 'Sunday OT', ea: 'Cl. 140.2(d)', code: codes.sun || '',
+        name: 'Sched OT 200%', ea: 'Cl. 140.2(d)', code: codes.sat_ot || '1027',
         hrs: `${ot.toFixed(2)} hrs`, rate: `$${(B * 2).toFixed(5)}/hr (200%)`,
         amount: r2(ot * B * 2), cls: '', date: day.date,
       });
@@ -242,7 +242,7 @@ export function previewDay(
     if (ot1h + ot2h > 0) {
       const ot = r2Hrs(ot1h + ot2h);
       components.push({
-        name: 'Saturday OT', ea: 'Cl. 140.2(b)', code: codes.sat_ot || '',
+        name: 'Sched OT 200%', ea: 'Cl. 140.2(b)', code: codes.sat_ot || '1027',
         hrs: `${ot.toFixed(2)} hrs`, rate: `$${(B * 2).toFixed(5)}/hr (200%)`,
         amount: r2(ot * B * 2), cls: '', date: day.date,
       });

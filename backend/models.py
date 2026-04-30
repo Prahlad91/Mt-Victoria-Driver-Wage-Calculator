@@ -78,8 +78,8 @@ class PayrollCodes(CamelModel):
     ot1: str = '1026'
     ot2: str = '1110'
     sat: str = '1064'
-    sun: str = ''
-    sat_ot: str = ''
+    sun: str = '1076'  # Loading @ 100% Sunday
+    sat_ot: str = '1027'  # Sched OT 200% — used for both Saturday OT and Sunday OT
     ph_wkd: str = '5042'
     ph_wke: str = '1010'
     afternoon: str = ''

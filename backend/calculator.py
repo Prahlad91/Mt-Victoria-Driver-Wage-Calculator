@@ -355,7 +355,7 @@ def compute_day(day: DayState, cfg: RateConfig, codes: PayrollCodes,
         if ot1h + ot2h > 0:
             ot_total = r2_hrs(ot1h + ot2h)
             components.append(_comp(
-                codes.sun or '', 'Sunday OT', 'Cl. 140.2(d)',
+                codes.sat_ot or '1027', 'Sched OT 200%', 'Cl. 140.2(d)',
                 f'{ot_total:.2f} hrs', f'${B*2:.5f}/hr (200%)',
                 ot_total * B * 2.0, date=day.date,
             ))
@@ -375,7 +375,7 @@ def compute_day(day: DayState, cfg: RateConfig, codes: PayrollCodes,
         if ot1h + ot2h > 0:
             ot_total = r2_hrs(ot1h + ot2h)
             components.append(_comp(
-                codes.sat_ot or '', 'Saturday OT', 'Cl. 140.2(b)',
+                codes.sat_ot or '1027', 'Sched OT 200%', 'Cl. 140.2(b)',
                 f'{ot_total:.2f} hrs', f'${B*2:.5f}/hr (200%)',
                 ot_total * B * 2.0, date=day.date,
             ))
