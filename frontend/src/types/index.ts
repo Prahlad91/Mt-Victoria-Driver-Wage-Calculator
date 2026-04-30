@@ -64,31 +64,31 @@ export interface CalculateRequest {
   is_short_fortnight?: boolean;  // NEW v3.11
 }
 
-// PayComponent now optionally has date and pool_to_ordinary (v3.11)
+// PayComponent — camelCase to match backend alias_generator=to_camel response
 export interface PayComponent {
   name: string; ea: string; code: string; hrs: string;
   rate: string; amount: number; cls: string;
   date?: string | null;
-  pool_to_ordinary?: boolean;
+  poolToOrdinary?: boolean;
 }
 
 export interface DayResult {
-  date: string; diag: string; day_type: string;
-  hours: number; paid_hrs: number; total_pay: number;
+  date: string; diag: string; dayType: string;
+  hours: number; paidHrs: number; totalPay: number;
   components: PayComponent[]; flags: string[];
 }
 
 export interface AuditResult {
-  payslip_variance?: number; fn_ot_hrs: number;
-  km_bonus_hrs: number; ado_payout: number;
-  fortnight_type: string; flags: string[];
+  payslipVariance?: number; fnOtHrs: number;
+  kmBonusHrs: number; adoPayout: number;
+  fortnightType: string; flags: string[];
 }
 
 export interface CalculateResponse {
-  fortnight_start: string; fortnight_type: 'short' | 'long';
-  total_hours: number; total_pay: number; ado_payout: number; fn_ot_hrs: number;
-  days: DayResult[]; component_totals: Record<string, number>; audit: AuditResult;
-  fortnight_components?: PayComponent[];   // NEW v3.11 — payslip-format aggregate
+  fortnightStart: string; fortnightType: 'short' | 'long';
+  totalHours: number; totalPay: number; adoPayout: number; fnOtHrs: number;
+  days: DayResult[]; componentTotals: Record<string, number>; audit: AuditResult;
+  fortnightComponents?: PayComponent[];   // v3.11 — payslip-format aggregate
 }
 
 export interface ParsedDayEntry {

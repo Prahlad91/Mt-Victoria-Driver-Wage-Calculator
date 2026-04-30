@@ -19,7 +19,7 @@ export default function ResultsTab() {
   )
 
   // ─── Payslip-format breakdown (v3.11) ────────────────────────────
-  const fnComps = result.fortnight_components || []
+  const fnComps = result.fortnightComponents || []
 
   async function handleExport(kind: 'pdf' | 'csv') {
     setExporting(kind)
@@ -34,7 +34,7 @@ export default function ResultsTab() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `wage_calc_${result.fortnight_start}.${kind}`
+      a.download = `wage_calc_${result.fortnightStart}.${kind}`
       a.click()
       URL.revokeObjectURL(url)
     } catch (e: any) {
@@ -44,11 +44,11 @@ export default function ResultsTab() {
     }
   }
 
-  const fnTypeBadge = result.fortnight_type === 'short'
+  const fnTypeBadge = result.fortnightType === 'short'
     ? <span className="badge" style={{background:'var(--amber-bg)',color:'var(--amber-text)',marginLeft:8}}>⚡ SHORT</span>
     : <span className="badge" style={{background:'var(--blue-bg)',color:'var(--blue-text)',marginLeft:8}}>📋 LONG</span>
 
-  const variance = result.audit?.payslip_variance
+  const variance = result.audit?.payslipVariance
   const hasVariance = variance !== null && variance !== undefined
 
   return (
@@ -59,28 +59,28 @@ export default function ResultsTab() {
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:16,marginTop:8}}>
           <div>
             <div style={{fontSize:11,color:'var(--text3)'}}>Fortnight start</div>
-            <div style={{fontSize:18,fontWeight:600}}>{result.fortnight_start}</div>
+            <div style={{fontSize:18,fontWeight:600}}>{result.fortnightStart}</div>
           </div>
           <div>
             <div style={{fontSize:11,color:'var(--text3)'}}>Total hours worked</div>
-            <div style={{fontSize:18,fontWeight:600}}>{result.total_hours.toFixed(2)}h</div>
-            {result.fn_ot_hrs > 0 && (
+            <div style={{fontSize:18,fontWeight:600}}>{result.totalHours.toFixed(2)}h</div>
+            {result.fnOtHrs > 0 && (
               <div style={{fontSize:11,color:'var(--amber-text)'}}>
-                ⚑ {result.fn_ot_hrs.toFixed(2)}h fortnight OT
+                ⚑ {result.fnOtHrs.toFixed(2)}h fortnight OT
               </div>
             )}
           </div>
           <div>
             <div style={{fontSize:11,color:'var(--text3)'}}>Gross total pay</div>
             <div style={{fontSize:24,fontWeight:700,color:'var(--green-text)'}}>
-              ${result.total_pay.toFixed(2)}
+              ${result.totalPay.toFixed(2)}
             </div>
           </div>
         </div>
 
         {hasVariance && Math.abs(variance!) > 0.10 && (
           <div className="alert alert-info" style={{marginTop:10}}>
-            <strong>Payslip variance:</strong> calculated ${result.total_pay.toFixed(2)} vs payslip total
+            <strong>Payslip variance:</strong> calculated ${result.totalPay.toFixed(2)} vs payslip total
             — difference ${Math.abs(variance!).toFixed(2)}{' '}
             {variance! > 0 ? '(possible underpayment)' : '(possible overpayment)'}.
           </div>
@@ -131,7 +131,7 @@ export default function ResultsTab() {
               })}
               <tr className="row-total">
                 <td colSpan={6}><strong>Total Gross Earnings</strong></td>
-                <td className="text-right"><strong>${result.total_pay.toFixed(2)}</strong></td>
+                <td className="text-right"><strong>${result.totalPay.toFixed(2)}</strong></td>
               </tr>
             </tbody>
           </table>
@@ -142,8 +142,8 @@ export default function ResultsTab() {
       <div className="card">
         <h2>Per-day detail</h2>
         {result.days.map(dr => {
-          if (dr.day_type === 'off') return null
-          if (dr.day_type === 'ado' && dr.total_pay === 0 && (!dr.components || dr.components.length === 0)) return null
+          if (dr.dayType === 'off') return null
+          if (dr.dayType === 'ado' && dr.totalPay === 0 && (!dr.components || dr.components.length === 0)) return null
           const d = parseDate(dr.date)
           return (
             <div key={dr.date} style={{marginBottom:14}}>
@@ -151,7 +151,7 @@ export default function ResultsTab() {
                 <strong>{fmtDateShort(d)}</strong>
                 <span style={{fontSize:11,color:'var(--text3)'}}>{dr.diag}</span>
                 <span style={{marginLeft:'auto',fontSize:13,fontWeight:600}}>
-                  {dr.hours.toFixed(2)}h → ${dr.total_pay.toFixed(2)}
+                  {dr.hours.toFixed(2)}h → ${dr.totalPay.toFixed(2)}
                 </span>
               </div>
               {dr.components.length > 0 && (

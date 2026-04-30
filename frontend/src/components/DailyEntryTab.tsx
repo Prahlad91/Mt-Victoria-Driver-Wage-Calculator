@@ -5,8 +5,8 @@ export default function DailyEntryTab({ onCalculated }:{onCalculated:()=>void}) 
   const ctx = useFortnightContext()
 
   async function handleCalc() {
-    await ctx.calculate()
-    if (ctx.result) onCalculated()
+    const ok = await ctx.calculate()
+    if (ok) onCalculated()
   }
 
   if (!ctx.fnLoaded) return (

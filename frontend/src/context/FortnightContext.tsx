@@ -91,7 +91,7 @@ interface Ctx {
   uploadFnRoster:        (file: File) => Promise<void>
   uploadWeekdaySchedule: (file: File) => Promise<void>
   uploadWeekendSchedule: (file: File) => Promise<void>
-  calculate: () => Promise<void>; exportPdf: () => Promise<void>; exportCsv: () => Promise<void>
+  calculate: () => Promise<boolean>; exportPdf: () => Promise<void>; exportCsv: () => Promise<void>
 }
 
 const Context = createContext<Ctx | null>(null)
@@ -569,8 +569,8 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
     } catch (e) { setPU({ status: 'error', result: null, error: (e as Error).message }) }
   }, [])
 
-  const calculate = useCallback(async () => {
-    if (!days.length) return
+  const calculate = useCallback(async (): Promise<boolean> => {
+    if (!days.length) return false
     setCalcing(true); setCalcError(null)
     // v3.11: short fortnight detection now respects wasAdo (handles ADO-day overrides)
     const isShort = days.some(d => d.diag === 'ADO' || d.wasAdo)
@@ -591,9 +591,11 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
       })
       if (!r.ok) { const e = await r.json().catch(() => ({ detail: 'Error' })); throw new Error(e.detail) }
       setResult(await r.json())
+      return true
     } catch (e) {
       const msg = (e as Error).message
       setCalcError(msg.includes('fetch') ? 'Cannot reach backend.' : msg)
+      return false
     } finally { setCalcing(false) }
   }, [days, fnStart, rosterLine, publicHolidays, payslipTotal, config, codes, unassocAmt])
 
