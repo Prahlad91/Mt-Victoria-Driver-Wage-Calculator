@@ -213,13 +213,13 @@ class TestKmCreditPay:
         """7 hr actual + 290 km → 9 hrs credited → 2 hrs bonus at ordinary rate."""
         day = make_day(a_start="06:00", a_end="13:00", km=290.0, dow=1, claim_liftup_layback=False)
         result = compute_day(day, cfg, codes)
-        km_bonus = amount_by_keyword(result, "KM credit")
+        km_bonus = amount_by_keyword(result, "Assoc Wrk Time")
         assert km_bonus == r2(2.0 * B)
 
     def test_below_161km_no_credit(self, cfg, codes):
         day = make_day(a_start="06:00", a_end="14:00", km=150.0, dow=1)
         result = compute_day(day, cfg, codes)
-        assert amount_by_keyword(result, "KM credit") == 0.0
+        assert amount_by_keyword(result, "Assoc Wrk Time") == 0.0
 
 
 # ─── WOBOD (Cl. 140.4 + Cl. 140.7) ─────────────────────────────────────── PRD §5.6

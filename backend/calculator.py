@@ -429,13 +429,13 @@ def compute_day(day: DayState, cfg: RateConfig, codes: PayrollCodes,
                 cfg.add_loading, date=day.date, cls='pen-row',
             ))
     
-    # KM credit bonus
+    # KM credit bonus — code 1454 "Assoc Wrk Time (Mileage)" per Cl. 157.1(b)
     if km_credited and km_credited > worked_hrs:
         bonus = r2_hrs(km_credited - worked_hrs)
         b_rate = B * (1.5 if is_sat else (2.0 if is_sun else 1.0))
         components.append(_comp(
-            codes.base or '', f'KM credit bonus ({km:.2f} km → {km_credited:.2f} hrs)',
-            'Cl. 146.4', f'{bonus:.2f} hrs', f'${b_rate:.5f}/hr',
+            codes.km or '1454', f'Assoc Wrk Time (Mileage) — {km:.0f} km → {km_credited:.2f} hrs',
+            'Cl. 157.1(b) / Cl. 146.4', f'{bonus:.2f} hrs', f'${b_rate:.5f}/hr',
             bonus * b_rate, date=day.date, cls='km-row',
         ))
         flags.append(f"KM credit: {km:.0f} km → {km_credited} hrs. Bonus {bonus:.2f} hrs.")

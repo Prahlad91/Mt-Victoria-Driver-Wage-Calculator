@@ -50,6 +50,7 @@ export interface PayrollCodes {
   sat_ot: string; ph_wkd: string; ph_wke: string; afternoon: string;
   night: string; early: string; add_load: string; wobod: string;
   liftup: string; ado: string; unassoc: string;
+  km: string;   // 1454 — Assoc Wrk Time (Mileage) per Cl. 157.1(b)
 }
 
 export interface CalculateRequest {

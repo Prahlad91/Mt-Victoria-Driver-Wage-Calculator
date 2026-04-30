@@ -35,6 +35,7 @@ const CODE_DEFS = [
   {k:'liftup',  label:'Lift-up / Layback / Buildup'},
   {k:'ado',     label:'ADO payout'},
   {k:'unassoc', label:'Un-associated duties'},
+  {k:'km',      label:'KM credit / Mileage (Assoc Wrk Time)'},
 ] as const
 
 export default function RatesTab() {

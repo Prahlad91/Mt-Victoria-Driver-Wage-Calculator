@@ -90,6 +90,7 @@ class PayrollCodes(CamelModel):
     liftup: str = ''
     ado: str = '1462'
     unassoc: str = ''
+    km: str = '1454'   # Assoc Wrk Time (Mileage) — Cl. 157.1(b) / Cl. 146.4
 
 
 class CalculateRequest(CamelModel):

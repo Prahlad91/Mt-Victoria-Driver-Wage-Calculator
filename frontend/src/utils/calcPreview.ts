@@ -34,6 +34,7 @@ export const DEFAULT_CODES: PayrollCodes = {
   afternoon: '', night: '1487', early: '1483',
   add_load: '1470',
   wobod: '1059', liftup: '', ado: '1462', unassoc: '',
+  km: '1454',   // Assoc Wrk Time (Mileage) — Cl. 157.1(b) / Cl. 146.4
 };
 
 function r2(n: number): number { return Math.round(n * 100) / 100; }
@@ -294,8 +295,8 @@ export function previewDay(
     const bonus = r2Hrs(kmCredited - workedHrs);
     const bRate = B * (isSat ? 1.5 : isSun ? 2 : 1);
     components.push({
-      name: `KM credit bonus (${km.toFixed(2)} km → ${kmCredited.toFixed(2)} hrs)`,
-      ea: 'Cl. 146.4', code: codes.base || '',
+      name: `Assoc Wrk Time (Mileage) — ${km.toFixed(0)} km → ${kmCredited.toFixed(2)} hrs`,
+      ea: 'Cl. 157.1(b) / Cl. 146.4', code: codes.km || '1454',
       hrs: `${bonus.toFixed(2)} hrs`, rate: `$${bRate.toFixed(5)}/hr`,
       amount: r2(bonus * bRate), cls: 'km-row', date: day.date,
     });
