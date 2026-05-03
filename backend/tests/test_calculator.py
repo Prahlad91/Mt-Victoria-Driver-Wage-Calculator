@@ -66,8 +66,9 @@ class TestKmCredit:
         assert get_km_credit(192) == 5.0
 
     def test_225_band(self):
-        assert get_km_credit(225) == 7.0
-        assert get_km_credit(256) == 7.0
+        # v3.12: corrected to 8.0h (was 7.0h — depot chart evidence)
+        assert get_km_credit(225) == 8.0
+        assert get_km_credit(256) == 8.0
 
     def test_257_band(self):
         assert get_km_credit(257) == 8.0
@@ -210,8 +211,11 @@ class TestPublicHoliday:
 
 class TestKmCreditPay:
     def test_290km_credits_9hrs_on_7hr_shift(self, cfg, codes):
-        """7 hr actual + 290 km → 9 hrs credited → 2 hrs bonus at ordinary rate."""
-        day = make_day(a_start="06:00", a_end="13:00", km=290.0, dow=1, claim_liftup_layback=False)
+        """7 hr shift (sched + actual) + 290 km → 9 hrs credited → 2 hrs build-up at ordinary rate.
+        v3.12: formula uses r_hrs (sched shift length), not actual hours.
+        make_day has r_hrs=8.0 default, so we pass r_hrs=7.0 to match the 7-hr actual."""
+        day = make_day(a_start="06:00", a_end="13:00", km=290.0, dow=1,
+                       claim_liftup_layback=False, r_hrs=7.0)
         result = compute_day(day, cfg, codes)
         km_bonus = amount_by_keyword(result, "Assoc Wrk Time")
         assert km_bonus == r2(2.0 * B)

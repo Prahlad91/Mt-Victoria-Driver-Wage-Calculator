@@ -2,7 +2,7 @@
   { "min_km": 0,   "max_km": 161,  "credited_hrs": null },
   { "min_km": 161, "max_km": 193,  "credited_hrs": 5.0  },
   { "min_km": 193, "max_km": 225,  "credited_hrs": 6.0  },
-  { "min_km": 225, "max_km": 257,  "credited_hrs": 7.0  },
+  { "min_km": 225, "max_km": 257,  "credited_hrs": 8.0  },
   { "min_km": 257, "max_km": 290,  "credited_hrs": 8.0  },
   { "min_km": 290, "max_km": 322,  "credited_hrs": 9.0  },
   { "min_km": 322, "max_km": 338,  "credited_hrs": 10.0 },

@@ -71,7 +71,7 @@ except Exception:
 _KM_BANDS_FALLBACK = [
     {"min_km": 161, "max_km": 193, "credited_hrs": 5.0},
     {"min_km": 193, "max_km": 225, "credited_hrs": 6.0},
-    {"min_km": 225, "max_km": 257, "credited_hrs": 7.0},
+    {"min_km": 225, "max_km": 257, "credited_hrs": 8.0},
     {"min_km": 257, "max_km": 290, "credited_hrs": 8.0},
     {"min_km": 290, "max_km": 322, "credited_hrs": 9.0},
     {"min_km": 322, "max_km": 338, "credited_hrs": 10.0},
@@ -429,23 +429,36 @@ def compute_day(day: DayState, cfg: RateConfig, codes: PayrollCodes,
                 cfg.add_loading, date=day.date, cls='pen-row',
             ))
     
-    # KM credit bonus — code 1454 "Assoc Wrk Time (Mileage)" per Cl. 157.1(b)
-    if km_credited and km_credited > worked_hrs:
-        bonus = r2_hrs(km_credited - worked_hrs)
+    # 1454 "Assoc Wrk Time (Mileage)" per Cl. 157.1(b) / Cl. 146.4
+    # Formula (from depot Associated & Un-associated Payments Chart):
+    #   Build Up = max(0, Un-Assoc + Assoc Payment + Distance Payment − Shift Length)
+    # "Shift Length" = rostered/scheduled hours (day.r_hrs). Falls back to actual_hrs.
+    sched_hrs = day.r_hrs if day.r_hrs > 0 else actual_hrs
+    un_assoc  = day.un_assoc_hrs  or 0.0
+    assoc_pay = day.assoc_payment_hrs or 0.0
+    dist_pay  = km_credited or 0.0
+    total_credit = un_assoc + assoc_pay + dist_pay
+    build_up = r2_hrs(max(0.0, total_credit - sched_hrs))
+    if build_up > 0:
         b_rate = B * (1.5 if is_sat else (2.0 if is_sun else 1.0))
         components.append(_comp(
-            codes.km or '1454', f'Assoc Wrk Time (Mileage) — {km:.0f} km → {km_credited:.2f} hrs',
-            'Cl. 157.1(b) / Cl. 146.4', f'{bonus:.2f} hrs', f'${b_rate:.5f}/hr',
-            bonus * b_rate, date=day.date, cls='km-row',
+            codes.km or '1454',
+            f'Assoc Wrk Time (Mileage) — {km:.0f} km: '
+            f'un-assoc {un_assoc:.2f}h + assoc {assoc_pay:.2f}h + dist {dist_pay:.2f}h = {total_credit:.2f}h',
+            'Cl. 157.1(b) / Cl. 146.4', f'{build_up:.2f} hrs', f'${b_rate:.5f}/hr',
+            build_up * b_rate, date=day.date, cls='km-row',
         ))
-        flags.append(f"KM credit: {km:.0f} km → {km_credited} hrs. Bonus {bonus:.2f} hrs.")
+        flags.append(
+            f"1454: un-assoc {un_assoc:.2f}h + assoc {assoc_pay:.2f}h + dist {dist_pay:.2f}h "
+            f"= {total_credit:.2f}h vs sched {sched_hrs:.2f}h → build-up +{build_up:.2f}h."
+        )
     
     if ot_h > 0:
         flags.append(f"Daily OT: {ot_h:.2f} hrs beyond 8-hr ordinary limit (Cl. 140.1).")
-    
+
     total = r2(sum(c.amount for c in components))
-    paid_hrs = max(worked_hrs, km_credited or 0) if (km_credited and km_credited > worked_hrs) else worked_hrs
-    
+    paid_hrs = r2(worked_hrs + build_up) if build_up > 0 else worked_hrs
+
     return DayResult(
         date=day.date, diag=day.diag, day_type=day_type,
         hours=worked_hrs, paid_hrs=r2(paid_hrs),
@@ -694,7 +707,7 @@ def compute_fortnight(req: CalculateRequest) -> CalculateResponse:
     km_bonus_hrs = 0.0
     for dr in day_results:
         for c in dr.components:
-            if "KM credit bonus" in c.name and c.hrs.endswith(' hrs'):
+            if c.cls == 'km-row' and c.hrs.endswith(' hrs'):
                 try:
                     km_bonus_hrs += float(c.hrs.split()[0])
                 except ValueError:

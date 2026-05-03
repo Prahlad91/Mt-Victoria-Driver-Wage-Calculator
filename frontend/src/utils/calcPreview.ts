@@ -13,7 +13,7 @@
  *   - 2dp hours rounding before multiply
  *   - Auto-detect non-overlap shift swap → suppress claim with warning
  */
-import type { DayState, RateConfig, PayrollCodes, PayComponent, DayResult } from '../types';
+import type { DayState, RateConfig, PayrollCodes, PayComponent, DayResult, AssocChart } from '../types';
 import { getKmCredit, roundHrsEA } from './eaRules';
 import { toMins, toHrs } from './dateUtils';
 
@@ -118,6 +118,7 @@ export function previewDay(
   cfg: RateConfig = DEFAULT_CONFIG,
   codes: PayrollCodes = DEFAULT_CODES,
   _unassocAmt = 0,
+  assocChart: AssocChart = {},
 ): DayResult | null {
   const isSat = day.dow === 6;
   const isSun = day.dow === 0;
@@ -291,22 +292,37 @@ export function previewDay(
     }
   }
 
-  if (kmCredited && kmCredited > workedHrs) {
-    const bonus = r2Hrs(kmCredited - workedHrs);
+  // 1454 "Assoc Wrk Time (Mileage)" — depot chart formula:
+  //   Build Up = max(0, Un-Assoc + Assoc Payment + Distance Payment − Shift Length)
+  // "Shift Length" = rostered/scheduled hours (rHrs). Fallback to workedHrs.
+  const chartEntry  = assocChart[day.diagNum || ''];
+  const unAssocHrs  = chartEntry ? chartEntry.unAssocMins   / 60 : 0;
+  const assocPayHrs = chartEntry ? chartEntry.assocPaymentMins / 60 : 0;
+  const distPay     = kmCredited ?? 0;
+  const totalCredit = unAssocHrs + assocPayHrs + distPay;
+  const schedHrs    = (day.rHrs && day.rHrs > 0) ? day.rHrs : workedHrs;
+  const buildUp1454 = r2Hrs(Math.max(0, totalCredit - schedHrs));
+  if (buildUp1454 > 0) {
     const bRate = B * (isSat ? 1.5 : isSun ? 2 : 1);
     components.push({
-      name: `Assoc Wrk Time (Mileage) — ${km.toFixed(0)} km → ${kmCredited.toFixed(2)} hrs`,
+      name: `Assoc Wrk Time (Mileage) — ${km.toFixed(0)} km: `
+          + `un-assoc ${unAssocHrs.toFixed(2)}h + assoc ${assocPayHrs.toFixed(2)}h`
+          + ` + dist ${distPay.toFixed(2)}h = ${totalCredit.toFixed(2)}h`,
       ea: 'Cl. 157.1(b) / Cl. 146.4', code: codes.km || '1454',
-      hrs: `${bonus.toFixed(2)} hrs`, rate: `$${bRate.toFixed(5)}/hr`,
-      amount: r2(bonus * bRate), cls: 'km-row', date: day.date,
+      hrs: `${buildUp1454.toFixed(2)} hrs`, rate: `$${bRate.toFixed(5)}/hr`,
+      amount: r2(buildUp1454 * bRate), cls: 'km-row', date: day.date,
     });
-    flags.push(`KM credit: ${km.toFixed(0)} km → ${kmCredited} hrs. Bonus ${bonus.toFixed(2)} hrs.`);
+    flags.push(
+      `1454: un-assoc ${unAssocHrs.toFixed(2)}h + assoc ${assocPayHrs.toFixed(2)}h`
+      + ` + dist ${distPay.toFixed(2)}h = ${totalCredit.toFixed(2)}h`
+      + ` vs sched ${schedHrs.toFixed(2)}h → build-up +${buildUp1454.toFixed(2)}h.`
+    );
   }
 
   if (otH > 0) flags.push(`Daily OT: ${otH.toFixed(2)} hrs.`);
 
-  const total = r2(components.reduce((s, c) => s + c.amount, 0));
-  const paidHrs = (kmCredited && kmCredited > workedHrs) ? Math.max(workedHrs, kmCredited) : workedHrs;
+  const total   = r2(components.reduce((s, c) => s + c.amount, 0));
+  const paidHrs = buildUp1454 > 0 ? r2Hrs(workedHrs + buildUp1454) : workedHrs;
 
   return {
     date: day.date, diag: day.diag,
