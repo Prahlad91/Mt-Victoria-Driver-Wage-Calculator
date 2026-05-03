@@ -233,3 +233,15 @@ class ParsedScheduleResponse(BaseModel):
     schedule_type: str
     diagrams: dict[str, DiagramInfo]
     warnings: list[str] = Field(default_factory=list)
+
+
+# ─── Assoc/Un-assoc chart parse response (v3.12) ─────────────────────────────
+
+class ParseAssocChartResponse(BaseModel):
+    """Response for /api/parse-assoc-chart.
+    chart: keys are diagram numbers (e.g. "3155"), values are minute counts.
+    Only diagrams with at least one non-zero value are included.
+    """
+    source_file: str
+    chart: dict[str, dict[str, int]]  # {"3155": {"unAssocMins": 0, "assocPaymentMins": 30}}
+    warnings: list[str] = Field(default_factory=list)

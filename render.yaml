@@ -3,7 +3,7 @@ services:
     name: mt-victoria-driver-wage-calculator
     runtime: python
     rootDir: backend
-    buildCommand: pip install -r requirements.txt
+    buildCommand: apt-get update -qq && apt-get install -y --no-install-recommends tesseract-ocr && pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     plan: free
     envVars:

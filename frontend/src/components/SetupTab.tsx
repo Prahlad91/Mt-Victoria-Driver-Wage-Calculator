@@ -242,20 +242,53 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
 
 function AssocChartCard() {
   const ctx = useFortnightContext()
-  const [csvError, setCsvError] = useState<string | null>(null)
-  const [saved,    setSaved]    = useState(false)
+  const [fileError,  setFileError]  = useState<string | null>(null)
+  const [uploading,  setUploading]  = useState(false)
+  const [saved,      setSaved]      = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  function handleFile(file: File) {
-    setCsvError(null)
-    const reader = new FileReader()
-    reader.onload = e => {
-      const text = e.target?.result as string
+  function markSaved() { setSaved(true); setTimeout(() => setSaved(false), 2500) }
+
+  async function handleFile(file: File) {
+    setFileError(null)
+    const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
+
+    if (ext === 'csv' || ext === 'txt') {
+      // CSV: parse client-side — no round-trip needed
+      const text = await file.text()
       const err = ctx.loadAssocChartCsv(text)
-      if (err) { setCsvError(err) }
-      else { setSaved(true); setTimeout(() => setSaved(false), 2500) }
+      if (err) setFileError(err)
+      else markSaved()
+      return
     }
-    reader.readAsText(file)
+
+    // PDF or image: send to backend for parsing
+    setUploading(true)
+    try {
+      const form = new FormData(); form.append('file', file)
+      const r = await fetch('/api/parse-assoc-chart', { method: 'POST', body: form })
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({ detail: 'Parse failed' }))
+        throw new Error(e.detail || 'Unknown error')
+      }
+      const data = await r.json()
+      // data.chart: Record<string, {unAssocMins, assocPaymentMins}>
+      // Convert to the CSV text format and feed through the same loader
+      const lines = ['diagram,un_assoc_mins,assoc_payment_mins']
+      for (const [diag, entry] of Object.entries(data.chart as Record<string, {unAssocMins:number, assocPaymentMins:number}>)) {
+        lines.push(`${diag},${entry.unAssocMins},${entry.assocPaymentMins}`)
+      }
+      const err = ctx.loadAssocChartCsv(lines.join('\n'))
+      if (err) setFileError(err)
+      else {
+        if (data.warnings?.length) setFileError(`Parsed with warnings: ${data.warnings.join('; ')}`)
+        markSaved()
+      }
+    } catch (e) {
+      setFileError((e as Error).message)
+    } finally {
+      setUploading(false)
+    }
   }
 
   function downloadTemplate() {
@@ -314,18 +347,24 @@ function AssocChartCard() {
         Upload a new CSV whenever the depot issues an updated chart.
       </p>
       <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',marginBottom:12}}>
-        <button className="btn-sm btn-primary" onClick={() => fileRef.current?.click()}>
-          📂 Upload chart CSV
+        <button className="btn-sm btn-primary" disabled={uploading} onClick={() => fileRef.current?.click()}>
+          {uploading ? '⏳ Parsing…' : '📂 Upload chart'}
         </button>
-        <button className="btn-sm" onClick={downloadTemplate}>⬇ Download template</button>
+        <button className="btn-sm" onClick={downloadTemplate}>⬇ Download CSV template</button>
         {ctx.assocChartIsCustom && (
           <button className="btn-sm" style={{color:'var(--amber-text)'}} onClick={ctx.resetAssocChart}>
             ↩ Reset to built-in defaults
           </button>
         )}
         {saved && <span className="saved-msg">Saved ✓</span>}
-        {csvError && <span style={{color:'var(--red-text)',fontSize:11}}>{csvError}</span>}
-        <input ref={fileRef} type="file" accept=".csv,.txt" style={{display:'none'}}
+        {fileError && (
+          <span style={{color: fileError.startsWith('Parsed with') ? 'var(--amber-text)' : 'var(--red-text)', fontSize:11}}>
+            {fileError}
+          </span>
+        )}
+        <input ref={fileRef} type="file"
+          accept=".csv,.txt,.pdf,.png,.jpg,.jpeg,.webp,.bmp,.tiff,.tif"
+          style={{display:'none'}}
           onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = '' }} />
       </div>
       {nonZeroEntries.length > 0 ? (
@@ -349,8 +388,10 @@ function AssocChartCard() {
         <p className="note">No non-zero entries in current chart (all diagrams produce 0 build-up).</p>
       )}
       <p className="note" style={{marginTop:8}}>
-        CSV format: <code>diagram,un_assoc_mins,assoc_payment_mins</code> — one row per diagram.
-        Zero-value rows may be omitted. Header row is optional.
+        Accepted formats: <strong>CSV</strong> (<code>diagram,un_assoc_mins,assoc_payment_mins</code>),
+        <strong> PDF</strong>, or <strong>image</strong> (.png / .jpg / .webp / .tiff).
+        PDF and image parsing happen on the server — image OCR requires Tesseract to be installed.
+        CSV is the most reliable format; use the template above as a starting point.
       </p>
     </div>
   )

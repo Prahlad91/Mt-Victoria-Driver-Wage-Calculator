@@ -20,6 +20,13 @@ try:
 except ImportError:
     openpyxl = None  # type: ignore
 
+try:
+    from PIL import Image as _PILImage
+    import pytesseract as _pytesseract
+    _OCR_AVAILABLE = True
+except ImportError:
+    _OCR_AVAILABLE = False
+
 from models import (
     ParseRosterResponse, ParsedDayEntry,
     ParsePayslipResponse, PayslipLineItem,
@@ -569,4 +576,168 @@ def _parse_payslip_pdf(file_bytes: bytes, filename: str) -> ParsePayslipResponse
     return ParsePayslipResponse(
         source_file=filename, format='pdf',
         total_gross=round(total_gross, 2), line_items=line_items, warnings=warnings,
+    )
+
+
+# ─── Assoc / Un-assoc Payments Chart parser (v3.12) ─────────────────────────
+
+# Diagram numbers for Mt Victoria drivers (weekday 3151-3168, weekend 3651-3664)
+_DIAG_RE   = re.compile(r'\b(3(?:15[1-9]|1[6][0-8]|6[5-9]\d|6[0-4]\d))\b')
+_TIME_RE   = re.compile(r'\b(\d{1,2}:\d{2})\b')
+_DIAG_RANGE = set(range(3151, 3169)) | set(range(3651, 3665))
+
+
+def _mins(t: str) -> int:
+    """HH:MM → integer minutes. Returns 0 on any parse error."""
+    try:
+        h, m = t.split(':')
+        v = int(h) * 60 + int(m)
+        return v if 0 <= v <= 1439 else 0
+    except Exception:
+        return 0
+
+
+def _parse_chart_text(text: str) -> tuple[dict, list[str]]:
+    """Parse assoc chart from any extracted text.
+
+    Heuristic: each row that begins with a known 4-digit Mt Victoria diagram
+    number is followed by time columns in HH:MM format.  The column order
+    for the depot Associated & Un-associated Payments Chart is:
+        Diagram | Un-Assoc Wrk Time | Assoc Payment | Distance Payment | ...
+    So we take the first two HH:MM values from each diagram row as
+    un_assoc_mins and assoc_payment_mins respectively.
+    Rows where both are zero are omitted (not needed by the formula).
+    """
+    chart: dict = {}
+    warnings: list[str] = []
+    diag_found = 0
+
+    for line in text.split('\n'):
+        line = line.strip()
+        m = _DIAG_RE.search(line)
+        if not m:
+            continue
+        diag = m.group(1)
+        if int(diag) not in _DIAG_RANGE:
+            continue
+        diag_found += 1
+        times = _TIME_RE.findall(line)
+        if len(times) < 2:
+            # Only one time value on the line — skip, likely a partial parse
+            continue
+        un_min  = _mins(times[0])
+        asc_min = _mins(times[1])
+        if un_min > 0 or asc_min > 0:
+            chart[diag] = {'unAssocMins': un_min, 'assocPaymentMins': asc_min}
+
+    if diag_found == 0:
+        warnings.append(
+            'No Mt Victoria diagram numbers (3151–3168 / 3651–3664) found in the '
+            'parsed content. Check the file is the Associated & Un-associated '
+            'Payments Chart for Mt Victoria drivers.'
+        )
+    elif not chart:
+        warnings.append(
+            f'{diag_found} diagram rows found but all had zero un-assoc and assoc '
+            'payment times. If this is unexpected, check the column order in the file.'
+        )
+    return chart, warnings
+
+
+def _pdf_text(file_bytes: bytes) -> str:
+    """Extract raw text from every page of a PDF via pdfplumber."""
+    if pdfplumber is None:
+        raise RuntimeError('pdfplumber is not installed.')
+    parts: list[str] = []
+    with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+        for page in pdf.pages:
+            # Try table extraction first — preserves column alignment better
+            tables = page.extract_tables() or []
+            if tables:
+                for table in tables:
+                    for row in (table or []):
+                        parts.append('  '.join(str(c or '') for c in row))
+            else:
+                parts.append(page.extract_text() or '')
+    return '\n'.join(parts)
+
+
+def _ocr_image(file_bytes: bytes) -> str:
+    """Run Tesseract OCR on an image and return the extracted text."""
+    if not _OCR_AVAILABLE:
+        raise RuntimeError(
+            'Image OCR requires the Tesseract OCR engine. '
+            'On macOS: brew install tesseract. '
+            'On Ubuntu/Debian: apt-get install -y tesseract-ocr. '
+            'Alternatively, convert the chart to PDF or CSV before uploading.'
+        )
+    img = _PILImage.open(io.BytesIO(file_bytes))
+    # Convert to greyscale; helps Tesseract read table text
+    img = img.convert('L')
+    # Basic sharpening via a high-res resize if the image is small
+    w, h = img.size
+    if w < 2000:
+        img = img.resize((w * 2, h * 2), _PILImage.LANCZOS)
+    return _pytesseract.image_to_string(img, config='--psm 6')  # type: ignore[no-untyped-call]
+
+
+def _parse_csv_text(text: str) -> tuple[dict, list[str]]:
+    """Parse diagram,un_assoc_mins,assoc_payment_mins CSV from plain text."""
+    chart: dict = {}
+    warnings: list[str] = []
+    for line in text.splitlines():
+        parts = [p.strip().strip('"') for p in line.split(',')]
+        if not parts[0]:
+            continue
+        if re.match(r'[a-zA-Z]', parts[0]):
+            continue  # skip header rows
+        diag = parts[0]
+        try:
+            un_min  = int(parts[1]) if len(parts) > 1 else 0
+            asc_min = int(parts[2]) if len(parts) > 2 else 0
+        except ValueError:
+            continue
+        if un_min > 0 or asc_min > 0:
+            chart[diag] = {'unAssocMins': un_min, 'assocPaymentMins': asc_min}
+    return chart, warnings
+
+
+def parse_assoc_chart_file(file_bytes: bytes, filename: str) -> 'ParseAssocChartResponse':
+    """Parse an Assoc/Un-assoc Payments Chart from a CSV, PDF, PNG, JPG, etc.
+
+    Returns a ParseAssocChartResponse with the chart dict and any warnings.
+    """
+    from models import ParseAssocChartResponse  # local import to avoid circular
+
+    ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
+    warnings: list[str] = []
+    chart: dict = {}
+
+    if ext in ('csv', 'txt'):
+        text = file_bytes.decode('utf-8', errors='replace')
+        chart, warnings = _parse_csv_text(text)
+
+    elif ext == 'pdf':
+        text = _pdf_text(file_bytes)
+        chart, warnings = _parse_chart_text(text)
+
+    elif ext in ('png', 'jpg', 'jpeg', 'webp', 'bmp', 'tiff', 'tif'):
+        text = _ocr_image(file_bytes)  # raises if OCR not available
+        chart, warnings = _parse_chart_text(text)
+        if not chart and not any('No Mt Victoria' in w for w in warnings):
+            warnings.append(
+                'OCR succeeded but found no diagram data. The image may be '
+                'low-resolution or rotated. Try a higher-quality scan or PDF.'
+            )
+
+    else:
+        raise ValueError(
+            f'Unsupported file type ".{ext}". '
+            'Accepted: CSV (.csv), PDF (.pdf), or image (.png, .jpg, .jpeg, .webp, .bmp, .tiff).'
+        )
+
+    return ParseAssocChartResponse(
+        source_file=filename,
+        chart=chart,
+        warnings=warnings,
     )
