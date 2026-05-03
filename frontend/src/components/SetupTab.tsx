@@ -240,9 +240,9 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
 
 // ── Assoc chart text parser (mirrors backend _parse_chart_text) ─────────────────
 
-const _DIAG_RE  = /\b(3(?:15[1-9]|1[6][0-8]|6[5-9]\d|6[0-4]\d))\b/
-const _TIME_RE  = /\b(\d{1,2}:\d{2})\b/g
-const _DIAG_SET = new Set([
+const _DIAG_RE_G = /\b(3(?:15[1-9]|1[6][0-8]|6[5-9]\d|6[0-4]\d))\b/g
+const _DIAG_RE   = /\b(3(?:15[1-9]|1[6][0-8]|6[5-9]\d|6[0-4]\d))\b/
+const _DIAG_SET  = new Set([
   ...Array.from({ length: 18 }, (_, i) => 3151 + i),
   ...Array.from({ length: 14 }, (_, i) => 3651 + i),
 ])
@@ -257,24 +257,56 @@ function parseChartText(text: string): { chart: AssocChart; warnings: string[] }
   const chart: AssocChart = {}
   const warnings: string[] = []
   let diagFound = 0
-  for (const line of text.split('\n')) {
-    const trimmed = line.trim()
-    const dm = trimmed.match(_DIAG_RE)
-    if (!dm) continue
-    const diag = dm[1]
-    if (!_DIAG_SET.has(parseInt(diag))) continue
-    diagFound++
-    const times = [...trimmed.matchAll(_TIME_RE)].map(m => m[1])
-    if (times.length < 2) continue
-    const unMins  = _mins(times[0])
-    const ascMins = _mins(times[1])
-    if (unMins > 0 || ascMins > 0) chart[diag] = { unAssocMins: unMins, assocPaymentMins: ascMins }
+  const lines = text.split('\n')
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim()
+    // find every diagram number on this line (handles cases where OCR puts multiple on one line)
+    const diagMatches = [...trimmed.matchAll(_DIAG_RE_G)]
+    for (const dm of diagMatches) {
+      const diag = dm[1]
+      if (!_DIAG_SET.has(parseInt(diag))) continue
+      diagFound++
+
+      // Combine current line + next 3 lines into one window.
+      // Table OCR often puts each column on its own line; looking ahead
+      // ensures we collect the time values even when they aren't inline.
+      const window = [trimmed, lines[i + 1] ?? '', lines[i + 2] ?? '', lines[i + 3] ?? ''].join(' ')
+      const times = [...window.matchAll(/\b(\d{1,2}:\d{2})\b/g)].map(m => m[1])
+      if (times.length < 2) continue
+
+      const unMins  = _mins(times[0])
+      const ascMins = _mins(times[1])
+      if (unMins > 0 || ascMins > 0) chart[diag] = { unAssocMins: unMins, assocPaymentMins: ascMins }
+    }
   }
+
   if (diagFound === 0)
     warnings.push('No Mt Victoria diagram numbers (3151–3168 / 3651–3664) found. Is this the correct chart?')
-  else if (Object.keys(chart).length === 0)
-    warnings.push(`${diagFound} diagram rows found but all values are zero.`)
   return { chart, warnings }
+}
+
+/** Scale up + greyscale + contrast — dramatically improves Tesseract accuracy on table images. */
+function preprocessImageForOCR(file: File): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    const url = URL.createObjectURL(file)
+    img.onload = () => {
+      try {
+        const scale = img.naturalWidth < 2000 ? 2 : 1
+        const canvas = document.createElement('canvas')
+        canvas.width  = img.naturalWidth  * scale
+        canvas.height = img.naturalHeight * scale
+        const ctx2d = canvas.getContext('2d')!
+        ctx2d.filter = 'grayscale(100%) contrast(160%)'
+        ctx2d.drawImage(img, 0, 0, canvas.width, canvas.height)
+        URL.revokeObjectURL(url)
+        canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Canvas toBlob failed')), 'image/png')
+      } catch (e) { URL.revokeObjectURL(url); reject(e) }
+    }
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Image load failed')) }
+    img.src = url
+  })
 }
 
 // ── AssocChartCard ──────────────────────────────────────────────────────────────
@@ -314,23 +346,28 @@ function AssocChartCard() {
     if (['png', 'jpg', 'jpeg', 'webp', 'bmp', 'tiff', 'tif'].includes(ext)) {
       setUploading(true)
       try {
+        // Pre-process: greyscale + contrast boost + 2× scale if image is small
+        const processed = await preprocessImageForOCR(file)
+
         // Dynamic import keeps tesseract.js out of the initial bundle
         const { createWorker } = await import('tesseract.js')
         const worker = await createWorker('eng')
-        const { data: { text } } = await worker.recognize(file)
+        // PSM 6 = "assume a single uniform block of text" — best for table images
+        await worker.setParameters({ tessedit_pageseg_mode: '6' as any })
+        const { data: { text } } = await worker.recognize(processed)
         await worker.terminate()
+
         const { chart, warnings } = parseChartText(text)
-        if (Object.keys(chart).length === 0) {
-          setFileError(warnings[0] ?? 'No diagram data found in image.')
-          return
-        }
-        const lines = ['diagram,un_assoc_mins,assoc_payment_mins',
+        // Build CSV and load — even if all values are zero we show the result
+        const csvLines = ['diagram,un_assoc_mins,assoc_payment_mins',
           ...Object.entries(chart).map(([d, e]) => `${d},${e.unAssocMins},${e.assocPaymentMins}`)]
-        const err = ctx.loadAssocChartCsv(lines.join('\n'))
-        if (err) setFileError(err)
-        else {
-          if (warnings.length) setFileError(`Parsed with warnings: ${warnings.join('; ')}`)
+        if (Object.keys(chart).length > 0) {
+          const err = ctx.loadAssocChartCsv(csvLines.join('\n'))
+          if (err) setFileError(err)
+          else if (warnings.length) setFileError(`Saved ✓ — with warnings: ${warnings.join('; ')}`)
           else markSaved()
+        } else {
+          setFileError(warnings[0] ?? 'No non-zero diagram data found. Check the image is the correct chart, or use the CSV template.')
         }
       } catch (e) {
         setFileError(`OCR failed: ${(e as Error).message}`)
