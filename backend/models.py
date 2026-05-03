@@ -54,6 +54,10 @@ class DayState(CamelModel):
     # NEW v3.11: track if this day was originally an ADO before manual override
     # so the fortnight-level short/long detection still works after override.
     was_ado: bool = False
+    # NEW v3.12: assoc/un-assoc chart values (populated by frontend from uploaded chart).
+    # Used in the Cl. 157.1(b) build-up formula for 1454.
+    un_assoc_hrs: float = 0.0
+    assoc_payment_hrs: float = 0.0
 
 
 class RateConfig(CamelModel):

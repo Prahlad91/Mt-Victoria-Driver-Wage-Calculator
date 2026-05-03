@@ -35,7 +35,18 @@ export interface DayState {
   // NEW v3.11: track if this day was originally an ADO before manual override
   // so the fortnight-level short/long detection still works after override.
   wasAdo?: boolean;
+  // NEW v3.12: populated from the assoc/unassoc chart before sending to backend.
+  unAssocHrs?: number;
+  assocPaymentHrs?: number;
 }
+
+// ─── Assoc/Un-assoc Payments Chart (Cl. 157.1(b) / Cl. 146.4) ───────────────
+export interface AssocChartEntry {
+  unAssocMins: number;
+  assocPaymentMins: number;
+}
+/** keyed by diagram number string e.g. "3155" */
+export type AssocChart = Record<string, AssocChartEntry>
 
 export interface RateConfig {
   base_rate: number; ot1: number; ot2: number;

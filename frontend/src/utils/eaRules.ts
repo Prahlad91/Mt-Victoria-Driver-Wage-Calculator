@@ -10,7 +10,7 @@ const KM_BANDS: Array<{ min: number; max: number | null; credited: number | null
   { min: 0,   max: 161,  credited: null },
   { min: 161, max: 193,  credited: 5.0  },
   { min: 193, max: 225,  credited: 6.0  },
-  { min: 225, max: 257,  credited: 7.0  },
+  { min: 225, max: 257,  credited: 8.0  },
   { min: 257, max: 290,  credited: 8.0  },
   { min: 290, max: 322,  credited: 9.0  },
   { min: 322, max: 338,  credited: 10.0 },

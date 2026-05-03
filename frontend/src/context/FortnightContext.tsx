@@ -6,7 +6,7 @@ import type {
   DayState, RateConfig, PayrollCodes,
   CalculateResponse, RosterUploadState, PayslipUploadState,
   ParsedRosterData, ParsedScheduleData, DiagramInfo, SimpleUploadState,
-  TimeSource,
+  TimeSource, AssocChart,
 } from '../types'
 import { DEFAULT_CONFIG, DEFAULT_CODES, previewDay } from '../utils/calcPreview'
 import { ROSTER } from '../constants/roster'
@@ -19,7 +19,36 @@ const LS_MR      = 'mvwc_master_roster'
 const LS_FR      = 'mvwc_fn_roster'
 const LS_WD      = 'mvwc_weekday_schedule'
 const LS_WE      = 'mvwc_weekend_schedule'
+const LS_AC      = 'mvwc_assoc_chart'      // v3.12: Assoc/Un-assoc payments chart
 const LS_VERSION = 'mvwc_cache_version'
+
+// ─── Default Assoc/Un-assoc chart data (from depot chart, valid as of Apr 2026)
+// Only non-zero diagrams listed; all others default to {0, 0}.
+// Weekday diagrams 3151–3168:
+//   3153: 3:02 un-assoc (road review / pilot prep)
+//   3154: 0:30 un-assoc
+//   3155: 0:30 assoc payment
+//   3159: 0:38 un-assoc
+//   3161: 1:56 un-assoc
+//   3164, 3165: 1:11 un-assoc
+// Weekend diagrams 3651–3664:
+//   3653: 0:35 un-assoc + 0:32 assoc payment
+//   3655, 3656: 0:10 un-assoc
+//   3657, 3658: 0:30 un-assoc
+const DEFAULT_ASSOC_CHART: AssocChart = {
+  '3153': { unAssocMins: 182, assocPaymentMins: 0  },
+  '3154': { unAssocMins: 30,  assocPaymentMins: 0  },
+  '3155': { unAssocMins: 0,   assocPaymentMins: 30 },
+  '3159': { unAssocMins: 38,  assocPaymentMins: 0  },
+  '3161': { unAssocMins: 116, assocPaymentMins: 0  },
+  '3164': { unAssocMins: 71,  assocPaymentMins: 0  },
+  '3165': { unAssocMins: 71,  assocPaymentMins: 0  },
+  '3653': { unAssocMins: 35,  assocPaymentMins: 32 },
+  '3655': { unAssocMins: 10,  assocPaymentMins: 0  },
+  '3656': { unAssocMins: 10,  assocPaymentMins: 0  },
+  '3657': { unAssocMins: 30,  assocPaymentMins: 0  },
+  '3658': { unAssocMins: 30,  assocPaymentMins: 0  },
+}
 
 // PRD §6.10 — cache invalidation. v3.11 forces clear because v3.10 and earlier
 // had a Pydantic camelCase bug that returned $0 for all calculations and bad
@@ -76,6 +105,10 @@ interface Ctx {
   fnRosterUpload:        SimpleUploadState<ParsedRosterData>
   weekdayScheduleUpload: SimpleUploadState<ParsedScheduleData>
   weekendScheduleUpload: SimpleUploadState<ParsedScheduleData>
+  // v3.12: assoc/un-assoc chart
+  assocChart: AssocChart; assocChartIsCustom: boolean
+  loadAssocChartCsv: (csvText: string) => string | null  // returns error or null
+  resetAssocChart: () => void
   result: CalculateResponse | null; calculating: boolean; calcError: string | null
   loadLine:            (line: number, start: string, phs: string[], psTotal: number | null) => void
   fillAllRostered:     () => void
@@ -114,6 +147,10 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
   const [codes,  setCodesState]  = useState<PayrollCodes>(() => ({ ...DEFAULT_CODES, ...fromLS(LS_CODES, {}) }))
   const [unassocAmt, setUnassocAmt] = useState<number>(() => fromLS(LS_UNASSOC, 0))
 
+  // v3.12: assoc/un-assoc chart — loaded from localStorage, falling back to built-in defaults
+  const [assocChart,       setAssocChart]       = useState<AssocChart>(() => fromLS<AssocChart | null>(LS_AC, null) ?? DEFAULT_ASSOC_CHART)
+  const [assocChartIsCustom, setAssocChartIsCustom] = useState<boolean>(() => fromLS<AssocChart | null>(LS_AC, null) !== null)
+
   const [rosterUpload,  setRU] = useState<RosterUploadState>({ status: 'idle', result: null, error: null, applied: false })
   const [payslipUpload, setPU] = useState<PayslipUploadState>({ status: 'idle', result: null, error: null })
 
@@ -132,8 +169,8 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
   weSchedRef.current = weekendScheduleUpload.result
 
   const previews = useMemo(
-    () => days.map(d => previewDay(d, config, codes, unassocAmt)),
-    [days, config, codes, unassocAmt],
+    () => days.map(d => previewDay(d, config, codes, unassocAmt, assocChart)),
+    [days, config, codes, unassocAmt, assocChart],
   )
   // v3.11: short fortnight detection now considers BOTH diag === 'ADO' AND wasAdo
   // (the latter handles cases where user worked an ADO day as WOBOD).
@@ -146,6 +183,45 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
   const setCodes   = useCallback((p: Partial<PayrollCodes>) => setCodesState(prev => ({ ...prev, ...p })), [])
   const saveConfig = useCallback(() => { toLS(LS_CFG, config); toLS(LS_UNASSOC, unassocAmt) }, [config, unassocAmt])
   const saveCodes  = useCallback(() => toLS(LS_CODES, codes), [codes])
+
+  /** Parse a CSV upload for the assoc/unassoc chart.
+   *  Expected columns: diagram, un_assoc_mins, assoc_payment_mins (header optional)
+   *  Returns null on success, error message on failure. */
+  const loadAssocChartCsv = useCallback((csvText: string): string | null => {
+    try {
+      const lines = csvText.trim().split(/\r?\n/).filter(l => l.trim())
+      if (!lines.length) return 'Empty file'
+      const chart: AssocChart = {}
+      let skipped = 0
+      for (const line of lines) {
+        const cols = line.split(',').map(c => c.trim().replace(/^"|"$/g, ''))
+        if (!cols[0]) continue
+        // Skip header rows
+        if (/[a-zA-Z]/.test(cols[0])) { skipped++; continue }
+        const diag   = cols[0]
+        const unMin  = parseInt(cols[1] ?? '0', 10) || 0
+        const assMin = parseInt(cols[2] ?? '0', 10) || 0
+        if (unMin > 0 || assMin > 0) {
+          chart[diag] = { unAssocMins: unMin, assocPaymentMins: assMin }
+        }
+      }
+      if (!Object.keys(chart).length && skipped === lines.length) {
+        return 'No valid rows found (header-only or all zeros?)'
+      }
+      toLS(LS_AC, chart)
+      setAssocChart(chart)
+      setAssocChartIsCustom(true)
+      return null
+    } catch (e) {
+      return `Parse error: ${(e as Error).message}`
+    }
+  }, [])
+
+  const resetAssocChart = useCallback(() => {
+    try { localStorage.removeItem(LS_AC) } catch {}
+    setAssocChart(DEFAULT_ASSOC_CHART)
+    setAssocChartIsCustom(false)
+  }, [])
 
   const findInBothSchedules = useCallback((
     diagNum: string,
@@ -574,7 +650,16 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
     setCalcing(true); setCalcError(null)
     // v3.11: short fortnight detection now respects wasAdo (handles ADO-day overrides)
     const isShort = days.some(d => d.diag === 'ADO' || d.wasAdo)
-    const tagged = days.map(d => ({ ...d, isShortFortnight: isShort }))
+    // v3.12: enrich each day with assoc/unassoc chart data keyed by diagNum
+    const tagged = days.map(d => {
+      const entry = assocChart[d.diagNum || '']
+      return {
+        ...d,
+        isShortFortnight: isShort,
+        unAssocHrs:      entry ? entry.unAssocMins   / 60 : 0,
+        assocPaymentHrs: entry ? entry.assocPaymentMins / 60 : 0,
+      }
+    })
     try {
       const r = await fetch('/api/calculate', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -597,7 +682,7 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
       setCalcError(msg.includes('fetch') ? 'Cannot reach backend.' : msg)
       return false
     } finally { setCalcing(false) }
-  }, [days, fnStart, rosterLine, publicHolidays, payslipTotal, config, codes, unassocAmt])
+  }, [days, fnStart, rosterLine, publicHolidays, payslipTotal, config, codes, unassocAmt, assocChart])
 
   const exportPdf = useCallback(async () => {
     if (!result) return
@@ -624,6 +709,7 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
       setConfig, setCodes, setUnassocAmt, saveConfig, saveCodes,
       rosterUpload, payslipUpload,
       masterRosterUpload, fnRosterUpload, weekdayScheduleUpload, weekendScheduleUpload,
+      assocChart, assocChartIsCustom, loadAssocChartCsv, resetAssocChart,
       result, calculating, calcError,
       loadLine, fillAllRostered, copyScheduledToActual, setDay, applyManualDiag, markWorkedOnOff,
       resetDay, applyUploadedRoster,

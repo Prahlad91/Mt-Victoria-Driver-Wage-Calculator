@@ -102,6 +102,9 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
         </div>
       </div>
 
+      {/* ── Assoc / Un-assoc Payments Chart ─────────────────────────────── */}
+      <AssocChartCard />
+
       {/* ── Step 2 ──────────────────────────────────────────────────────── */}
       <div className="card">
         <h2>Step 2 — Load roster line {srcBadge}</h2>
@@ -232,6 +235,124 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
         <p className="note">Rounding rule Cl. 134.3(b): fraction &lt;30 min → disregard; ≥30 min → round up to next hour.</p>
       </div>
     </>
+  )
+}
+
+// ── AssocChartCard ──────────────────────────────────────────────────────────────
+
+function AssocChartCard() {
+  const ctx = useFortnightContext()
+  const [csvError, setCsvError] = useState<string | null>(null)
+  const [saved,    setSaved]    = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  function handleFile(file: File) {
+    setCsvError(null)
+    const reader = new FileReader()
+    reader.onload = e => {
+      const text = e.target?.result as string
+      const err = ctx.loadAssocChartCsv(text)
+      if (err) { setCsvError(err) }
+      else { setSaved(true); setTimeout(() => setSaved(false), 2500) }
+    }
+    reader.readAsText(file)
+  }
+
+  function downloadTemplate() {
+    const rows = [
+      'diagram,un_assoc_mins,assoc_payment_mins',
+      '3151,0,0',
+      '3153,182,0',
+      '3154,30,0',
+      '3155,0,30',
+      '3159,38,0',
+      '3160,0,0',
+      '3161,116,0',
+      '3164,71,0',
+      '3165,71,0',
+      '3166,0,0',
+      '3167,0,0',
+      '3168,0,0',
+      '3651,0,0',
+      '3652,0,0',
+      '3653,35,32',
+      '3655,10,0',
+      '3656,10,0',
+      '3657,30,0',
+      '3658,30,0',
+      '3659,0,0',
+      '3660,0,0',
+      '3661,0,0',
+      '3662,0,0',
+      '3664,0,0',
+    ]
+    const blob = new Blob([rows.join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    Object.assign(document.createElement('a'), {
+      href: url, download: 'assoc_unassoc_chart.csv',
+    }).click()
+    URL.revokeObjectURL(url)
+  }
+
+  const nonZeroEntries = Object.entries(ctx.assocChart)
+    .filter(([, e]) => e.unAssocMins > 0 || e.assocPaymentMins > 0)
+    .sort(([a], [b]) => a.localeCompare(b))
+
+  return (
+    <div className="card">
+      <h2>
+        Assoc / Un-assoc Payments Chart
+        <span className="ea-ref" style={{marginLeft:8}}>(Cl. 157.1(b) / Cl. 146.4 — used for 1454 calculation)</span>
+        {ctx.assocChartIsCustom
+          ? <span className="badge" style={{marginLeft:8,background:'var(--green-bg)',color:'var(--green-text)',border:'1px solid #8fcca8'}}>✓ Custom chart loaded</span>
+          : <span className="badge badge-off" style={{marginLeft:8}}>Built-in defaults</span>
+        }
+      </h2>
+      <p className="note" style={{marginBottom:8}}>
+        The chart provides Un-associated and Associated Payment times per diagram number, used to compute
+        the "build-up" hours (code 1454) via: <em>max(0, un-assoc + assoc + dist_credit − shift_length)</em>.
+        Upload a new CSV whenever the depot issues an updated chart.
+      </p>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',marginBottom:12}}>
+        <button className="btn-sm btn-primary" onClick={() => fileRef.current?.click()}>
+          📂 Upload chart CSV
+        </button>
+        <button className="btn-sm" onClick={downloadTemplate}>⬇ Download template</button>
+        {ctx.assocChartIsCustom && (
+          <button className="btn-sm" style={{color:'var(--amber-text)'}} onClick={ctx.resetAssocChart}>
+            ↩ Reset to built-in defaults
+          </button>
+        )}
+        {saved && <span className="saved-msg">Saved ✓</span>}
+        {csvError && <span style={{color:'var(--red-text)',fontSize:11}}>{csvError}</span>}
+        <input ref={fileRef} type="file" accept=".csv,.txt" style={{display:'none'}}
+          onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = '' }} />
+      </div>
+      {nonZeroEntries.length > 0 ? (
+        <table style={{fontSize:11}}>
+          <thead>
+            <tr><th>Diagram</th><th>Un-assoc mins</th><th>Un-assoc hrs</th><th>Assoc payment mins</th><th>Assoc payment hrs</th></tr>
+          </thead>
+          <tbody>
+            {nonZeroEntries.map(([diag, entry]) => (
+              <tr key={diag}>
+                <td style={{fontWeight:600}}>{diag}</td>
+                <td>{entry.unAssocMins}</td>
+                <td>{(entry.unAssocMins / 60).toFixed(2)}</td>
+                <td>{entry.assocPaymentMins}</td>
+                <td>{(entry.assocPaymentMins / 60).toFixed(2)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <p className="note">No non-zero entries in current chart (all diagrams produce 0 build-up).</p>
+      )}
+      <p className="note" style={{marginTop:8}}>
+        CSV format: <code>diagram,un_assoc_mins,assoc_payment_mins</code> — one row per diagram.
+        Zero-value rows may be omitted. Header row is optional.
+      </p>
+    </div>
   )
 }
 
