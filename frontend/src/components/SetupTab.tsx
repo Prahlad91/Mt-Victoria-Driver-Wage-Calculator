@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
 import { useFortnightContext } from '../context/FortnightContext'
 import { parseDate } from '../utils/dateUtils'
-import type { SimpleUploadState } from '../types'
+import type { SimpleUploadState, AssocChart } from '../types'
 
 const DW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
 
@@ -238,6 +238,45 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
   )
 }
 
+// ── Assoc chart text parser (mirrors backend _parse_chart_text) ─────────────────
+
+const _DIAG_RE  = /\b(3(?:15[1-9]|1[6][0-8]|6[5-9]\d|6[0-4]\d))\b/
+const _TIME_RE  = /\b(\d{1,2}:\d{2})\b/g
+const _DIAG_SET = new Set([
+  ...Array.from({ length: 18 }, (_, i) => 3151 + i),
+  ...Array.from({ length: 14 }, (_, i) => 3651 + i),
+])
+
+function _mins(t: string): number {
+  const [h, m] = t.split(':').map(Number)
+  const v = h * 60 + (m || 0)
+  return v >= 0 && v <= 1439 ? v : 0
+}
+
+function parseChartText(text: string): { chart: AssocChart; warnings: string[] } {
+  const chart: AssocChart = {}
+  const warnings: string[] = []
+  let diagFound = 0
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim()
+    const dm = trimmed.match(_DIAG_RE)
+    if (!dm) continue
+    const diag = dm[1]
+    if (!_DIAG_SET.has(parseInt(diag))) continue
+    diagFound++
+    const times = [...trimmed.matchAll(_TIME_RE)].map(m => m[1])
+    if (times.length < 2) continue
+    const unMins  = _mins(times[0])
+    const ascMins = _mins(times[1])
+    if (unMins > 0 || ascMins > 0) chart[diag] = { unAssocMins: unMins, assocPaymentMins: ascMins }
+  }
+  if (diagFound === 0)
+    warnings.push('No Mt Victoria diagram numbers (3151–3168 / 3651–3664) found. Is this the correct chart?')
+  else if (Object.keys(chart).length === 0)
+    warnings.push(`${diagFound} diagram rows found but all values are zero.`)
+  return { chart, warnings }
+}
+
 // ── AssocChartCard ──────────────────────────────────────────────────────────────
 
 const ALL_WEEKDAY_DIAGS = [
@@ -262,8 +301,8 @@ function AssocChartCard() {
     setFileError(null)
     const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
 
+    // ── CSV / TXT: client-side parse ──────────────────────────────────────────
     if (ext === 'csv' || ext === 'txt') {
-      // CSV: parse client-side — no round-trip needed
       const text = await file.text()
       const err = ctx.loadAssocChartCsv(text)
       if (err) setFileError(err)
@@ -271,7 +310,37 @@ function AssocChartCard() {
       return
     }
 
-    // PDF or image: send to backend for parsing
+    // ── Image: Tesseract.js client-side OCR ───────────────────────────────────
+    if (['png', 'jpg', 'jpeg', 'webp', 'bmp', 'tiff', 'tif'].includes(ext)) {
+      setUploading(true)
+      try {
+        // Dynamic import keeps tesseract.js out of the initial bundle
+        const { createWorker } = await import('tesseract.js')
+        const worker = await createWorker('eng')
+        const { data: { text } } = await worker.recognize(file)
+        await worker.terminate()
+        const { chart, warnings } = parseChartText(text)
+        if (Object.keys(chart).length === 0) {
+          setFileError(warnings[0] ?? 'No diagram data found in image.')
+          return
+        }
+        const lines = ['diagram,un_assoc_mins,assoc_payment_mins',
+          ...Object.entries(chart).map(([d, e]) => `${d},${e.unAssocMins},${e.assocPaymentMins}`)]
+        const err = ctx.loadAssocChartCsv(lines.join('\n'))
+        if (err) setFileError(err)
+        else {
+          if (warnings.length) setFileError(`Parsed with warnings: ${warnings.join('; ')}`)
+          else markSaved()
+        }
+      } catch (e) {
+        setFileError(`OCR failed: ${(e as Error).message}`)
+      } finally {
+        setUploading(false)
+      }
+      return
+    }
+
+    // ── PDF: send to backend (pdfplumber, no tesseract needed) ────────────────
     setUploading(true)
     try {
       const form = new FormData(); form.append('file', file)
@@ -281,17 +350,14 @@ function AssocChartCard() {
         throw new Error(e.detail || 'Unknown error')
       }
       const data = await r.json()
-      // data.chart: Record<string, {unAssocMins, assocPaymentMins}>
-      // Convert to the CSV text format and feed through the same loader
-      const lines = ['diagram,un_assoc_mins,assoc_payment_mins']
-      for (const [diag, entry] of Object.entries(data.chart as Record<string, {unAssocMins:number, assocPaymentMins:number}>)) {
-        lines.push(`${diag},${entry.unAssocMins},${entry.assocPaymentMins}`)
-      }
+      const lines = ['diagram,un_assoc_mins,assoc_payment_mins',
+        ...Object.entries(data.chart as Record<string, {unAssocMins:number, assocPaymentMins:number}>)
+          .map(([d, e]) => `${d},${e.unAssocMins},${e.assocPaymentMins}`)]
       const err = ctx.loadAssocChartCsv(lines.join('\n'))
       if (err) setFileError(err)
       else {
         if (data.warnings?.length) setFileError(`Parsed with warnings: ${data.warnings.join('; ')}`)
-        markSaved()
+        else markSaved()
       }
     } catch (e) {
       setFileError((e as Error).message)
