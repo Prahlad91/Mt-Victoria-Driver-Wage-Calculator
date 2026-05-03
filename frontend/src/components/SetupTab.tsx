@@ -240,6 +240,15 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
 
 // ── AssocChartCard ──────────────────────────────────────────────────────────────
 
+const ALL_WEEKDAY_DIAGS = [
+  '3151','3152','3153','3154','3155','3156','3157','3158',
+  '3159','3160','3161','3162','3163','3164','3165','3166','3167','3168',
+]
+const ALL_WEEKEND_DIAGS = [
+  '3651','3652','3653','3654','3655','3656','3657','3658',
+  '3659','3660','3661','3662','3663','3664',
+]
+
 function AssocChartCard() {
   const ctx = useFortnightContext()
   const [fileError,  setFileError]  = useState<string | null>(null)
@@ -327,10 +336,6 @@ function AssocChartCard() {
     URL.revokeObjectURL(url)
   }
 
-  const nonZeroEntries = Object.entries(ctx.assocChart)
-    .filter(([, e]) => e.unAssocMins > 0 || e.assocPaymentMins > 0)
-    .sort(([a], [b]) => a.localeCompare(b))
-
   return (
     <div className="card">
       <h2>
@@ -344,7 +349,8 @@ function AssocChartCard() {
       <p className="note" style={{marginBottom:8}}>
         The chart provides Un-associated and Associated Payment times per diagram number, used to compute
         the "build-up" hours (code 1454) via: <em>max(0, un-assoc + assoc + dist_credit − shift_length)</em>.
-        Upload a new CSV whenever the depot issues an updated chart.
+        Upload a new CSV (or PDF / image) whenever the depot issues an updated chart.
+        Rows highlighted in blue have non-zero values.
       </p>
       <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',marginBottom:12}}>
         <button className="btn-sm btn-primary" disabled={uploading} onClick={() => fileRef.current?.click()}>
@@ -367,30 +373,65 @@ function AssocChartCard() {
           style={{display:'none'}}
           onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = '' }} />
       </div>
-      {nonZeroEntries.length > 0 ? (
-        <table style={{fontSize:11}}>
-          <thead>
-            <tr><th>Diagram</th><th>Un-assoc mins</th><th>Un-assoc hrs</th><th>Assoc payment mins</th><th>Assoc payment hrs</th></tr>
-          </thead>
-          <tbody>
-            {nonZeroEntries.map(([diag, entry]) => (
-              <tr key={diag}>
+      <table style={{fontSize:11}}>
+        <thead>
+          <tr>
+            <th>Diagram</th>
+            <th>Un-assoc mins</th>
+            <th>Un-assoc hrs</th>
+            <th>Assoc payment mins</th>
+            <th>Assoc payment hrs</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td colSpan={5} style={{
+              fontWeight:600, background:'var(--blue-bg)', color:'var(--blue-text)',
+              padding:'3px 8px', fontSize:10, letterSpacing:'0.05em', textTransform:'uppercase',
+            }}>
+              Weekday diagrams (3151–3168)
+            </td>
+          </tr>
+          {ALL_WEEKDAY_DIAGS.map(diag => {
+            const entry = ctx.assocChart[diag] ?? { unAssocMins: 0, assocPaymentMins: 0 }
+            const nonZero = entry.unAssocMins > 0 || entry.assocPaymentMins > 0
+            return (
+              <tr key={diag} style={nonZero ? {background:'var(--blue-bg)'} : undefined}>
                 <td style={{fontWeight:600}}>{diag}</td>
                 <td>{entry.unAssocMins}</td>
                 <td>{(entry.unAssocMins / 60).toFixed(2)}</td>
                 <td>{entry.assocPaymentMins}</td>
                 <td>{(entry.assocPaymentMins / 60).toFixed(2)}</td>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      ) : (
-        <p className="note">No non-zero entries in current chart (all diagrams produce 0 build-up).</p>
-      )}
+            )
+          })}
+          <tr>
+            <td colSpan={5} style={{
+              fontWeight:600, background:'var(--blue-bg)', color:'var(--blue-text)',
+              padding:'3px 8px', fontSize:10, letterSpacing:'0.05em', textTransform:'uppercase',
+            }}>
+              Weekend diagrams (3651–3664)
+            </td>
+          </tr>
+          {ALL_WEEKEND_DIAGS.map(diag => {
+            const entry = ctx.assocChart[diag] ?? { unAssocMins: 0, assocPaymentMins: 0 }
+            const nonZero = entry.unAssocMins > 0 || entry.assocPaymentMins > 0
+            return (
+              <tr key={diag} style={nonZero ? {background:'var(--blue-bg)'} : undefined}>
+                <td style={{fontWeight:600}}>{diag}</td>
+                <td>{entry.unAssocMins}</td>
+                <td>{(entry.unAssocMins / 60).toFixed(2)}</td>
+                <td>{entry.assocPaymentMins}</td>
+                <td>{(entry.assocPaymentMins / 60).toFixed(2)}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
       <p className="note" style={{marginTop:8}}>
         Accepted formats: <strong>CSV</strong> (<code>diagram,un_assoc_mins,assoc_payment_mins</code>),
         <strong> PDF</strong>, or <strong>image</strong> (.png / .jpg / .webp / .tiff).
-        PDF and image parsing happen on the server — image OCR requires Tesseract to be installed.
+        PDF and image files are parsed on the server (OCR for images).
         CSV is the most reliable format; use the template above as a starting point.
       </p>
     </div>
