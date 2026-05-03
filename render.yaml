@@ -1,13 +1,7 @@
 services:
   - type: web
     name: mt-victoria-driver-wage-calculator
-    runtime: python
-    rootDir: backend
-    buildCommand: (apt-get update -qq && apt-get install -y --no-install-recommends tesseract-ocr) || echo "Tesseract install skipped" ; pip install -r requirements.txt
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    env: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
     plan: free
-    envVars:
-      - key: PYTHON_VERSION
-        value: 3.11.0
-      - key: RENDER_PYTHON_VERSION
-        value: 3.11.0
