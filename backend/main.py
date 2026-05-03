@@ -12,11 +12,13 @@ from models import (
     CalculateRequest, CalculateResponse,
     ParseRosterResponse, ParsePayslipResponse,
     ParsedRosterResponse, ParsedScheduleResponse,
+    ParseAssocChartResponse,
 )
 from calculator import compute_fortnight
 from parsers import (
     parse_roster_pdf, parse_payslip_file,
     parse_roster_zip, parse_schedule_zip,
+    parse_assoc_chart_file,
 )
 from exporters import render_pdf, render_csv
 
@@ -152,6 +154,27 @@ async def upload_payslip(file: UploadFile = File(...)):
         return parse_payslip_file(content, filename=file.filename or "payslip")
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Payslip parse failed: {str(e)}")
+
+
+# ─── Assoc/Un-assoc chart upload (v3.12) ────────────────────────────────────
+
+@app.post("/api/parse-assoc-chart", response_model=ParseAssocChartResponse)
+async def upload_assoc_chart(file: UploadFile = File(...)):
+    """
+    Parse an Associated & Un-associated Payments Chart.
+    Accepts CSV (.csv, .txt), PDF (.pdf), or image (.png, .jpg, .jpeg, .webp, .bmp, .tiff).
+    Returns diagram → {unAssocMins, assocPaymentMins} for all non-zero entries.
+    Image parsing requires Tesseract OCR (server-side); CSV and PDF always work.
+    """
+    content = await file.read()
+    try:
+        return parse_assoc_chart_file(content, filename=file.filename or "chart")
+    except ValueError as e:
+        raise HTTPException(status_code=415, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"Chart parse failed: {str(e)}")
 
 
 # ─── Export ───────────────────────────────────────────────────────────────────
