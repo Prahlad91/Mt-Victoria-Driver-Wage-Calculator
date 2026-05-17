@@ -1,7 +1,7 @@
 # Product Requirements Document
 # Mt Victoria Driver Wage Calculator
 
-**Version:** 3.12
+**Version:** 3.13
 **Date:** May 2026
 **Author:** Prahlad Modi (Mt Victoria depot, Sydney Trains)
 **Status:** Active — governs all development on this repository
@@ -656,6 +656,15 @@ This toggle exists to support edge cases such as: driver doesn't want to claim l
 - Every pay component shows: name, EA ref, payroll code, hours, rate, amount
 - Roster source always indicated in UI (Master / Fortnight / Built-in)
 
+### NFR-09: Accessibility (introduced v3.13)
+- The UI must meet **WCAG 2.1 Level AA** conformance
+- All interactive elements must be keyboard-operable (Tab to focus, Enter/Space to activate)
+- All meaningful interactive elements must carry an appropriate ARIA role and state attribute (`aria-label`, `aria-pressed`, `aria-selected`, `aria-expanded`)
+- Focus must be visible at all times (`focus-visible` ring, 2px solid accent colour)
+- Colour is never the sole means of conveying information (badges also include text labels)
+- Alerts (`role="alert"`) and status updates (`role="status"`) must be announced to screen readers
+- Motion animations must be disabled when `prefers-reduced-motion: reduce` is set
+
 ---
 
 ## 9. Data Model
@@ -920,12 +929,48 @@ Used only when no master/fortnight roster has been uploaded.
 
 ## 13. UI Design Specification
 
-### 13.1 Layout
-- React SPA with 5 tabs: **Setup**, **Daily Entry**, **Results**, **Rates & Codes**, **KM Table**
-- Legacy `index.html` served at `/legacy` as fallback
-- Responsive: single-column mobile (<768px), multi-column desktop
+### 13.1 Layout and Design Language
+
+React SPA with 5 tabs: **Setup**, **Daily Entry**, **Results**, **Rates & Codes**, **KM Table**.
+Legacy `index.html` served at `/legacy` as fallback.
+Responsive: single-column mobile (<768px), multi-column desktop.
+
+**Apple HIG design language (introduced v3.13):**
+
+The application follows Apple Human Interface Guidelines. The design is minimal, clean, and sophisticated — no gradients, no decorative shadows, typography-led hierarchy.
+
+| Token | Value | Usage |
+|-------|-------|-------|
+| Canvas | `#f5f5f7` | Page background (Apple's exact gray) |
+| Surface | `#ffffff` | Card backgrounds |
+| Accent | `#0071e3` | Primary action colour (Apple blue) |
+| Border | `rgba(0,0,0,0.08)` | Hairline borders on cards |
+| Font | `-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif` | All text |
+| Radius | `12px` (cards), `8px` (inputs, chips) | Rounded corners |
+| Shadow | `0 1px 3px rgba(0,0,0,0.06)` | Minimal card lift |
+
+**Page structure (sticky layers):**
+
+1. **App header** (`position: sticky; top: 0; z-index: 200`) — frosted glass effect (`backdrop-filter: saturate(180%) blur(20px); background: rgba(255,255,255,0.72)`). Contains: 🚂 logo mark, title "Mt Victoria Calculator", subtitle "Sydney Trains · EA 2025", and right-side metadata badges (Short/Long fortnight indicator, roster line number, EA version, Legacy link).
+2. **Tab bar** (`position: sticky; top: 52px; z-index: 100`) — white background with hairline bottom border. Tab buttons use an underline indicator (2px accent-coloured line under the active tab) rather than pills or backgrounds. A dot indicator on the Results tab label appears when a calculation result is available.
+3. **Main content** — `max-width: 900px` centred column with `16px` horizontal padding.
+
+**Accessibility (WCAG 2.1 AA — introduced v3.13):**
+
+- All interactive elements have `aria-label`, `aria-pressed`, `aria-selected`, or `aria-expanded` as appropriate
+- Day rows: `role="listitem"`, keyboard-navigable with Enter/Space to expand/collapse
+- Tab buttons: `role="tab"` with `aria-selected`
+- Match banner: `role="status"` (OK) or `role="alert"` (variance warning)
+- Toggle group buttons: `aria-pressed` reflects current state
+- `focus-visible` ring on all focusable elements (`:focus-visible { outline: 2px solid var(--accent); }`)
+- `prefers-reduced-motion` media query suppresses transitions when set
 
 ### 13.2 Setup tab
+
+Cards use a **card-header / card-body** structure. Each card has a step-indicator circle on the left of its heading:
+- **Step 1** header: green filled circle with ✓ (always complete)
+- **Step 2** header: blue filled circle with "2"
+- **Step 3** header: gray outlined circle with "3" (pending until line loaded)
 
 **Step 1 — Upload rosters & schedules** (do before loading a line)
 - Upload card: **Master Roster** (annual, lines 1–22) — `Mt_Victoria_Drivers_Master.pdf`
@@ -937,11 +982,13 @@ Used only when no master/fortnight roster has been uploaded.
 - Roster line input (1–22 or 201–210)
 - Swinger line info banner (when 201+ entered): shows which roster will be used
 - Lines 1–22 info banner: shows master roster will be used
-- Fortnight start date, public holidays, payslip total
+- Fortnight start date
+- **Public holidays (multi-date picker — v3.13):** An `<input type="date">` field with an **"+ Add"** button. Each added date appears as a removable amber chip showing `📆 Fri 3 Apr 2026 ×`. Clicking the × removes that date. The full list of PH dates is stored as a `string[]` array and sent as `public_holidays` in the API request. This replaces the old comma-separated text input, which only picked up the first PH date when multiple were entered (multi-PH bug fixed v3.13).
+- Payslip total input (for variance audit)
 - **Load roster line** button
-- After loading: roster source badge + KM auto-fill indicator + date chips
+- After loading: roster source badge + KM auto-fill indicator + date chips showing fortnight dates
 
-**Below: Assoc/Un-assoc chart, payslip and legacy uploads**
+**Step 3 — Assoc/Un-assoc chart, payslip and legacy uploads**
 - **Assoc / Un-assoc Payments Chart card** (new v3.12) — upload updated depot chart (CSV / PDF / image); 7-column table shows all 32 diagrams; Build Up column highlighted green; CSV template download (§6.11)
 - Payslip upload card (for comparison)
 - Legacy fortnight roster PDF card (for sign-on/sign-off pre-fill)
@@ -952,24 +999,22 @@ Each day row has two sections: **header** (always visible) and **body** (expande
 
 **Header (always visible):**
 - Date and day name
+- Day-type pill (coloured badge: green "Work", amber "ADO", purple "WOBOD", gray "OFF", etc.)
 - Diagram number badge (e.g. `3151`) — large, prominent (purple if manual override active)
-- Diagram name (smaller, secondary)
 - Time-source badge (`✓ Schedule` / `ⓘ Master roster` / `ⓘ Built-in` / `✏ Manual` / `—`)
-- Live pay summary
+- **Auto-suppress chip** — shown in the collapsed header when the system has automatically suppressed the lift-up/layback claim due to < 50% overlap (§5.7). Amber chip: "⚑ Auto-suppress: only N% overlap". Alerts the driver that their lift-up/layback was not counted.
+- Times and KM summary (condensed)
+- Live pay summary (green, right-aligned)
 - Chevron expand/collapse
 
-**Body — Scheduled times block (editable as of v3.10):**
-- Two columns: "Scheduled start" | "Scheduled end" | "Scheduled hours"
-- All three are `<input>` fields:
-  - Start and end are `<input type="time">` and EDITABLE
-  - Scheduled hours is a derived/display field showing `r_hrs` (read-only, derived from schedule's Total shift)
-- Source label below: e.g. "Loaded from weekday schedule (3151)" or "From master roster" or "Manually edited"
-- When the user edits a scheduled time, the time-source badge updates to `✏ Manual`
+**Body — Times layout (two-column grid, v3.13):**
 
-**Body — Actual times block (editable):**
-- Two columns: "Actual start" | "Actual end"
-- `<input type="time">` fields, fully editable
-- "↺ Same as scheduled" button — copies scheduled → actual
+The times block uses a `1fr 1px 1fr` CSS grid: **Scheduled** column on the left, a hairline vertical divider, **Actual** column on the right. Each column shows:
+- Column heading ("Scheduled" / "Actual") in small caps
+- Start time input (label "Sign on")
+- End time input (label "Sign off")
+
+Scheduled inputs are editable (§FR-02-B). Actual inputs pre-fill from scheduled on load (§FR-02-B). A **"↺ Same as scheduled"** button below the actual column copies scheduled → actual in one click.
 
 **Body — Manual diagram override (available on ALL day types):**
 - Label: "Override diagram / schedule no." with hint "e.g. 3158, 3651, SBY"
@@ -977,13 +1022,20 @@ Each day row has two sections: **header** (always visible) and **body** (expande
 - **Load diagram ↗** button — looks up schedule and pre-fills times + KMs
 - When override is active: purple `✏ Manual` badge in header + reset banner showing original diagram name and a **Reset** button
 
-**Body — Other controls (per-day toggles):**
-- KMs (editable, auto-filled)
-- WOBOD toggle (Yes/No)
-- Cross-midnight toggle (Yes/No)
-- **Claim lift-up/layback?** toggle (Yes/No, default Yes — added v3.10) — see FR-02-F
-- Leave type selector
-- Live pay breakdown table (must compute hours per §5.7)
+**Body — Controls row (iOS-style toggle groups, v3.13):**
+
+Per-day toggles use a segmented **toggle group** component — two adjacent buttons ("Yes" / "No") where the active option is filled with the accent colour. This replaces `<select>` dropdowns. Toggles provided:
+- **KMs** — numeric input (auto-filled from schedule; editable)
+- **Lift-up / layback?** (Yes / No, default Yes) — see FR-02-F
+- **WOBOD?** (Yes / No)
+- **Cross-midnight?** (Yes / No)
+
+Leave type is a `<select>` dropdown (unchanged).
+
+**Body — Live pay preview:**
+- Shows payroll code chips (colour-coded per §13.4) alongside line amounts
+- Heading: "LIVE PAY PREVIEW"
+- Note: per-day preview is approximate for weekday WOBOD (cannot know fortnight-level OT-shift counter); server result is authoritative
 
 **Body — OFF/ADO state (no override applied):**
 - Informational text ("Day off — no pay unless worked")
@@ -991,12 +1043,48 @@ Each day row has two sections: **header** (always visible) and **body** (expande
 - "Worked (no diagram)" button as alternative
 
 ### 13.4 Results tab
-- Summary metric cards across the top: gross pay, total hours, OT hours, ADO payout, fortnight type
-- 14-day breakdown table: date | day | diagram | hours | paid hrs | total pay
-- Component totals table: name | EA ref | code | total amount (sums across the fortnight)
-- Payslip comparison block (if payslip uploaded): calculated vs payslip, variance flag
-- Audit section: aggregated flags from all days
-- Export buttons: PDF and CSV
+
+**Match / variance banner (v3.13):**
+
+A full-width banner appears at the top of the Results tab whenever a calculation has been performed:
+
+- **Payslip match** (variance ≤ $0.10): green left-border accent, ✓ icon, title "Payslip matches — $X,XXX.XX (variance $0.0X)", subtitle with version/line/date/fortnight-type, Export PDF and Export CSV buttons inline. `role="status"`.
+- **Variance warning** (variance > $0.10): amber left-border accent, ⚠ icon, title "Variance $X.XX — calculated $X,XXX.XX (possible underpayment/overpayment)". `role="alert"`.
+- **No payslip total entered**: no banner; Export PDF and Export CSV buttons shown as standalone buttons above the metric cards.
+
+**Metric cards:**
+
+Four white cards in a 2×2 grid (1×4 on wide screens) showing:
+1. **Total gross earnings** — amount in green
+2. **Ordinary hours** — pooled 1001 hours; secondary line shows fortnightly OT hours if > 0
+3. **Overtime hours** — total OT hours for the fortnight
+4. **ADO payout** (short fortnight) or **Fortnight type** (long fortnight)
+
+**Payslip-format breakdown table:**
+
+Columns: Date | Code | Description | EA ref | Units | Rate | Amount
+
+The **Code** column shows a coloured chip per payroll code:
+
+| Codes | Chip style |
+|-------|-----------|
+| 1001, 1026 | Blue background / blue text (accent) |
+| 1462 | Green background / green text |
+| 1470, 1010, 5042 | Amber background / amber text |
+| 1487, 1483 | Purple background / purple text |
+| 1059, 1100, 1110 | Pink background / pink text |
+| 1454 | Sky-blue background / sky-blue text |
+| 1064 | Yellow background / dark yellow text |
+
+**Per-day detail section:**
+
+Collapsible per-day tables below the payslip breakdown, showing each day's pay components with the same coloured code chips. Audit flags appear below each day as chips (amber for warnings/alerts, gray for informational).
+
+**Audit flags section:**
+
+Aggregated list of all audit flags across the fortnight, coloured amber for ALERT/⚠ flags.
+
+**Export buttons:** PDF and CSV, shown inline in the match banner or as standalone buttons when no payslip total is entered.
 
 ### 13.5 Rates & Codes tab
 - Editable form for all rates in `RateConfig`: base rate, OT multipliers, weekend, PH, shift penalties, additional loading, WOBOD
@@ -1055,6 +1143,7 @@ Each day row has two sections: **header** (always visible) and **body** (expande
 | 3.10 | April 2026 | (1) **NEW per-day toggle** — `Claim lift-up/layback?` (default Yes) per FR-02-F. When Yes, pay calc uses the **effective window** (`min(scheduled_start, actual_start)` to `max(scheduled_end, actual_end)`); when No, uses actual times only with no lift-up/layback. See §5.7 worked examples. (2) **Scheduled times now editable** — the Scheduled start and Scheduled end inputs are no longer read-only; user can override (FR-02-B updated). KM field continues to be editable (FR-02-D). (3) **§5.7 rewritten** to use the effective-window model. This fixes a long-standing **double-counting bug** in v3.6–v3.9 where lift-up/layback gap components were added on top of `actual_hrs` that already included those minutes — e.g. a 9-hr actual against an 8-hr scheduled was over-paid as 10.25 base-rate units instead of the correct 9.5. (4) **Stale schedule cache invalidation** (§6.10) — frontend stores a `mvwc_cache_version` key; v3.10 clears `mvwc_weekday_schedule` and `mvwc_weekend_schedule` from localStorage on first load to force users to re-upload schedules with the v3.8 column-aware parser, resolving the user-visible bug where Daily Entry was displaying master-roster times because the cached schedule was missing diagrams. (5) Lift-up/layback are now emitted as **informational flags only** (no separate pay components), since they're already part of the effective-window total. (6) Shift penalty class continues to be determined by **actual sign-on time** regardless of the toggle, because the penalty depends on when the driver physically signs on. |
 | 3.11 | April 2026 | **Six backend accuracy fixes, all verified against the canonical Line 8 payslip (2026-03-22, $7,336.55 to the cent).** (1) **WOBOD rule corrected** (§5.6) — replaced the hallucinated "Cl. 136 double-time min 4 hrs" rule with the correct Cl. 140.4 primary rate (150%/200%/250% by day type, weekday OT-shift counter) + Cl. 140.7 50% Train Crew loading. No 4-hour minimum. Weekday counter is fortnight-scoped; Sat/Sun WOBOD do not increment it. (2) **Afternoon penalty fix** (§5.4) — trigger condition tightened to `10:00 ≤ sign-on < 18:00`, which guarantees ordinary time ends after 18:00. Previously used `actual_sign_off > 18:00` which over-triggered on late-finishing day shifts. (3) **Hours rounding fix** (NFR-05) — `amount = round(hours, 2) × rate` (round hours first, then multiply). Previously rounded the product, which diverged from the payroll system by up to 3 cents per line. (4) **Pooled 1001 line uses sum-of-rounded-per-day** (NFR-05) — e.g. 8 × round($398.547, 2) = $3,188.40, not 64h × $49.81842 = $3,188.38. (5) **Auto-suppress shift-swap** (§5.7) — if the scheduled/actual overlap is < 50% of the shorter shift, `claim_liftup_layback` is forced to `False` with a warning flag. Prevents the effective-window from spanning two non-overlapping shifts (e.g. Mar 28: sched 04:43–12:58, actual 12:00–20:00, 12% overlap → auto-suppressed). (6) **Short-fortnight tracking via `wasAdo`** (§5.8) — `wasAdo: boolean` added to `DayState`; preserved across all override mutations. `is_short_fortnight` sent explicitly in the `/api/calculate` request body; backend uses it as source of truth so converting a rostered ADO to WOBOD does not flip the fortnight type. (7) **Pydantic camelCase bug fixed** — `CamelModel` base with `alias_generator=to_camel` + `populate_by_name=True` added to all backend input models; previously every camelCase field from the frontend was silently dropped and all calculations returned $0. |
 | 3.12 | May 2026 | **Assoc / Un-assoc Payments Chart integration (§5.10, §6.11).** (1) **New depot chart data model** — `AssocChartEntry` stores `unAssocMins`, `assocPaymentMins`, `assocCalcMins` (pre-computed total), and `buildUpMins` (pre-computed build-up from physical chart's "Build Up" column) per diagram. Built-in defaults for all 32 Mt Victoria diagrams baked in from the Oct 2025 depot chart. (2) **Six diagrams have non-zero build-up from the physical chart:** 3155 (+25 min), 3160 (+51 min), 3161 (+70 min), 3168 (+27 min), 3657 (+30 min), 3660 (+30 min). When the chart's Build Up column is non-zero, that value is sent to the backend as `assocBuildUpHrs` and used directly (bypasses formula) for cent-perfect payroll matching. (3) **Lift-up interaction fix** — when lift-up/layback is claimed AND the effective window exceeds `r_hrs`, the effective window is used as the shift length for the 1454 formula. This prevents double-paying build-up on top of lift-up extra time (e.g. diagram 3155 with lift-up: effective window 9h26m > assoc calc 8h30m → build-up = 0; without this fix the app over-paid by $20.92). (4) **Setup tab chart card** — shows all 32 diagrams in a 7-column table (Diagram, Un-assoc mins/hrs, Assoc payment mins/hrs, Assoc Calc mins, Build Up mins); Build Up values highlighted green. CSV upload/download with 5-column format; PDF and image (Tesseract.js client-side OCR) also accepted. (5) **Backend Render deployment** switched to Docker (`env: docker`, `Dockerfile` with `apt-get install tesseract-ocr`) for reliable server-side image OCR. Client-side Tesseract.js also added as fallback for image uploads when backend OCR is unavailable. (6) **CSV template** updated to 5 columns including `assoc_calc_mins` and `build_up_mins`. |
+| 3.13 | May 2026 | **Apple HIG redesign + accessibility + multi-PH bug fix.** (1) **Complete UI redesign** (§13.1–13.4) following Apple Human Interface Guidelines — `#f5f5f7` canvas, `#0071e3` accent, SF Pro font stack, frosted-glass sticky header (`backdrop-filter: saturate(180%) blur(20px)`), underline tab indicator (no pills), white card surfaces with hairline borders and minimal `1px` shadow, no gradients anywhere. (2) **App header restructured** — sticky frosted header (52px) above sticky tab bar (40px); header shows 🚂 logo mark, title/subtitle, fortnight-type badge, roster line badge, EA version badge. (3) **Setup tab** — cards now use card-header / card-body structure with numbered step circles (green ✓ / blue 2 / gray 3). (4) **Multi-PH bug fix** — public holiday input replaced: old comma-separated text input only picked up the first PH date when multiple were entered. New design uses `<input type="date">` + "Add" button to push dates into a `string[]` array; each PH appears as a removable amber chip showing `📆 Fri 3 Apr 2026 ×`. All PH dates are correctly sent to the API. (5) **Daily Entry — iOS toggle groups** — `<select>` dropdowns for Lift-up/layback, WOBOD, and Cross-midnight replaced with segmented toggle-group components (adjacent Yes/No buttons, active state filled with accent colour). ARIA `aria-pressed` on each button. (6) **Daily Entry — two-column times layout** — scheduled and actual times displayed side-by-side in a `1fr 1px 1fr` CSS grid with a hairline vertical divider. (7) **Auto-suppress chip in collapsed header** — when the system suppresses a lift-up/layback claim due to < 50% shift overlap (§5.7), an amber chip is visible in the collapsed day-row header so the driver is immediately alerted without needing to expand the row. (8) **Results tab — match/variance banner** — replaces the former inline variance text; full-width banner with green (match) or amber (variance) left-border accent; Export buttons are inlined in the banner. `role="status"` / `role="alert"` for screen-reader announcements. (9) **Results tab — metric cards** — four white cards in a responsive grid (total gross, ordinary hours, OT hours, ADO payout/fortnight type). (10) **Results tab — coloured code chips** — each payroll code in the payslip-format breakdown table is rendered as a colour-coded chip (blue 1001/1026, green 1462, amber 1470/1010/5042, purple 1487/1483, pink 1059/1100/1110, sky 1454, yellow 1064). (11) **WCAG 2.1 AA accessibility** (NFR-09) — `aria-label`, `aria-pressed`, `aria-selected`, `aria-expanded` on all interactive elements; `role="list"/"listitem"/"tab"` on structural elements; `tabIndex={0}` + keyboard Enter/Space on day rows; `focus-visible` ring; `prefers-reduced-motion` support. No code changes to backend. |
 
 ---
 
