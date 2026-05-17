@@ -430,16 +430,25 @@ def compute_day(day: DayState, cfg: RateConfig, codes: PayrollCodes,
             ))
     
     # 1454 "Assoc Wrk Time (Mileage)" per Cl. 157.1(b) / Cl. 146.4
-    # If the frontend passed a pre-computed build-up from the physical chart's
-    # "Build Up" column (assoc_build_up_hrs > 0), use it directly.
-    # Otherwise fall back to the formula:
-    #   Build Up = max(0, Un-Assoc + Assoc Payment + Distance Payment − Shift Length)
+    # Formula: Build Up = max(0, Un-Assoc + Assoc Payment + Distance Payment − Shift Length)
+    # "Shift Length" = the EFFECTIVE paid window: max(r_hrs, lift-up window).
+    # When lift-up is claimed and extends beyond r_hrs, the driver is already
+    # being paid for that extra time — the build-up competes against the effective
+    # window, not just the scheduled hours. E.g. diagram 3155 with lift-up 01:06→10:32
+    # gives an effective window of 9:26 > assoc calc of 8:30 → no build-up.
     sched_hrs = day.r_hrs if day.r_hrs > 0 else actual_hrs
+    # Use the effective lift-up window if it's larger than scheduled r_hrs.
+    # win['worked_hrs'] already reflects the full window when claim_active is True.
+    if win.get('claim_active') and worked_hrs > sched_hrs:
+        sched_hrs = worked_hrs
     un_assoc  = day.un_assoc_hrs  or 0.0
     assoc_pay = day.assoc_payment_hrs or 0.0
     dist_pay  = km_credited or 0.0
     total_credit = un_assoc + assoc_pay + dist_pay
-    if day.assoc_build_up_hrs > 0:
+    # Use the chart's pre-computed build-up only when lift-up hasn't extended
+    # the window (otherwise the static value would over-pay).
+    liftup_extends = win.get('claim_active') and worked_hrs > (day.r_hrs or actual_hrs)
+    if day.assoc_build_up_hrs > 0 and not liftup_extends:
         build_up = r2_hrs(day.assoc_build_up_hrs)
     else:
         build_up = r2_hrs(max(0.0, total_credit - sched_hrs))

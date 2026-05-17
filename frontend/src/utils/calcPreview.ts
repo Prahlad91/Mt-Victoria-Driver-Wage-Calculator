@@ -294,16 +294,19 @@ export function previewDay(
 
   // 1454 "Assoc Wrk Time (Mileage)" — depot chart formula:
   //   Build Up = max(0, Un-Assoc + Assoc Payment + Distance Payment − Shift Length)
-  // "Shift Length" = rostered/scheduled hours (rHrs). Fallback to workedHrs.
-  // If the chart entry has a pre-computed buildUpMins (physical chart "Build Up" column),
-  // use it directly instead of re-deriving from the formula.
+  // "Shift Length" = the EFFECTIVE paid window: max(r_hrs, lift-up window).
+  // When lift-up is claimed and extends beyond r_hrs, use the effective window
+  // so the build-up isn't double-counted on top of the lift-up extra time.
   const chartEntry  = assocChart[day.diagNum || ''];
   const unAssocHrs  = chartEntry ? chartEntry.unAssocMins   / 60 : 0;
   const assocPayHrs = chartEntry ? chartEntry.assocPaymentMins / 60 : 0;
   const distPay     = kmCredited ?? 0;
   const totalCredit = unAssocHrs + assocPayHrs + distPay;
-  const schedHrs    = (day.rHrs && day.rHrs > 0) ? day.rHrs : workedHrs;
-  const buildUp1454 = (chartEntry?.buildUpMins && chartEntry.buildUpMins > 0)
+  const baseSchedHrs = (day.rHrs && day.rHrs > 0) ? day.rHrs : workedHrs;
+  // Use effective lift-up window when it exceeds scheduled hours
+  const liftupExtends = win.claimActive && workedHrs > baseSchedHrs;
+  const schedHrs    = liftupExtends ? workedHrs : baseSchedHrs;
+  const buildUp1454 = (chartEntry?.buildUpMins && chartEntry.buildUpMins > 0 && !liftupExtends)
     ? r2Hrs(chartEntry.buildUpMins / 60)
     : r2Hrs(Math.max(0, totalCredit - schedHrs));
   if (buildUp1454 > 0) {
