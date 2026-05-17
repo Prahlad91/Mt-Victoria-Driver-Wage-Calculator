@@ -34,7 +34,8 @@ const LS_VERSION = 'mvwc_cache_version'
 // Weekend diagrams 3651–3664:
 //   3653: 0:35 un-assoc + 0:32 assoc payment
 //   3655, 3656: 0:10 un-assoc
-//   3657, 3658: 0:30 un-assoc
+//   3657: 0:30 un-assoc
+//   3660: 0:30 un-assoc (NOT 3658 — verified against physical chart Oct-2025)
 const DEFAULT_ASSOC_CHART: AssocChart = {
   '3153': { unAssocMins: 182, assocPaymentMins: 0  },
   '3154': { unAssocMins: 30,  assocPaymentMins: 0  },
@@ -47,7 +48,7 @@ const DEFAULT_ASSOC_CHART: AssocChart = {
   '3655': { unAssocMins: 10,  assocPaymentMins: 0  },
   '3656': { unAssocMins: 10,  assocPaymentMins: 0  },
   '3657': { unAssocMins: 30,  assocPaymentMins: 0  },
-  '3658': { unAssocMins: 30,  assocPaymentMins: 0  },
+  '3660': { unAssocMins: 30,  assocPaymentMins: 0  },  // corrected: was 3658 (wrong), chart shows 3660
 }
 
 // PRD §6.10 — cache invalidation. v3.11 forces clear because v3.10 and earlier
