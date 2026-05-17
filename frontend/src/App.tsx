@@ -17,27 +17,72 @@ const TABS: { id: Tab; label: string }[] = [
 
 export default function App() {
   const [active, setActive] = useState<Tab>('setup')
-  const { result } = useFortnightContext()
+  const { result, fnType, fnLoaded, rosterLine } = useFortnightContext()
+
   return (
-    <div className="app">
+    <>
+      {/* ── Sticky frosted-glass header ───────────────────── */}
       <header className="app-header">
-        <h1>Mt Victoria Driver Wage Calculator</h1>
-        <span className="ea-badge">EA 2025</span>
-        <a href="/legacy" className="legacy-link" target="_blank" rel="noreferrer">Legacy app →</a>
-      </header>
-      <div className="tabs">
-        {TABS.map(t => (
-          <div key={t.id} className={`tab${active === t.id ? ' active' : ''}`} onClick={() => setActive(t.id)}>
-            {t.label}
-            {t.id === 'results' && result && <span className="tab-dot">✓</span>}
+        <div className="app-header-inner">
+          <div className="app-header-logo">
+            <div className="app-header-mark" aria-hidden="true">🚂</div>
+            <div className="app-header-text">
+              <div className="app-header-title">Driver Wage Calculator</div>
+              <div className="app-header-sub">Sydney Trains · Blue Mountains Line · Mt Victoria</div>
+            </div>
           </div>
-        ))}
-      </div>
-      {active === 'setup'   && <SetupTab   onLoaded={() => setActive('daily')} />}
-      {active === 'daily'   && <DailyEntryTab onCalculated={() => setActive('results')} />}
-      {active === 'results' && <ResultsTab />}
-      {active === 'rates'   && <RatesTab />}
-      {active === 'km'      && <KmTableTab />}
-    </div>
+
+          <div className="app-header-right">
+            {fnLoaded && fnType === 'short' && (
+              <span className="badge badge-ado" style={{fontSize:11}}>⚡ Short fortnight</span>
+            )}
+            {fnLoaded && fnType === 'long' && (
+              <span className="badge" style={{background:'var(--accent-bg)',color:'var(--accent)',fontSize:11}}>
+                📋 Long fortnight
+              </span>
+            )}
+            {fnLoaded && rosterLine && (
+              <span className="badge" style={{background:'var(--surface-2)',border:'1px solid var(--border-mid)',color:'var(--text2)',fontSize:11}}>
+                Line {rosterLine}
+              </span>
+            )}
+            <span className="badge" style={{background:'var(--accent-bg)',color:'var(--accent)',fontSize:11}}>
+              EA 2025
+            </span>
+            <a href="/legacy" target="_blank" rel="noreferrer"
+               style={{fontSize:11,color:'var(--text2)',textDecoration:'none'}}>
+              Legacy →
+            </a>
+          </div>
+        </div>
+      </header>
+
+      {/* ── Sticky tab bar ────────────────────────────────── */}
+      <nav className="tabs-bar" aria-label="App sections">
+        <div className="tabs-inner">
+          {TABS.map(t => (
+            <button
+              key={t.id}
+              className={`tab${active === t.id ? ' active' : ''}`}
+              onClick={() => setActive(t.id)}
+              aria-selected={active === t.id}
+              role="tab"
+            >
+              {t.label}
+              {t.id === 'results' && result && <span className="tab-dot" aria-label="calculated" />}
+            </button>
+          ))}
+        </div>
+      </nav>
+
+      {/* ── Main content ──────────────────────────────────── */}
+      <main className="app" role="main">
+        {active === 'setup'   && <SetupTab   onLoaded={() => setActive('daily')} />}
+        {active === 'daily'   && <DailyEntryTab onCalculated={() => setActive('results')} />}
+        {active === 'results' && <ResultsTab />}
+        {active === 'rates'   && <RatesTab />}
+        {active === 'km'      && <KmTableTab />}
+      </main>
+    </>
   )
 }

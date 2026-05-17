@@ -51,12 +51,21 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
     <>
       {/* ── Step 1 ──────────────────────────────────────────────────────── */}
       <div className="card">
-        <h2>Step 1 — Upload rosters &amp; schedules
-          <span className="note" style={{fontWeight:400,marginLeft:8,textTransform:'none',letterSpacing:0}}>
-            Upload once — data is saved in your browser and reloaded automatically
-          </span>
-        </h2>
-        <div className="g2" style={{marginBottom:8}}>
+        <div className="card-header">
+          <div>
+            <div style={{display:'flex',alignItems:'center',gap:10}}>
+              <span style={{
+                width:22,height:22,borderRadius:'50%',background:'var(--green)',
+                color:'#fff',fontSize:11,fontWeight:700,display:'inline-flex',
+                alignItems:'center',justifyContent:'center',flexShrink:0,
+              }}>✓</span>
+              <span style={{fontWeight:600,fontSize:14}}>Upload rosters &amp; schedules</span>
+            </div>
+            <p className="note" style={{marginTop:4,marginLeft:32}}>Upload once — saved in browser and reloaded automatically</p>
+          </div>
+        </div>
+        <div className="card-body">
+        <div className="g2" style={{marginBottom:10}}>
           <UploadCard
             title="Master Roster (annual, lines 1–22)"
             hint="Mt_Victoria_Drivers_Master.pdf — upload once a year"
@@ -78,7 +87,7 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
               : ''}
           />
         </div>
-        <div className="g2">
+        <div className="g2" style={{marginTop:0}}>
           <UploadCard
             title="Weekday Schedule (auto-fills KMs & times)"
             hint="MTVICDRWD…_weekday.pdf — diagrams 3151–3168"
@@ -100,6 +109,7 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
               : ''}
           />
         </div>
+        </div>{/* end card-body */}
       </div>
 
       {/* ── Assoc / Un-assoc Payments Chart ─────────────────────────────── */}
@@ -107,7 +117,18 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
 
       {/* ── Step 2 ──────────────────────────────────────────────────────── */}
       <div className="card">
-        <h2>Step 2 — Load roster line {srcBadge}</h2>
+        <div className="card-header">
+          <div style={{display:'flex',alignItems:'center',gap:10}}>
+            <span style={{
+              width:22,height:22,borderRadius:'50%',background:'var(--accent)',
+              color:'#fff',fontSize:11,fontWeight:700,display:'inline-flex',
+              alignItems:'center',justifyContent:'center',flexShrink:0,
+            }}>2</span>
+            <span style={{fontWeight:600,fontSize:14}}>Load roster line</span>
+            {srcBadge}
+          </div>
+        </div>
+        <div className="card-body">
 
         {isSwingerLine ? (
           <div className="alert alert-info" style={{marginBottom:10,fontSize:11}}>
@@ -139,28 +160,32 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
           </div>
           <div>
             <label>Public holidays</label>
-            {phs.length > 0 && (
-              <div style={{display:'flex',gap:4,flexWrap:'wrap',marginBottom:5}}>
-                {phs.map(d => (
-                  <span key={d} style={{display:'inline-flex',alignItems:'center',gap:3,
-                    fontSize:11,padding:'2px 8px',borderRadius:4,
-                    background:'var(--blue-bg)',color:'var(--blue-text)',
-                    border:'1px solid #93c5fd'}}>
-                    {d}
-                    <button style={{background:'none',border:'none',cursor:'pointer',
-                      color:'inherit',padding:0,lineHeight:1,fontSize:14}}
-                      title="Remove" onClick={() => removePH(d)}>×</button>
-                  </span>
-                ))}
-              </div>
-            )}
-            <div style={{display:'flex',gap:4}}>
+            <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:8}}>
               <input type="date" value={phAdd} min={dateInput} max={fnEnd}
-                style={{flex:1}}
+                style={{width:180}}
                 onChange={e => setPhAdd(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && addPH()} />
               <button className="btn-sm btn-primary" onClick={addPH} disabled={!phAdd}>+ Add</button>
             </div>
+            {phs.length > 0 && (
+              <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                {phs.map(d => {
+                  const dd = new Date(d + 'T00:00:00')
+                  const label = `${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dd.getDay()]} ${dd.getDate()} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][dd.getMonth()]} ${dd.getFullYear()}`
+                  return (
+                    <span key={d} style={{display:'inline-flex',alignItems:'center',gap:5,
+                      fontSize:12,padding:'4px 10px',borderRadius:20,
+                      background:'var(--amber-bg)',color:'var(--amber)',
+                      fontWeight:500}}>
+                      📆 {label}
+                      <button style={{all:'unset',cursor:'pointer',color:'inherit',
+                        opacity:0.7,fontSize:14,lineHeight:1}}
+                        title="Remove" onClick={() => removePH(d)}>×</button>
+                    </span>
+                  )
+                })}
+              </div>
+            )}
           </div>
         </div>
         <div className="g2" style={{marginBottom:12}}>
@@ -169,7 +194,7 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
             <input type="number" step="0.01" placeholder="e.g. 4250.00" value={psInput} onChange={e => setPS(e.target.value)} />
           </div>
         </div>
-        <button className="btn-primary" onClick={handleLoad}>Load roster line ↗</button>
+        <button className="btn-primary" style={{marginTop:6}} onClick={handleLoad}>Load roster line →</button>
 
         {ctx.fnLoaded && ctx.days.length > 0 && (
           <>
@@ -195,13 +220,25 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
             </div>
           </>
         )}
+
+        </div>{/* end card-body */}
       </div>
 
       {/* ── Step 3 ──────────────────────────────────────────────────────── */}
       <div className="card">
-        <h2>Step 3 — Upload payslip
-          <span className="note" style={{fontWeight:400,textTransform:'none',letterSpacing:0,marginLeft:8}}>optional — compare calculated vs actual pay</span>
-        </h2>
+        <div className="card-header">
+          <div style={{display:'flex',alignItems:'center',gap:10}}>
+            <span style={{
+              width:22,height:22,borderRadius:'50%',background:'var(--surface-2)',
+              color:'var(--text3)',fontSize:11,fontWeight:700,display:'inline-flex',
+              alignItems:'center',justifyContent:'center',flexShrink:0,
+              border:'1px solid var(--border-mid)',
+            }}>3</span>
+            <span style={{fontWeight:600,fontSize:14}}>Upload payslip</span>
+            <span className="note" style={{fontWeight:400}}>optional — compare calculated vs actual pay</span>
+          </div>
+        </div>
+        <div className="card-body">
         <div style={{maxWidth:480}}>
           <UploadCard
             title="Payslip"
@@ -216,6 +253,7 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
             accept=".xlsx,.pdf"
           />
         </div>
+        </div>{/* end card-body */}
       </div>
 
       {/* ── Penalty reference ────────────────────────────────────────────── */}

@@ -4,19 +4,29 @@ import { parseDate } from '../utils/dateUtils'
 import { LEAVE_CATS } from '../utils/eaRules'
 import type { DayResult, TimeSource } from '../types'
 
-const DW = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
+const DW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
 const MO = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 function fmtDate(d: Date) { return `${DW[d.getDay()]} ${d.getDate()} ${MO[d.getMonth()]}` }
 
-// Time source → user-facing label and colour
 function sourceBadge(src: TimeSource, diagNum: string | null) {
   switch (src) {
-    case 'schedule': return { label: '✓ Schedule', cls: 'src-schedule', tip: `Times loaded from uploaded schedule (diagram ${diagNum ?? '?'})` }
-    case 'master':   return { label: 'ⓘ Master roster', cls: 'src-master',  tip: 'Diagram not found in uploaded schedule — using master roster times' }
+    case 'schedule': return { label: '✓ Schedule', cls: 'src-schedule', tip: `Times from uploaded schedule (diagram ${diagNum ?? '?'})` }
+    case 'master':   return { label: 'ⓘ Master roster', cls: 'src-master', tip: 'Diagram not in uploaded schedule — using master roster times' }
     case 'builtin':  return { label: 'ⓘ Built-in', cls: 'src-master', tip: 'No master roster uploaded — using built-in fallback times' }
-    case 'manual':   return { label: '✏ Manual', cls: 'src-manual',   tip: 'Manually overridden by user (diagram or scheduled times edited)' }
+    case 'manual':   return { label: '✏ Manual', cls: 'src-manual', tip: 'Manually overridden by user' }
     case 'none':     return null
   }
+}
+
+// Day-type pill styles
+function dayTypeBadge(diag: string, dow: number, ph: boolean) {
+  if (diag === 'OFF') return { label: 'Off',      style: { background:'var(--surface-2)', color:'var(--text3)', border:'1px solid var(--border-mid)' } }
+  if (diag === 'ADO') return { label: 'ADO',      style: { background:'var(--amber-bg)',  color:'var(--amber)' } }
+  if (ph)             return { label: 'PH',        style: { background:'var(--amber-bg)',  color:'var(--amber)' } }
+  if (diag === 'WOBOD' || diag.includes('WOBOD')) return { label: 'WOBOD', style: { background:'#fce7f3', color:'#9d174d' } }
+  if (dow === 0)      return { label: 'Sunday',    style: { background:'#fce7f3', color:'#9d174d' } }
+  if (dow === 6)      return { label: 'Saturday',  style: { background:'#ede9fe', color:'#6b21a8' } }
+  return               { label: 'Weekday',         style: { background:'var(--accent-bg)', color:'var(--accent)' } }
 }
 
 export default function DayRow({ index: i }: { index: number }) {
@@ -32,49 +42,111 @@ export default function DayRow({ index: i }: { index: number }) {
   const hasManual  = Boolean(day.manualDiag)
   const showReset  = Boolean(day._origDiag)
 
-  // Day-type badge
-  let dayBadge = null
-  if (isOff)         dayBadge = <span className="badge badge-off">OFF</span>
-  else if (isAdo)    dayBadge = <span className="badge badge-ado">ADO</span>
-  else if (day.ph)   dayBadge = <span className="badge badge-ph">PH</span>
-  else if (day.dow === 0) dayBadge = <span className="badge badge-sun">Sun</span>
-  else if (day.dow === 6) dayBadge = <span className="badge badge-sat">Sat</span>
+  const dtb = dayTypeBadge(day.diag, day.dow, !!day.ph)
 
-  // Diagram number badge — prominent, always shown for work days
-  const diagNumBadge = day.diagNum
-    ? <span className="badge badge-diag" title={day.diag}>#{day.diagNum}</span>
-    : null
+  const srcInfo   = sourceBadge(day.timeSource, day.diagNum)
 
-  // Time source badge
-  const srcInfo = sourceBadge(day.timeSource, day.diagNum)
-  const srcBadge = srcInfo
-    ? <span className={`badge ${srcInfo.cls}`} title={srcInfo.tip}>{srcInfo.label}</span>
-    : null
-
+  // Summary shown on the collapsed row
   const summary = preview
     ? <span className={`day-summary${preview.total_pay > 0 ? ' has-pay' : ''}`}>
-        {preview.hours.toFixed(1)}h → ${preview.total_pay.toFixed(2)}
+        {preview.hours.toFixed(1)} h → ${preview.total_pay.toFixed(2)}
       </span>
     : <span className="day-summary">—</span>
 
+  // Auto-suppress warning from preview flags
+  const isSuppressed = preview?.flags.some(f => f.includes('shift swap') || f.includes('suppressed'))
+
   return (
-    <div className={`day-row${open ? ' open' : ''}`}>
-      <div className="day-header" onClick={() => setOpen(o => !o)}>
+    <div className={`day-row${open ? ' open' : ''}`} role="listitem">
+      <div
+        className="day-header"
+        onClick={() => setOpen(o => !o)}
+        aria-expanded={open}
+        tabIndex={0}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen(o => !o) }}}
+        aria-label={`${fmtDate(d)}, ${dtb.label}${day.diagNum ? `, diagram ${day.diagNum}` : ''}`}
+      >
+        {/* Date */}
         <span className="day-date">{fmtDate(d)}</span>
-        {dayBadge}
-        {diagNumBadge}
-        {srcBadge}
-        {!isOffOrAdo && day.diag && (
-          <span className="day-roster-info" style={{fontSize:11,color:'var(--text2)'}}>
-            {day.diag.replace(' [manual]', '')}
-            {day.rStart && ` · ${day.rStart}–${day.rEnd}`}
+
+        {/* Day-type pill */}
+        <span className="badge" style={{ ...dtb.style, fontSize: 11, padding: '2px 9px', borderRadius: 20 }}>
+          {dtb.label}
+        </span>
+
+        {/* Diagram badge */}
+        {day.diagNum && (
+          <span className="badge badge-diag" title={day.diag}>
+            {day.diagNum}
           </span>
         )}
+
+        {/* Time source badge */}
+        {srcInfo && !isOffOrAdo && (
+          <span className={`badge ${srcInfo.cls}`} title={srcInfo.tip} style={{ fontSize: 11 }}>
+            {srcInfo.label}
+          </span>
+        )}
+
+        {/* Auto-suppress warning chip */}
+        {isSuppressed && (
+          <span style={{
+            fontSize: 11, padding: '2px 8px', borderRadius: 4,
+            background: 'var(--amber-bg)', color: 'var(--amber)',
+            border: '1px solid rgba(180,83,9,0.25)',
+          }}>
+            ⚠ lift-up suppressed
+          </span>
+        )}
+
+        {/* Times + KM summary (collapsed) */}
+        {!isOffOrAdo && day.aStart && (
+          <span className="day-roster-info" style={{ marginLeft: 4 }}>
+            {day.aStart}–{day.aEnd}
+            {day.km > 0 ? ` · ${day.km % 1 === 0 ? day.km.toFixed(0) : day.km.toFixed(1)} km` : ''}
+          </span>
+        )}
+
         {summary}
-        <span className="chevron">▼</span>
+        <span className="chevron" aria-hidden="true">▼</span>
       </div>
+
       <div className={`day-body${open ? ' open' : ''}`}>
         <WorkForm i={i} isOffOrAdo={isOffOrAdo} hasManual={hasManual} showReset={showReset} />
+      </div>
+    </div>
+  )
+}
+
+// ── Toggle group helper ──────────────────────────────────────────────────────
+function ToggleGroup({
+  label, value, onChange, yesLabel = 'Yes', noLabel = 'No',
+}: {
+  label: string; value: boolean; onChange: (v: boolean) => void
+  yesLabel?: string; noLabel?: string
+}) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--text)', whiteSpace: 'nowrap' }}>
+        {label}
+      </span>
+      <div className="toggle-group" role="group" aria-label={label}>
+        <button
+          className={`toggle-opt${value ? ' on' : ''}`}
+          aria-pressed={value}
+          onClick={() => onChange(true)}
+          type="button"
+        >
+          {yesLabel}
+        </button>
+        <button
+          className={`toggle-opt${!value ? ' on' : ''}`}
+          aria-pressed={!value}
+          onClick={() => onChange(false)}
+          type="button"
+        >
+          {noLabel}
+        </button>
       </div>
     </div>
   )
@@ -91,9 +163,6 @@ function WorkForm({
   const preview = ctx.previews[i]
   const ch = (k: keyof typeof day, v: any) => ctx.setDay(i, { [k]: v } as any)
 
-  // When user edits scheduled time/end, also flip timeSource to 'manual' so
-  // the badge correctly indicates the value is no longer authoritative-from-source
-  // PRD §FR-02-B v3.10
   const editScheduledTime = (k: 'rStart' | 'rEnd', v: string) =>
     ctx.setDay(i, { [k]: v, timeSource: 'manual' } as any)
 
@@ -102,9 +171,8 @@ function WorkForm({
 
   const showWorkInputs = hasManual || !isOffOrAdo
   const srcInfo = sourceBadge(day.timeSource, day.diagNum)
-
-  // Default Yes when undefined (legacy session state from before v3.10)
   const claimYes = day.claimLiftupLayback !== false
+  const isSuppressed = preview?.flags.some(f => f.includes('shift swap') || f.includes('suppressed'))
 
   return (
     <>
@@ -116,16 +184,16 @@ function WorkForm({
             {day._origDiagNum && <> (#{day._origDiagNum})</>}
             {' · '}now: <strong>{day.diag}</strong>
           </span>
-          <button className="btn-sm btn-danger" style={{marginLeft:'auto'}} onClick={() => ctx.resetDay(i)}>
+          <button className="btn-sm btn-danger" style={{ marginLeft: 'auto' }} onClick={() => ctx.resetDay(i)}>
             ↩ Reset to {day._origDiag}
           </button>
         </div>
       )}
 
-      {/* OFF/ADO info (only when no override) */}
+      {/* OFF / ADO — no override */}
       {isOffOrAdo && !hasManual && (
-        <div style={{marginBottom:10}}>
-          <p style={{fontSize:12,color:'var(--text3)',marginBottom:8}}>
+        <div style={{ marginBottom: 12 }}>
+          <p style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 10 }}>
             {day.diag === 'ADO' ? 'Accrued Day Off (ADO)' : 'Day off / RDO'} — no pay unless worked.
           </p>
           <button className="btn-sm btn-danger" onClick={() => ctx.markWorkedOnOff(i)}>
@@ -134,15 +202,22 @@ function WorkForm({
         </div>
       )}
 
-      {/* Diagram override input — available on all day types */}
-      <div style={{marginBottom:12,padding:8,background:'var(--bg2)',borderRadius:6}}>
-        <label style={{fontSize:11,fontWeight:600}}>
-          {hasManual ? 'Change to a different diagram' : 'Override diagram (shift swap)'}
-          <span style={{color:'var(--text3)',marginLeft:6,fontWeight:400}}>e.g. 3158, 3651, 3160</span>
+      {/* Diagram override */}
+      <div style={{
+        marginBottom: 14, padding: 12,
+        background: 'var(--surface-2)', borderRadius: 8,
+        border: '1px solid var(--border)',
+      }}>
+        <label style={{ textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>
+          {hasManual ? 'Change diagram' : 'Override diagram (shift swap)'}
+          <span style={{ color: 'var(--text3)', marginLeft: 6, fontWeight: 400, fontSize: 11 }}>
+            e.g. 3158, 3651, 3160
+          </span>
         </label>
-        <div style={{display:'flex',gap:6,alignItems:'center',marginTop:4}}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <input
-            type="text" style={{width:140}}
+            type="text"
+            style={{ width: 140 }}
             placeholder="diagram no."
             value={diagInput}
             onChange={e => setDiagInput(e.target.value)}
@@ -151,162 +226,159 @@ function WorkForm({
           <button className="btn-primary btn-sm" onClick={() => ctx.applyManualDiag(i, diagInput)}>
             Load ↗
           </button>
-          <span style={{fontSize:10,color:'var(--text3)',marginLeft:8}}>
-            Searches both weekday &amp; weekend schedules
+          <span style={{ fontSize: 11, color: 'var(--text3)' }}>
+            Searches weekday &amp; weekend schedules
           </span>
         </div>
       </div>
 
       {showWorkInputs && (
         <>
-          {/* Scheduled times — EDITABLE in v3.10 (PRD §FR-02-B) */}
-          <div style={{
-            padding:10, background:'var(--bg2)', borderRadius:6, marginBottom:8,
-            border:'1px solid var(--border)',
-          }}>
-            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
-              <strong style={{fontSize:12}}>Scheduled times</strong>
-              {srcInfo && <span className={`badge ${srcInfo.cls}`} title={srcInfo.tip}>{srcInfo.label}</span>}
-              {day.diagNum && <span style={{fontSize:11,color:'var(--text3)'}}>diagram #{day.diagNum}</span>}
-              <span style={{fontSize:10,color:'var(--text3)',marginLeft:'auto'}}>editable — overrides schedule data</span>
-            </div>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8}}>
-              <div>
-                <label style={{fontSize:10,color:'var(--text3)'}}>Scheduled start</label>
-                <input type="time" value={day.rStart || ''}
-                  onChange={e => editScheduledTime('rStart', e.target.value)} />
+          {/* Scheduled + Actual times — side by side */}
+          <div className="times-block">
+            {/* Scheduled */}
+            <div className="times-col">
+              <div className="times-heading" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                📌 Scheduled times
+                {srcInfo && (
+                  <span className={`badge ${srcInfo.cls}`} title={srcInfo.tip} style={{ fontSize: 11 }}>
+                    {srcInfo.label}
+                  </span>
+                )}
               </div>
-              <div>
-                <label style={{fontSize:10,color:'var(--text3)'}}>Scheduled end</label>
-                <input type="time" value={day.rEnd || ''}
-                  onChange={e => editScheduledTime('rEnd', e.target.value)} />
+              <div className="times-row">
+                <div>
+                  <label>Start</label>
+                  <input type="time" value={day.rStart || ''}
+                    onChange={e => editScheduledTime('rStart', e.target.value)} />
+                </div>
+                <div>
+                  <label>End</label>
+                  <input type="time" value={day.rEnd || ''}
+                    onChange={e => editScheduledTime('rEnd', e.target.value)} />
+                </div>
               </div>
-              <div>
-                <label style={{fontSize:10,color:'var(--text3)'}}>Scheduled hours</label>
-                <input type="text" value={day.rHrs ? day.rHrs.toFixed(2) + 'h' : '—'} disabled
-                  style={{background:'var(--bg3)',color:'var(--text2)',cursor:'not-allowed'}} />
-              </div>
-            </div>
-            {day.timeSource === 'master' && (
-              <p className="note" style={{marginTop:6,color:'var(--amber-text)'}}>
-                ⚠ Schedule didn't have diagram #{day.diagNum} — times taken from master roster instead. You can edit them above.
-              </p>
-            )}
-            {day.timeSource === 'builtin' && (
-              <p className="note" style={{marginTop:6,color:'var(--amber-text)'}}>
-                ⚠ Times from built-in fallback. Upload master roster + schedule for accurate data, or edit above.
-              </p>
-            )}
-          </div>
-
-          {/* Actual times (user-editable) */}
-          <div style={{
-            padding:10, background:'var(--bg1)', borderRadius:6, marginBottom:8,
-            border:'1px solid var(--green-bg)',
-          }}>
-            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
-              <strong style={{fontSize:12}}>Actual times</strong>
-              <span style={{fontSize:11,color:'var(--text3)'}}>what really happened</span>
-              {day.km > 0 && (
-                <span style={{fontSize:11,color:'var(--text2)',background:'var(--bg2)',
-                  padding:'1px 6px',borderRadius:4,border:'1px solid var(--border)'}}>
-                  {day.km.toFixed(day.km % 1 === 0 ? 0 : 1)} km
-                </span>
+              {day.timeSource === 'master' && (
+                <p className="note" style={{ marginTop: 6, color: 'var(--amber)' }}>
+                  ⚠ Schedule didn't have diagram #{day.diagNum} — using master roster. Edit above if needed.
+                </p>
               )}
-              <button className="btn-sm" style={{marginLeft:'auto'}}
-                onClick={() => ctx.copyScheduledToActual(i)}
-                disabled={!day.rStart}
-                title="Copy scheduled times to actual">
-                ↺ Same as scheduled
-              </button>
+              {day.timeSource === 'builtin' && (
+                <p className="note" style={{ marginTop: 6, color: 'var(--amber)' }}>
+                  ⚠ Times from built-in fallback. Upload master roster for accurate data.
+                </p>
+              )}
             </div>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
-              <div>
-                <label style={{fontSize:10,color:'var(--text3)'}}>Actual start</label>
-                <input type="time" value={day.aStart} onChange={e => ch('aStart', e.target.value)} />
+
+            <div className="times-divider" aria-hidden="true" />
+
+            {/* Actual */}
+            <div className="times-col">
+              <div className="times-heading" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span>⏱ Actual times</span>
+                <button
+                  className="btn-sm"
+                  style={{ fontSize: 11, padding: '3px 10px' }}
+                  onClick={() => ctx.copyScheduledToActual(i)}
+                  disabled={!day.rStart}
+                  title="Copy scheduled times"
+                >
+                  ↺ Same as scheduled
+                </button>
               </div>
-              <div>
-                <label style={{fontSize:10,color:'var(--text3)'}}>Actual end</label>
-                <input type="time" value={day.aEnd} onChange={e => ch('aEnd', e.target.value)} />
+              <div className="times-row">
+                <div>
+                  <label>Start</label>
+                  <input
+                    type="time"
+                    value={day.aStart}
+                    onChange={e => ch('aStart', e.target.value)}
+                    style={day.aStart !== day.rStart && day.rStart
+                      ? { borderColor: 'var(--accent)', boxShadow: '0 0 0 3px rgba(0,113,227,0.12)' }
+                      : {}}
+                  />
+                </div>
+                <div>
+                  <label>End</label>
+                  <input
+                    type="time"
+                    value={day.aEnd}
+                    onChange={e => ch('aEnd', e.target.value)}
+                    style={day.aEnd !== day.rEnd && day.rEnd
+                      ? { borderColor: 'var(--accent)', boxShadow: '0 0 0 3px rgba(0,113,227,0.12)' }
+                      : {}}
+                  />
+                </div>
               </div>
+              {day.km > 0 && (
+                <p className="note" style={{ marginTop: 6, color: 'var(--text2)' }}>
+                  {day.km.toFixed(3)} km
+                </p>
+              )}
             </div>
-            {day.rStart && day.aStart && (day.aStart !== day.rStart || day.aEnd !== day.rEnd) && (
-              <p className="note" style={{marginTop:6,color:'var(--blue-text)'}}>
-                {claimYes
-                  ? 'ⓘ Actual differs from scheduled — pay computed on effective window (earliest start to latest end).'
-                  : 'ⓘ Actual differs from scheduled — pay computed strictly on actual times (lift-up/layback claim disabled).'}
-              </p>
-            )}
           </div>
 
-          {/* Other inputs (3-column) */}
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginBottom:8}}>
-            <div>
-              <label>KMs <span style={{color:'var(--text3)',fontWeight:400,fontSize:10}}>
-                {day.km > 0 && day.timeSource === 'schedule' ? '✓ from schedule' : ''}
-              </span></label>
-              <input type="number" min="0" step="0.001"
+          {/* Controls row: KM + toggles */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap', marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <label style={{ textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 0 }}>KM</label>
+              <input
+                type="number" min="0" step="0.001"
                 value={day.km || ''}
-                onChange={e => ch('km', parseFloat(e.target.value) || 0)} />
+                onChange={e => ch('km', parseFloat(e.target.value) || 0)}
+                style={{ width: 120 }}
+              />
             </div>
-            <div>
-              <label>WOBOD</label>
-              <select value={day.wobod ? '1' : '0'} onChange={e => ch('wobod', e.target.value === '1')}>
-                <option value="0">No</option><option value="1">Yes</option>
-              </select>
-            </div>
-            <div>
-              <label>Cross-midnight</label>
-              <select value={day.cm ? '1' : '0'} onChange={e => ch('cm', e.target.value === '1')}>
-                <option value="0">No</option><option value="1">Yes</option>
-              </select>
-            </div>
+
+            <ToggleGroup
+              label="Lift-up / layback?"
+              value={claimYes}
+              onChange={v => ch('claimLiftupLayback', v)}
+            />
+
+            <ToggleGroup
+              label="WOBOD?"
+              value={!!day.wobod}
+              onChange={v => ch('wobod', v)}
+            />
+
+            <ToggleGroup
+              label="Cross-midnight?"
+              value={!!day.cm}
+              onChange={v => ch('cm', v)}
+            />
           </div>
 
-          {/* Auto-suppress warning chip — shown when low overlap detected */}
-          {preview && preview.flags.some(f => f.includes('shift swap') || f.includes('suppressed')) && (
-            <div style={{
-              padding:'6px 10px', borderRadius:6, marginBottom:8, fontSize:11,
-              background:'var(--amber-bg,#fff8e1)', color:'var(--amber-text,#7a5c00)',
-              border:'1px solid var(--amber-border,#f5c842)',
-            }}>
+          {/* Auto-suppress warning */}
+          {isSuppressed && (
+            <div className="note-box" style={{ borderLeftColor: 'var(--amber)', marginBottom: 14 }}>
               ⚠ Auto-detected shift swap — low overlap between scheduled and actual times.
-              Lift-up/layback claim suppressed regardless of toggle.
-              You can still override by setting Claim to Yes.
+              Lift-up/layback claim suppressed. You can still override via the toggle.
             </div>
           )}
 
-          {/* Claim lift-up/layback toggle — NEW v3.10 (PRD §FR-02-F) */}
-          <div style={{
-            display:'grid', gridTemplateColumns:'auto 1fr', gap:10, alignItems:'center',
-            marginBottom:8, padding:8, background:'var(--bg2)', borderRadius:6,
-            border:'1px solid var(--border)',
-          }}>
-            <div>
-              <label style={{fontSize:11,fontWeight:600}}>Claim lift-up / layback / buildup?</label>
-              <select value={claimYes ? '1' : '0'}
-                style={{marginTop:2}}
-                onChange={e => ch('claimLiftupLayback', e.target.value === '1')}>
-                <option value="1">Yes (default)</option>
-                <option value="0">No — actual times only</option>
-              </select>
-            </div>
-            <p style={{fontSize:11,color:'var(--text3)',margin:0,lineHeight:1.4}}>
+          {/* Lift-up/layback context note */}
+          {day.rStart && day.aStart && (day.aStart !== day.rStart || day.aEnd !== day.rEnd) && !isSuppressed && (
+            <div className="note-box" style={{ marginBottom: 14 }}>
               {claimYes
-                ? <><strong>Yes:</strong> hours = max(scheduled end, actual end) − min(scheduled start, actual start). Driver paid for full scheduled shift PLUS any extension before/after (Cl. 131).</>
-                : <><strong>No:</strong> hours = actual end − actual start. No lift-up/layback components, no scheduled-hours guarantee.</>}
-            </p>
-          </div>
+                ? 'ⓘ Actual differs from scheduled — effective window: earliest start to latest end (Cl. 131).'
+                : 'ⓘ Actual differs from scheduled — pay computed on actual times only (lift-up/layback claim off).'}
+            </div>
+          )}
 
-          <div style={{marginBottom:8}}>
+          {/* Leave type */}
+          <div style={{ marginBottom: 14 }}>
             <label>Leave type</label>
-            <select style={{width:300}} value={day.leaveCat} onChange={e => ch('leaveCat', e.target.value)}>
+            <select style={{ width: 320 }} value={day.leaveCat} onChange={e => ch('leaveCat', e.target.value)}>
               {LEAVE_CATS.map(lc => (
-                <option key={lc.code} value={lc.code}>{lc.label}{lc.eaRef ? ` (${lc.eaRef})` : ''}</option>
+                <option key={lc.code} value={lc.code}>
+                  {lc.label}{lc.eaRef ? ` (${lc.eaRef})` : ''}
+                </option>
               ))}
             </select>
           </div>
 
+          {/* Live preview */}
           {preview && <DayPreview preview={preview} />}
         </>
       )}
@@ -319,40 +391,69 @@ function DayPreview({ preview }: { preview: DayResult }) {
   if (!preview) return null
   if (preview.day_type === 'off') return null
   if (preview.day_type === 'ado' && preview.total_pay === 0)
-    return <div className="alert alert-info" style={{fontSize:11}}>{preview.flags[0] || 'ADO accruing — paid out on short fortnight.'}</div>
+    return (
+      <div className="alert alert-info" style={{ fontSize: 12 }}>
+        {preview.flags[0] || 'ADO accruing — paid out on short fortnight.'}
+      </div>
+    )
   if (!preview.components.length) return null
+
   return (
     <>
-      <table style={{marginTop:6}}>
+      <div style={{
+        fontSize: 11, fontWeight: 600, textTransform: 'uppercase',
+        letterSpacing: '0.07em', color: 'var(--text2)', marginBottom: 10,
+      }}>
+        Live pay preview
+      </div>
+      <table aria-label="Live pay preview">
         <thead>
-          <tr><th>Component</th><th>EA ref</th><th>Code</th><th>Hrs</th><th>Rate</th><th className="text-right">Amount</th></tr>
+          <tr>
+            <th>Code</th>
+            <th>Description</th>
+            <th>EA ref</th>
+            <th>Hrs</th>
+            <th>Rate</th>
+            <th className="text-right">Amount</th>
+          </tr>
         </thead>
         <tbody>
           {preview.components.map((c, j) => (
             <tr key={j} className={c.cls === 'km-row' ? 'row-km' : c.cls === 'pen-row' ? 'row-pen' : ''}>
-              <td>{c.name}</td>
-              <td style={{color:'var(--text3)',fontSize:11}}>{c.ea}</td>
               <td><code>{c.code}</code></td>
-              <td>{c.hrs}</td>
-              <td style={{color:'var(--text3)',fontSize:11}}>{c.rate}</td>
-              <td className="text-right">${c.amount.toFixed(2)}</td>
+              <td>{c.name}</td>
+              <td className="ea-ref">{c.ea}</td>
+              <td style={{ fontFamily: 'var(--font-mono)' }}>{c.hrs}</td>
+              <td className="ea-ref">{c.rate}</td>
+              <td className="text-right" style={{
+                fontFamily: 'var(--font-mono)',
+                fontWeight: 600,
+                color: 'var(--green)',
+              }}>
+                ${c.amount.toFixed(2)}
+              </td>
             </tr>
           ))}
           <tr className="row-total">
             <td colSpan={3}><strong>Daily total</strong></td>
-            <td>{preview.hours.toFixed(2)} hrs</td>
+            <td style={{ fontFamily: 'var(--font-mono)' }}>{preview.hours.toFixed(2)} h</td>
             <td />
-            <td className="text-right"><strong>${preview.total_pay.toFixed(2)}</strong></td>
+            <td className="text-right">
+              <strong>${preview.total_pay.toFixed(2)}</strong>
+            </td>
           </tr>
         </tbody>
       </table>
-      <div style={{marginTop:4}}>
-        {preview.flags.map((f, j) => (
-          <span key={j} className={`flag-chip${f.includes('ALERT') ? ' err' : ''}`}>
-            {f.includes('ALERT') ? '🚨' : '⚑'} {f}
-          </span>
-        ))}
-      </div>
+
+      {preview.flags.length > 0 && (
+        <div style={{ marginTop: 6 }}>
+          {preview.flags.map((f, j) => (
+            <span key={j} className={`flag-chip${f.includes('ALERT') ? ' err' : ''}`}>
+              {f.includes('ALERT') ? '🚨' : '⚑'} {f}
+            </span>
+          ))}
+        </div>
+      )}
     </>
   )
 }
