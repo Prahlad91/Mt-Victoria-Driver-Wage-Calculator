@@ -44,9 +44,11 @@ const DEFAULT_ASSOC_CHART: AssocChart = {
   '3154': { unAssocMins: 30,  assocPaymentMins: 0,  assocCalcMins: 510, buildUpMins: 0  },
   '3155': { unAssocMins: 0,   assocPaymentMins: 30, assocCalcMins: 510, buildUpMins: 25 },
   '3159': { unAssocMins: 38,  assocPaymentMins: 0,  assocCalcMins: 518, buildUpMins: 0  },
+  '3160': { unAssocMins: 0,   assocPaymentMins: 0,  assocCalcMins: 540, buildUpMins: 51 },  // shift 8:09, dist 9:00
   '3161': { unAssocMins: 116, assocPaymentMins: 0,  assocCalcMins: 596, buildUpMins: 70 },
   '3164': { unAssocMins: 71,  assocPaymentMins: 0,  assocCalcMins: 551, buildUpMins: 0  },
   '3165': { unAssocMins: 71,  assocPaymentMins: 0,  assocCalcMins: 371, buildUpMins: 0  },
+  '3168': { unAssocMins: 0,   assocPaymentMins: 0,  assocCalcMins: 540, buildUpMins: 27 },  // shift 8:33, dist 9:00
   '3653': { unAssocMins: 35,  assocPaymentMins: 32, assocCalcMins: 547, buildUpMins: 0  },
   '3655': { unAssocMins: 10,  assocPaymentMins: 0,  assocCalcMins: 550, buildUpMins: 0  },
   '3656': { unAssocMins: 10,  assocPaymentMins: 0,  assocCalcMins: 550, buildUpMins: 0  },
