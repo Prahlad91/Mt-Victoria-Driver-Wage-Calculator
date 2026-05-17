@@ -1,8 +1,8 @@
 # Product Requirements Document
 # Mt Victoria Driver Wage Calculator
 
-**Version:** 3.11
-**Date:** April 2026
+**Version:** 3.12
+**Date:** May 2026
 **Author:** Prahlad Modi (Mt Victoria depot, Sydney Trains)
 **Status:** Active — governs all development on this repository
 
@@ -249,6 +249,43 @@ A fortnight is **short** if ANY day in the original rostered line was an ADO, ev
 | RDO | Roster day off | — (rostering) | $0 — unpaid (treat as regular RDO) |
 | LWOP | Leave without pay | — | $0 |
 
+### 5.10 Assoc / Un-assoc Payments Chart (Cl. 157.1(b) / Cl. 146.4) — new v3.12
+
+The depot issues a physical "Associated & Un-associated Payments Chart" listing, per diagram number, how much extra time a driver is owed above their actual shift due to un-associated duties and distance credits. The chart is the authoritative pre-computed source; the calculator uses it directly when available.
+
+**Chart columns per diagram:**
+- **Un-assoc mins** — Time for duties not directly associated with train operations (road review, pilot preparation, etc.), per Cl. 146.4(d). Paid additionally for ≥161 km shifts.
+- **Assoc Payment mins** — Associated payment time credited to the driver.
+- **Assoc Calc mins** — Pre-computed total: `Un-assoc + Assoc Payment + Dist Pay` (in minutes). Dist Pay = distance credit from the KM table (§10); pre-computed by the depot and baked into the chart.
+- **Build Up mins** — `max(0, Assoc Calc − Shift Length)` in minutes, pre-computed by the depot. When non-zero, this is the additional credited hours (code 1454, "Assoc Wrk Time (Mileage)") owed to the driver.
+
+**Calculation rule — code 1454 build-up:**
+
+```
+build_up = max(0, Un-assoc + Assoc Payment + Distance Payment − Effective Shift Length)
+```
+
+Where **Effective Shift Length** = `max(r_hrs, effective_liftup_window_hrs)`.
+
+The critical correction introduced in v3.12: when **lift-up/layback is claimed** and the effective window (from §5.7) already exceeds `r_hrs`, that extended window is used as the shift length. The build-up must not be paid on top of lift-up extra time already in the driver's pay — the driver is already receiving that time.
+
+*Example:* Diagram 3155, scheduled 02:27–10:32 (8h05m), lift-up to 01:06–10:32 (effective window 9h26m). Assoc Calc = 8h30m. Effective shift = 9h26m > 8h30m → `max(0, 8.5 − 9.43) = 0`. No 1454 line. Without this correction the static Build Up of +25 min would be applied incorrectly, overpaying by $20.92.
+
+**When the physical chart's Build Up column is non-zero AND lift-up has NOT extended the window:** the pre-computed chart value is used directly (bypassing the formula). This ensures cent-perfect matching with the payroll system's own pre-computed amounts.
+
+**Diagrams with non-zero Build Up on the Oct-2025 depot chart:**
+
+| Diagram | Build Up | Assoc Calc | Shift | Reason |
+|---------|----------|------------|-------|--------|
+| 3155 | +25 min | 8:30 | 8:05 | Assoc payment 0:30 + dist 8:00; shift shorter |
+| 3160 | +51 min | 9:00 | 8:09 | Dist 9:00; shift shorter |
+| 3161 | +70 min | 9:56 | 8:46 | Un-assoc 1:56 + dist 8:00; shift shorter |
+| 3168 | +27 min | 9:00 | 8:33 | Dist 9:00; shift shorter |
+| 3657 | +30 min | 8:30 | 8:00 | Un-assoc 0:30 + dist 8:00; shift shorter |
+| 3660 | +30 min | 8:30 | 8:00 | Un-assoc 0:30 + dist 8:00; shift shorter |
+
+**Saturday/Sunday rate:** The 1454 build-up is paid at `base_rate × 1.5` (Saturday) or `base_rate × 2.0` (Sunday), matching the ordinary-time multiplier for that day type.
+
 ---
 
 ## 6. File Upload Requirements
@@ -378,6 +415,30 @@ When the schedule parser changes in a way that affects the structure or correctn
 The frontend stores a `mvwc_cache_version` key in localStorage. On app load, if the stored version differs from the current code's `CACHE_SCHEMA_VERSION` constant, the app MUST clear `mvwc_weekday_schedule` and `mvwc_weekend_schedule` from localStorage, then update the version key. This ensures users running v3.10+ never silently consume stale schedule data parsed by v3.7 or earlier.
 
 (Master and fortnight roster caches are NOT invalidated by this mechanism, as their parser was not affected by the 2-column bug.)
+
+### 6.11 Assoc / Un-assoc Payments Chart upload (FR-U7) — new v3.12
+
+- Displayed as a card in the Setup tab below the schedule uploads.
+- Built-in default chart data (Oct 2025 depot chart) is baked into `FortnightContext.tsx` as `DEFAULT_ASSOC_CHART`. Covers all 32 Mt Victoria diagrams (zeros for diagrams not on the chart). Persists to localStorage under `mvwc_assoc_chart`.
+- User can upload an updated chart whenever the depot issues a new version.
+
+**Accepted formats:**
+- **CSV** (most reliable) — 5 columns: `diagram, un_assoc_mins, assoc_payment_mins, assoc_calc_mins, build_up_mins`. First 3 columns mandatory; columns 4–5 optional (if absent, `assocCalcMins` and `buildUpMins` are left undefined and the formula is used).
+- **PDF** — server-side pdfplumber parse; endpoint `POST /api/parse-assoc-chart`.
+- **Image** (.png / .jpg / .webp / .tiff) — client-side Tesseract.js OCR (no server dependency). Canvas pre-processing applied: greyscale 100% + contrast 160% + 2× scale if width < 2000px. PSM 6 (uniform block) for table accuracy.
+
+**UI:**
+- Table shows all 32 diagrams grouped by Weekday (3151–3168) and Weekend (3651–3664) sections.
+- 7 columns: Diagram | Un-assoc mins | Un-assoc hrs | Assoc payment mins | Assoc payment hrs | Assoc Calc mins | Build Up mins.
+- Rows with non-zero values highlighted blue; Build Up > 0 highlighted green (bold).
+- **⬇ Download CSV template** button — pre-filled with current built-in defaults, 5 columns.
+- **↩ Reset to built-in defaults** button — shown when custom chart is loaded.
+- Uploaded chart persists across page refreshes via localStorage. Users with a custom chart must click Reset to pick up new built-in defaults after a code update.
+
+**How the chart data flows into the calculation:**
+1. On `POST /api/calculate`, `FortnightContext.tsx` enriches each `DayState` with three extra fields: `unAssocHrs`, `assocPaymentHrs`, `assocBuildUpHrs` — derived from the chart entry for that day's `diagNum`.
+2. The backend `calculator.py` uses these to compute the 1454 build-up per §5.10.
+3. The client-side preview (`calcPreview.ts`) mirrors the same logic for immediate feedback.
 
 ---
 
@@ -633,6 +694,13 @@ interface DayState {
   // ADO tracking (added v3.11)
   wasAdo: boolean;              // true if this day was originally a rostered ADO (preserved across WOBOD overrides)
 
+  // Assoc/Un-assoc chart values (added v3.12) — populated from chart before POST /api/calculate
+  unAssocHrs?: number;          // Un-associated duties hours from depot chart (Cl. 146.4(d))
+  assocPaymentHrs?: number;     // Associated payment hours from depot chart
+  assocBuildUpHrs?: number;     // Pre-computed build-up hours from chart's "Build Up" column.
+                                // When > 0 AND lift-up hasn't extended the window, used directly
+                                // by the backend instead of re-deriving from the formula (§5.10).
+
   // Other
   wobod: boolean;
   leaveCat: string;          // 'none' | 'SL' | 'CL' | 'AL' | 'PHNW' | 'PHW' | 'BL' | 'JD' | 'PD' | 'RDO' | 'LWOP'
@@ -669,9 +737,14 @@ class DayState(BaseModel):
     is_short_fortnight: bool = False
     was_ado: bool = False               # NEW v3.11 — preserved across WOBOD overrides (§5.8)
     claim_liftup_layback: bool = True   # NEW v3.10 — see §5.7 / FR-02-F
+    # NEW v3.12 — assoc/un-assoc chart values (populated by frontend, §5.10 / §6.11)
+    un_assoc_hrs: float = 0.0           # Un-associated duties hours
+    assoc_payment_hrs: float = 0.0     # Associated payment hours
+    assoc_build_up_hrs: float = 0.0    # Pre-computed build-up from chart "Build Up" column.
+                                       # When > 0 and no lift-up extension, used directly.
 ```
 
-The `claim_liftup_layback` field defaults to `True` so older clients (without this field in their payload) continue to get the effective-window calculation. The `was_ado` field is informational — the backend uses `is_short_fortnight` from the request body as the authoritative source for ADO type.
+The `claim_liftup_layback` field defaults to `True` so older clients (without this field in their payload) continue to get the effective-window calculation. The `was_ado` field is informational — the backend uses `is_short_fortnight` from the request body as the authoritative source for ADO type. The three assoc fields default to 0 so the calculation falls back to the formula when the chart is not available.
 
 ### 9.3 API request — `POST /api/calculate`
 ```json
@@ -839,6 +912,7 @@ Used only when no master/fortnight roster has been uploaded.
 | `POST` | `/api/parse-schedule` | Parse weekday or weekend schedule ZIP/PDF (auto-detected). Real PDFs use 2-column extraction (§6.6.1). |
 | `POST` | `/api/parse-roster` | Legacy: parse fortnight roster PDF (table format) |
 | `POST` | `/api/parse-payslip` | Parse NSW or Sydney Crew payslip XLSX/PDF |
+| `POST` | `/api/parse-assoc-chart` | Parse Assoc/Un-assoc Payments Chart PDF (§6.11 / §5.10) |
 | `POST` | `/api/export/pdf` | Export results as PDF |
 | `POST` | `/api/export/csv` | Export results as CSV |
 
@@ -867,7 +941,8 @@ Used only when no master/fortnight roster has been uploaded.
 - **Load roster line** button
 - After loading: roster source badge + KM auto-fill indicator + date chips
 
-**Below: payslip and legacy uploads**
+**Below: Assoc/Un-assoc chart, payslip and legacy uploads**
+- **Assoc / Un-assoc Payments Chart card** (new v3.12) — upload updated depot chart (CSV / PDF / image); 7-column table shows all 32 diagrams; Build Up column highlighted green; CSV template download (§6.11)
 - Payslip upload card (for comparison)
 - Legacy fortnight roster PDF card (for sign-on/sign-off pre-fill)
 
@@ -979,6 +1054,7 @@ Each day row has two sections: **header** (always visible) and **body** (expande
 | 3.9 | April 2026 | **Documentation restoration.** Earlier versions (v3.2 onward) progressively replaced section content with placeholder text like *"unchanged from v3.X"*, leaving the PRD unreadable as a standalone document. v3.9 restores every section to its full content. **Process rule 2 added** at the top: when bumping versions, content must be preserved verbatim and only changed sections may be edited. NFR-07 also updated to reference this rule. No functional code changes in this version. |
 | 3.10 | April 2026 | (1) **NEW per-day toggle** — `Claim lift-up/layback?` (default Yes) per FR-02-F. When Yes, pay calc uses the **effective window** (`min(scheduled_start, actual_start)` to `max(scheduled_end, actual_end)`); when No, uses actual times only with no lift-up/layback. See §5.7 worked examples. (2) **Scheduled times now editable** — the Scheduled start and Scheduled end inputs are no longer read-only; user can override (FR-02-B updated). KM field continues to be editable (FR-02-D). (3) **§5.7 rewritten** to use the effective-window model. This fixes a long-standing **double-counting bug** in v3.6–v3.9 where lift-up/layback gap components were added on top of `actual_hrs` that already included those minutes — e.g. a 9-hr actual against an 8-hr scheduled was over-paid as 10.25 base-rate units instead of the correct 9.5. (4) **Stale schedule cache invalidation** (§6.10) — frontend stores a `mvwc_cache_version` key; v3.10 clears `mvwc_weekday_schedule` and `mvwc_weekend_schedule` from localStorage on first load to force users to re-upload schedules with the v3.8 column-aware parser, resolving the user-visible bug where Daily Entry was displaying master-roster times because the cached schedule was missing diagrams. (5) Lift-up/layback are now emitted as **informational flags only** (no separate pay components), since they're already part of the effective-window total. (6) Shift penalty class continues to be determined by **actual sign-on time** regardless of the toggle, because the penalty depends on when the driver physically signs on. |
 | 3.11 | April 2026 | **Six backend accuracy fixes, all verified against the canonical Line 8 payslip (2026-03-22, $7,336.55 to the cent).** (1) **WOBOD rule corrected** (§5.6) — replaced the hallucinated "Cl. 136 double-time min 4 hrs" rule with the correct Cl. 140.4 primary rate (150%/200%/250% by day type, weekday OT-shift counter) + Cl. 140.7 50% Train Crew loading. No 4-hour minimum. Weekday counter is fortnight-scoped; Sat/Sun WOBOD do not increment it. (2) **Afternoon penalty fix** (§5.4) — trigger condition tightened to `10:00 ≤ sign-on < 18:00`, which guarantees ordinary time ends after 18:00. Previously used `actual_sign_off > 18:00` which over-triggered on late-finishing day shifts. (3) **Hours rounding fix** (NFR-05) — `amount = round(hours, 2) × rate` (round hours first, then multiply). Previously rounded the product, which diverged from the payroll system by up to 3 cents per line. (4) **Pooled 1001 line uses sum-of-rounded-per-day** (NFR-05) — e.g. 8 × round($398.547, 2) = $3,188.40, not 64h × $49.81842 = $3,188.38. (5) **Auto-suppress shift-swap** (§5.7) — if the scheduled/actual overlap is < 50% of the shorter shift, `claim_liftup_layback` is forced to `False` with a warning flag. Prevents the effective-window from spanning two non-overlapping shifts (e.g. Mar 28: sched 04:43–12:58, actual 12:00–20:00, 12% overlap → auto-suppressed). (6) **Short-fortnight tracking via `wasAdo`** (§5.8) — `wasAdo: boolean` added to `DayState`; preserved across all override mutations. `is_short_fortnight` sent explicitly in the `/api/calculate` request body; backend uses it as source of truth so converting a rostered ADO to WOBOD does not flip the fortnight type. (7) **Pydantic camelCase bug fixed** — `CamelModel` base with `alias_generator=to_camel` + `populate_by_name=True` added to all backend input models; previously every camelCase field from the frontend was silently dropped and all calculations returned $0. |
+| 3.12 | May 2026 | **Assoc / Un-assoc Payments Chart integration (§5.10, §6.11).** (1) **New depot chart data model** — `AssocChartEntry` stores `unAssocMins`, `assocPaymentMins`, `assocCalcMins` (pre-computed total), and `buildUpMins` (pre-computed build-up from physical chart's "Build Up" column) per diagram. Built-in defaults for all 32 Mt Victoria diagrams baked in from the Oct 2025 depot chart. (2) **Six diagrams have non-zero build-up from the physical chart:** 3155 (+25 min), 3160 (+51 min), 3161 (+70 min), 3168 (+27 min), 3657 (+30 min), 3660 (+30 min). When the chart's Build Up column is non-zero, that value is sent to the backend as `assocBuildUpHrs` and used directly (bypasses formula) for cent-perfect payroll matching. (3) **Lift-up interaction fix** — when lift-up/layback is claimed AND the effective window exceeds `r_hrs`, the effective window is used as the shift length for the 1454 formula. This prevents double-paying build-up on top of lift-up extra time (e.g. diagram 3155 with lift-up: effective window 9h26m > assoc calc 8h30m → build-up = 0; without this fix the app over-paid by $20.92). (4) **Setup tab chart card** — shows all 32 diagrams in a 7-column table (Diagram, Un-assoc mins/hrs, Assoc payment mins/hrs, Assoc Calc mins, Build Up mins); Build Up values highlighted green. CSV upload/download with 5-column format; PDF and image (Tesseract.js client-side OCR) also accepted. (5) **Backend Render deployment** switched to Docker (`env: docker`, `Dockerfile` with `apt-get install tesseract-ocr`) for reliable server-side image OCR. Client-side Tesseract.js also added as fallback for image uploads when backend OCR is unavailable. (6) **CSV template** updated to 5 columns including `assoc_calc_mins` and `build_up_mins`. |
 
 ---
 
