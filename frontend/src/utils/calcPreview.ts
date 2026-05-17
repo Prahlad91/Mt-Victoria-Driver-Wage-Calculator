@@ -295,13 +295,17 @@ export function previewDay(
   // 1454 "Assoc Wrk Time (Mileage)" — depot chart formula:
   //   Build Up = max(0, Un-Assoc + Assoc Payment + Distance Payment − Shift Length)
   // "Shift Length" = rostered/scheduled hours (rHrs). Fallback to workedHrs.
+  // If the chart entry has a pre-computed buildUpMins (physical chart "Build Up" column),
+  // use it directly instead of re-deriving from the formula.
   const chartEntry  = assocChart[day.diagNum || ''];
   const unAssocHrs  = chartEntry ? chartEntry.unAssocMins   / 60 : 0;
   const assocPayHrs = chartEntry ? chartEntry.assocPaymentMins / 60 : 0;
   const distPay     = kmCredited ?? 0;
   const totalCredit = unAssocHrs + assocPayHrs + distPay;
   const schedHrs    = (day.rHrs && day.rHrs > 0) ? day.rHrs : workedHrs;
-  const buildUp1454 = r2Hrs(Math.max(0, totalCredit - schedHrs));
+  const buildUp1454 = (chartEntry?.buildUpMins && chartEntry.buildUpMins > 0)
+    ? r2Hrs(chartEntry.buildUpMins / 60)
+    : r2Hrs(Math.max(0, totalCredit - schedHrs));
   if (buildUp1454 > 0) {
     const bRate = B * (isSat ? 1.5 : isSun ? 2 : 1);
     components.push({

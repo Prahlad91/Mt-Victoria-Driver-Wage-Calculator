@@ -405,31 +405,31 @@ function AssocChartCard() {
 
   function downloadTemplate() {
     const rows = [
-      'diagram,un_assoc_mins,assoc_payment_mins',
-      '3151,0,0',
-      '3153,182,0',
-      '3154,30,0',
-      '3155,0,30',
-      '3159,38,0',
-      '3160,0,0',
-      '3161,116,0',
-      '3164,71,0',
-      '3165,71,0',
-      '3166,0,0',
-      '3167,0,0',
-      '3168,0,0',
-      '3651,0,0',
-      '3652,0,0',
-      '3653,35,32',
-      '3655,10,0',
-      '3656,10,0',
-      '3657,30,0',
-      '3658,0,0',
-      '3659,0,0',
-      '3660,30,0',
-      '3661,0,0',
-      '3662,0,0',
-      '3664,0,0',
+      'diagram,un_assoc_mins,assoc_payment_mins,assoc_calc_mins,build_up_mins',
+      '3151,0,0,0,0',
+      '3153,182,0,482,0',
+      '3154,30,0,510,0',
+      '3155,0,30,510,25',
+      '3159,38,0,518,0',
+      '3160,0,0,0,0',
+      '3161,116,0,596,70',
+      '3164,71,0,551,0',
+      '3165,71,0,371,0',
+      '3166,0,0,0,0',
+      '3167,0,0,0,0',
+      '3168,0,0,0,0',
+      '3651,0,0,0,0',
+      '3652,0,0,0,0',
+      '3653,35,32,547,0',
+      '3655,10,0,550,0',
+      '3656,10,0,550,0',
+      '3657,30,0,510,30',
+      '3658,0,0,0,0',
+      '3659,0,0,0,0',
+      '3660,30,0,510,30',
+      '3661,0,0,0,0',
+      '3662,0,0,0,0',
+      '3664,0,0,0,0',
     ]
     const blob = new Blob([rows.join('\n')], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
@@ -484,11 +484,13 @@ function AssocChartCard() {
             <th>Un-assoc hrs</th>
             <th>Assoc payment mins</th>
             <th>Assoc payment hrs</th>
+            <th title="Un-assoc + Assoc Payment + Dist Pay (pre-computed)">Assoc Calc mins</th>
+            <th title="Build-up from physical chart (used directly when > 0)">Build Up mins</th>
           </tr>
         </thead>
         <tbody>
           <tr>
-            <td colSpan={5} style={{
+            <td colSpan={7} style={{
               fontWeight:600, background:'var(--blue-bg)', color:'var(--blue-text)',
               padding:'3px 8px', fontSize:10, letterSpacing:'0.05em', textTransform:'uppercase',
             }}>
@@ -497,7 +499,7 @@ function AssocChartCard() {
           </tr>
           {ALL_WEEKDAY_DIAGS.map(diag => {
             const entry = ctx.assocChart[diag] ?? { unAssocMins: 0, assocPaymentMins: 0 }
-            const nonZero = entry.unAssocMins > 0 || entry.assocPaymentMins > 0
+            const nonZero = entry.unAssocMins > 0 || entry.assocPaymentMins > 0 || (entry.buildUpMins ?? 0) > 0
             return (
               <tr key={diag} style={nonZero ? {background:'var(--blue-bg)'} : undefined}>
                 <td style={{fontWeight:600}}>{diag}</td>
@@ -505,11 +507,16 @@ function AssocChartCard() {
                 <td>{(entry.unAssocMins / 60).toFixed(2)}</td>
                 <td>{entry.assocPaymentMins}</td>
                 <td>{(entry.assocPaymentMins / 60).toFixed(2)}</td>
+                <td style={{color: entry.assocCalcMins ? undefined : 'var(--muted)'}}>{entry.assocCalcMins ?? '—'}</td>
+                <td style={{fontWeight: (entry.buildUpMins ?? 0) > 0 ? 700 : undefined,
+                            color: (entry.buildUpMins ?? 0) > 0 ? 'var(--green-text)' : 'var(--muted)'}}>
+                  {(entry.buildUpMins ?? 0) > 0 ? entry.buildUpMins : '—'}
+                </td>
               </tr>
             )
           })}
           <tr>
-            <td colSpan={5} style={{
+            <td colSpan={7} style={{
               fontWeight:600, background:'var(--blue-bg)', color:'var(--blue-text)',
               padding:'3px 8px', fontSize:10, letterSpacing:'0.05em', textTransform:'uppercase',
             }}>
@@ -518,7 +525,7 @@ function AssocChartCard() {
           </tr>
           {ALL_WEEKEND_DIAGS.map(diag => {
             const entry = ctx.assocChart[diag] ?? { unAssocMins: 0, assocPaymentMins: 0 }
-            const nonZero = entry.unAssocMins > 0 || entry.assocPaymentMins > 0
+            const nonZero = entry.unAssocMins > 0 || entry.assocPaymentMins > 0 || (entry.buildUpMins ?? 0) > 0
             return (
               <tr key={diag} style={nonZero ? {background:'var(--blue-bg)'} : undefined}>
                 <td style={{fontWeight:600}}>{diag}</td>
@@ -526,16 +533,22 @@ function AssocChartCard() {
                 <td>{(entry.unAssocMins / 60).toFixed(2)}</td>
                 <td>{entry.assocPaymentMins}</td>
                 <td>{(entry.assocPaymentMins / 60).toFixed(2)}</td>
+                <td style={{color: entry.assocCalcMins ? undefined : 'var(--muted)'}}>{entry.assocCalcMins ?? '—'}</td>
+                <td style={{fontWeight: (entry.buildUpMins ?? 0) > 0 ? 700 : undefined,
+                            color: (entry.buildUpMins ?? 0) > 0 ? 'var(--green-text)' : 'var(--muted)'}}>
+                  {(entry.buildUpMins ?? 0) > 0 ? entry.buildUpMins : '—'}
+                </td>
               </tr>
             )
           })}
         </tbody>
       </table>
       <p className="note" style={{marginTop:8}}>
-        Accepted formats: <strong>CSV</strong> (<code>diagram,un_assoc_mins,assoc_payment_mins</code>),
+        Accepted formats: <strong>CSV</strong> (<code>diagram,un_assoc_mins,assoc_payment_mins[,assoc_calc_mins,build_up_mins]</code>),
         <strong> PDF</strong>, or <strong>image</strong> (.png / .jpg / .webp / .tiff).
         PDF and image files are parsed on the server (OCR for images).
         CSV is the most reliable format; use the template above as a starting point.
+        The <strong>Build Up</strong> column (green) is used directly by the calculator when present — it overrides the formula.
       </p>
     </div>
   )

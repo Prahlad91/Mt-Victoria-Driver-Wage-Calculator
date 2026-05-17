@@ -38,12 +38,19 @@ export interface DayState {
   // NEW v3.12: populated from the assoc/unassoc chart before sending to backend.
   unAssocHrs?: number;
   assocPaymentHrs?: number;
+  // When the physical chart has a pre-computed "Build Up" value, this is sent so
+  // the backend uses it directly instead of re-deriving from the formula.
+  assocBuildUpHrs?: number;
 }
 
 // ─── Assoc/Un-assoc Payments Chart (Cl. 157.1(b) / Cl. 146.4) ───────────────
 export interface AssocChartEntry {
   unAssocMins: number;
   assocPaymentMins: number;
+  /** un_assoc + assoc_payment + dist_pay (pre-computed by depot, in minutes) */
+  assocCalcMins?: number;
+  /** max(0, assocCalcMins − shift_mins) from physical chart; used directly as 1454 build-up */
+  buildUpMins?: number;
 }
 /** keyed by diagram number string e.g. "3155" */
 export type AssocChart = Record<string, AssocChartEntry>

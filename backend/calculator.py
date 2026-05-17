@@ -430,15 +430,19 @@ def compute_day(day: DayState, cfg: RateConfig, codes: PayrollCodes,
             ))
     
     # 1454 "Assoc Wrk Time (Mileage)" per Cl. 157.1(b) / Cl. 146.4
-    # Formula (from depot Associated & Un-associated Payments Chart):
+    # If the frontend passed a pre-computed build-up from the physical chart's
+    # "Build Up" column (assoc_build_up_hrs > 0), use it directly.
+    # Otherwise fall back to the formula:
     #   Build Up = max(0, Un-Assoc + Assoc Payment + Distance Payment − Shift Length)
-    # "Shift Length" = rostered/scheduled hours (day.r_hrs). Falls back to actual_hrs.
     sched_hrs = day.r_hrs if day.r_hrs > 0 else actual_hrs
     un_assoc  = day.un_assoc_hrs  or 0.0
     assoc_pay = day.assoc_payment_hrs or 0.0
     dist_pay  = km_credited or 0.0
     total_credit = un_assoc + assoc_pay + dist_pay
-    build_up = r2_hrs(max(0.0, total_credit - sched_hrs))
+    if day.assoc_build_up_hrs > 0:
+        build_up = r2_hrs(day.assoc_build_up_hrs)
+    else:
+        build_up = r2_hrs(max(0.0, total_credit - sched_hrs))
     if build_up > 0:
         b_rate = B * (1.5 if is_sat else (2.0 if is_sun else 1.0))
         components.append(_comp(

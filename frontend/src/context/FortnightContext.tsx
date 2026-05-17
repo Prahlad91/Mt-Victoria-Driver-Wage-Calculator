@@ -37,18 +37,21 @@ const LS_VERSION = 'mvwc_cache_version'
 //   3657: 0:30 un-assoc
 //   3660: 0:30 un-assoc (NOT 3658 — verified against physical chart Oct-2025)
 const DEFAULT_ASSOC_CHART: AssocChart = {
-  '3153': { unAssocMins: 182, assocPaymentMins: 0  },
-  '3154': { unAssocMins: 30,  assocPaymentMins: 0  },
-  '3155': { unAssocMins: 0,   assocPaymentMins: 30 },
-  '3159': { unAssocMins: 38,  assocPaymentMins: 0  },
-  '3161': { unAssocMins: 116, assocPaymentMins: 0  },
-  '3164': { unAssocMins: 71,  assocPaymentMins: 0  },
-  '3165': { unAssocMins: 71,  assocPaymentMins: 0  },
-  '3653': { unAssocMins: 35,  assocPaymentMins: 32 },
-  '3655': { unAssocMins: 10,  assocPaymentMins: 0  },
-  '3656': { unAssocMins: 10,  assocPaymentMins: 0  },
-  '3657': { unAssocMins: 30,  assocPaymentMins: 0  },
-  '3660': { unAssocMins: 30,  assocPaymentMins: 0  },  // corrected: was 3658 (wrong), chart shows 3660
+  // assocCalcMins = un_assoc + assoc_payment + dist_pay (pre-computed, from physical chart)
+  // buildUpMins   = max(0, assocCalcMins − shift_mins) from physical chart "Build Up" column.
+  //                 When > 0 this is used directly by the calculator (no formula re-derivation).
+  '3153': { unAssocMins: 182, assocPaymentMins: 0,  assocCalcMins: 482, buildUpMins: 0  },
+  '3154': { unAssocMins: 30,  assocPaymentMins: 0,  assocCalcMins: 510, buildUpMins: 0  },
+  '3155': { unAssocMins: 0,   assocPaymentMins: 30, assocCalcMins: 510, buildUpMins: 25 },
+  '3159': { unAssocMins: 38,  assocPaymentMins: 0,  assocCalcMins: 518, buildUpMins: 0  },
+  '3161': { unAssocMins: 116, assocPaymentMins: 0,  assocCalcMins: 596, buildUpMins: 70 },
+  '3164': { unAssocMins: 71,  assocPaymentMins: 0,  assocCalcMins: 551, buildUpMins: 0  },
+  '3165': { unAssocMins: 71,  assocPaymentMins: 0,  assocCalcMins: 371, buildUpMins: 0  },
+  '3653': { unAssocMins: 35,  assocPaymentMins: 32, assocCalcMins: 547, buildUpMins: 0  },
+  '3655': { unAssocMins: 10,  assocPaymentMins: 0,  assocCalcMins: 550, buildUpMins: 0  },
+  '3656': { unAssocMins: 10,  assocPaymentMins: 0,  assocCalcMins: 550, buildUpMins: 0  },
+  '3657': { unAssocMins: 30,  assocPaymentMins: 0,  assocCalcMins: 510, buildUpMins: 30 },
+  '3660': { unAssocMins: 30,  assocPaymentMins: 0,  assocCalcMins: 510, buildUpMins: 30 },  // corrected: was 3658 (wrong)
 }
 
 // PRD §6.10 — cache invalidation. v3.11 forces clear because v3.10 and earlier
@@ -186,8 +189,8 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
   const saveCodes  = useCallback(() => toLS(LS_CODES, codes), [codes])
 
   /** Parse a CSV upload for the assoc/unassoc chart.
-   *  Expected columns: diagram, un_assoc_mins, assoc_payment_mins (header optional)
-   *  Returns null on success, error message on failure. */
+   *  Columns: diagram, un_assoc_mins, assoc_payment_mins[, assoc_calc_mins, build_up_mins]
+   *  Header row optional. Returns null on success, error message on failure. */
   const loadAssocChartCsv = useCallback((csvText: string): string | null => {
     try {
       const lines = csvText.trim().split(/\r?\n/).filter(l => l.trim())
@@ -199,11 +202,18 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
         if (!cols[0]) continue
         // Skip header rows
         if (/[a-zA-Z]/.test(cols[0])) { skipped++; continue }
-        const diag   = cols[0]
-        const unMin  = parseInt(cols[1] ?? '0', 10) || 0
-        const assMin = parseInt(cols[2] ?? '0', 10) || 0
-        if (unMin > 0 || assMin > 0) {
-          chart[diag] = { unAssocMins: unMin, assocPaymentMins: assMin }
+        const diag     = cols[0]
+        const unMin    = parseInt(cols[1] ?? '0', 10) || 0
+        const assMin   = parseInt(cols[2] ?? '0', 10) || 0
+        // Optional cols 4+5: assoc_calc_mins, build_up_mins
+        const calcMin  = cols[3] !== undefined ? (parseInt(cols[3], 10) || 0) : undefined
+        const buildMin = cols[4] !== undefined ? (parseInt(cols[4], 10) || 0) : undefined
+        if (unMin > 0 || assMin > 0 || (buildMin ?? 0) > 0) {
+          chart[diag] = {
+            unAssocMins: unMin, assocPaymentMins: assMin,
+            ...(calcMin  !== undefined ? { assocCalcMins: calcMin  } : {}),
+            ...(buildMin !== undefined ? { buildUpMins:   buildMin } : {}),
+          }
         }
       }
       if (!Object.keys(chart).length && skipped === lines.length) {
@@ -657,8 +667,11 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
       return {
         ...d,
         isShortFortnight: isShort,
-        unAssocHrs:      entry ? entry.unAssocMins   / 60 : 0,
-        assocPaymentHrs: entry ? entry.assocPaymentMins / 60 : 0,
+        unAssocHrs:       entry ? entry.unAssocMins        / 60 : 0,
+        assocPaymentHrs:  entry ? entry.assocPaymentMins   / 60 : 0,
+        // When the physical chart has a pre-computed "Build Up" value, send it so
+        // the backend uses it directly instead of re-deriving from the formula.
+        assocBuildUpHrs:  (entry?.buildUpMins ?? 0) > 0 ? entry!.buildUpMins! / 60 : 0,
       }
     })
     try {

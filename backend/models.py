@@ -58,6 +58,9 @@ class DayState(CamelModel):
     # Used in the Cl. 157.1(b) build-up formula for 1454.
     un_assoc_hrs: float = 0.0
     assoc_payment_hrs: float = 0.0
+    # When > 0, use this directly as the 1454 build-up (from the physical chart's
+    # pre-computed "Build Up" column) instead of re-deriving from the formula.
+    assoc_build_up_hrs: float = 0.0
 
 
 class RateConfig(CamelModel):
