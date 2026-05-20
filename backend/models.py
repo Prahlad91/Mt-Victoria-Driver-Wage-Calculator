@@ -89,9 +89,9 @@ class PayrollCodes(CamelModel):
     sat_ot: str = '1027'  # Sched OT 200% — used for both Saturday OT and Sunday OT
     ph_wkd: str = '5042'
     ph_wke: str = '1010'
-    afternoon: str = ''
-    night: str = '1487'
-    early: str = '1483'
+    afternoon: str = '1485'  # Item 6 Sch.4B — Afternoon Shift Drvs/Grds (default added v3.18)
+    night: str = '1487'      # Item 7 Sch.4B — Night Shift Drvs/Grds
+    early: str = '1483'      # Item 8 Sch.4B — Morning (Early) Shift Drvs/Grds
     add_load: str = '1470'
     wobod: str = '1059'
     liftup: str = ''

@@ -11,7 +11,7 @@ function codeStyle(code: string): React.CSSProperties {
   if (n === 1001 || n === 1026)                 return { background: 'var(--accent-bg)',  color: 'var(--accent)' }
   if (n === 1462)                                return { background: 'var(--green-bg)',   color: 'var(--green)'  }
   if (n === 1470 || n === 1010 || n === 5042)   return { background: 'var(--amber-bg)',   color: 'var(--amber)'  }
-  if (n === 1487 || n === 1483)                  return { background: '#ede9fe',            color: '#6b21a8'       }
+  if (n === 1487 || n === 1485 || n === 1483)   return { background: '#ede9fe',            color: '#6b21a8'       }
   if (n === 1059 || n === 1100 || n === 1110)   return { background: '#fce7f3',            color: '#9d174d'       }
   if (n === 1454)                                return { background: '#e0f2fe',            color: '#0369a1'       }
   if (n === 1064)                                return { background: '#fef9c3',            color: '#713f12'       }

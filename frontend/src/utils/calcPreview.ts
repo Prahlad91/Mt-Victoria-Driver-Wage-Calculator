@@ -31,7 +31,7 @@ export const DEFAULT_CODES: PayrollCodes = {
   base: '1001', ot1: '1026', ot2: '1110',
   sat: '1064', sun: '1076', sat_ot: '1027',
   ph_wkd: '5042', ph_wke: '1010',
-  afternoon: '', night: '1487', early: '1483',
+  afternoon: '1485', night: '1487', early: '1483',
   add_load: '1470',
   wobod: '1059', liftup: '', ado: '1462', unassoc: '',
   km: '1454',   // Assoc Wrk Time (Mileage) — Cl. 157.1(b) / Cl. 146.4
@@ -274,7 +274,7 @@ export function previewDay(
     if (sc) {
       const penRate = sc === 'night' ? cfg.night_rate : sc === 'early' ? cfg.early_rate : cfg.afternoon_rate;
       const penH = roundHrsEA(ordH);
-      const penCode = sc === 'night' ? (codes.night || '1487') : sc === 'early' ? (codes.early || '1483') : (codes.afternoon || '');
+      const penCode = sc === 'night' ? (codes.night || '1487') : sc === 'early' ? (codes.early || '1483') : (codes.afternoon || '1485');
       const penName = sc === 'night' ? 'Night Shift Dvrs/Grds Hrl' : sc === 'early' ? 'Morning Shift Dvrs/Grds H' : 'Afternoon Shift Dvrs/Grds';
       const penClause = `Item ${sc === 'night' ? 7 : sc === 'early' ? 8 : 6} Sch.4B`;
       components.push({
