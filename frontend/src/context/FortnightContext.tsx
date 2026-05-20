@@ -285,6 +285,10 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
 
     setDays(prev => prev.map(d => {
       if (d.diag === 'OFF' || d.diag === 'ADO' || d.timeSource === 'manual') return d
+      // Actual times are kept in sync unless the user has manually diverged them
+      // (i.e. aStart no longer matches the currently-stored rStart).
+      const actualUnchanged = !d.aStart || d.aStart === d.rStart
+      const actualEndUnchanged = !d.aEnd || d.aEnd === d.rEnd
       const sched = findByDow(d.diagNum, d.dow, wd, we)
       if (sched) {
         return {
@@ -292,6 +296,8 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
           rStart: sched.sign_on, rEnd: sched.sign_off,
           cm: sched.cm, rHrs: sched.r_hrs, km: sched.km,
           timeSource: 'schedule',
+          aStart: actualUnchanged    ? sched.sign_on  : d.aStart,
+          aEnd:   actualEndUnchanged ? sched.sign_off : d.aEnd,
         }
       }
       const ts = findByTimes(d.rStart, d.rEnd, d.dow, wd, we)
@@ -302,6 +308,8 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
         rStart: ts.info.sign_on, rEnd: ts.info.sign_off,
         cm: ts.info.cm, rHrs: ts.info.r_hrs, km: ts.info.km,
         timeSource: 'schedule',
+        aStart: actualUnchanged    ? ts.info.sign_on  : d.aStart,
+        aEnd:   actualEndUnchanged ? ts.info.sign_off : d.aEnd,
       }
     }))
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -380,7 +388,7 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
           date, dow, ph: false,
           diag: entry.diag, diagNum,
           rStart, rEnd, cm, rHrs,
-          aStart: '', aEnd: '',
+          aStart: rStart || '', aEnd: rEnd || '',
           timeSource, km,
           claimLiftupLayback: true,
           wobod: false, leaveCat: 'none',
@@ -448,7 +456,7 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
           date, dow, ph: false,
           diag, diagNum,
           rStart, rEnd, cm, rHrs,
-          aStart: '', aEnd: '',
+          aStart: rStart || '', aEnd: rEnd || '',
           timeSource, km,
           claimLiftupLayback: true,
           wobod: false, leaveCat: 'none',
