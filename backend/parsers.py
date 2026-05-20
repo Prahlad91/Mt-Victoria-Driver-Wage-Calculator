@@ -34,7 +34,7 @@ from models import (
     ParsedScheduleResponse, DiagramInfo,
 )
 
-_VALID_LINES = set(list(range(1, 23)) + list(range(201, 211)))
+_VALID_LINES = set(list(range(1, 23)) + list(range(201, 221)))
 _TIME_RE = re.compile(r'^\d{1,2}:\d{2}$')
 _WHRS_RE = re.compile(r'^\d{1,2}:\d{2}[Ww]$')
 _FAT_RE  = re.compile(r'^F\d+$')
@@ -137,22 +137,33 @@ def parse_roster_zip(file_bytes: bytes, filename: str) -> ParsedRosterResponse:
         fn_end = dt.strftime('%Y-%m-%d')
         fn_start = (dt - timedelta(days=13)).strftime('%Y-%m-%d')
 
+    # Also try "Fortnight commencing ..." format (printed roster PDFs say this instead)
+    if fn_end is None:
+        fn_comm_m = re.search(
+            r'Fortnight commencing\s+\w+,?\s+(\d{1,2})\s+(\w+)\s+(\d{4})',
+            text, re.IGNORECASE,
+        )
+        if fn_comm_m:
+            try:
+                dt = datetime.strptime(
+                    f'{fn_comm_m.group(1)} {fn_comm_m.group(2)} {fn_comm_m.group(3)}',
+                    '%d %B %Y',
+                )
+                fn_start = dt.strftime('%Y-%m-%d')
+                fn_end   = (dt + timedelta(days=13)).strftime('%Y-%m-%d')
+            except ValueError:
+                pass
+
     layer_m = re.search(r'Layer:\s*(Master)', text)
     line_type = 'master' if layer_m else 'fortnight'
 
+    # ── Approach 1: text-regex (works for ZIP exports + simple text PDFs) ─────────
     line_starts: list[tuple[int, int]] = []
     line_re = re.compile(r'(?m)^(\d{1,3})(?=\s+(?:OFF|ADO|\d{1,2}:\d{2}))')
     for m in line_re.finditer(text):
         num = int(m.group(1))
         if num in _VALID_LINES:
             line_starts.append((num, m.start()))
-
-    if not line_starts:
-        warnings.append('No roster lines found in this file.')
-        return ParsedRosterResponse(
-            source_file=filename, line_type=line_type,
-            fn_start=fn_start, fn_end=fn_end, lines={}, warnings=warnings
-        )
 
     lines_data: dict[str, list[RosterDayEntry]] = {}
     for idx, (line_num, start_pos) in enumerate(line_starts):
@@ -163,6 +174,27 @@ def parse_roster_zip(file_bytes: bytes, filename: str) -> ParsedRosterResponse:
             lines_data[str(line_num)] = days
         if len(days) != 14:
             warnings.append(f'Line {line_num}: expected 14 days, got {len(days)}.')
+
+    # ── Approach 2: table-extraction fallback ────────────────────────────────────
+    # The real printed "Intercity Drivers Roster" PDF has crew names between the
+    # line number and the day entries, so the regex above never matches.
+    # pdfplumber.extract_tables() preserves cell boundaries and handles it cleanly.
+    if not lines_data:
+        is_zip = False
+        try:
+            with ZipFile(io.BytesIO(file_bytes)) as zf:
+                is_zip = 'manifest.json' in zf.namelist()
+        except Exception:
+            pass
+        if not is_zip:
+            lines_data = _parse_roster_from_pdf_tables(file_bytes, warnings)
+
+    if not lines_data:
+        warnings.append('No roster lines found in this file.')
+        return ParsedRosterResponse(
+            source_file=filename, line_type=line_type,
+            fn_start=fn_start, fn_end=fn_end, lines={}, warnings=warnings
+        )
 
     return ParsedRosterResponse(
         source_file=filename, line_type=line_type,
@@ -262,6 +294,210 @@ def _parse_day_entries(section_text: str) -> list[RosterDayEntry]:
         RosterDayEntry(diag=d['diag'] or '', r_start=d['r_start'], r_end=d['r_end'], cm=d['cm'], r_hrs=d['r_hrs'])
         for d in raw
     ]
+
+
+# ─── Table-based roster parser (new) — handles real "Intercity Drivers Roster" PDF ───
+# The printed roster PDF has the layout:
+#   [Line# | Crew name | Day1 … Day14 | O/T count]
+# Each worked-day cell contains:
+#   "HH:MM - HH:MM[L]\nDIAGRAM_NAME\nFNN"
+# The text-regex approach (above) fails because crew names sit between the line
+# number and the day entries, so ^1\s+(?:OFF|ADO|time) never matches.
+# pdfplumber.extract_tables() preserves cell boundaries and handles this cleanly.
+
+_CELL_TIME_RE  = re.compile(r'(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})(L?)', re.IGNORECASE)
+_FAT_TRAIL_RE  = re.compile(r'\bF\d+\s*$')   # trailing fatigue token e.g. "F24", "F0"
+
+# Anchor column indices for the 14 day-slot columns in the printed fortnight roster PDF.
+# Determined by debug analysis of pdfplumber table output on the real PDF.
+# Columns 3 & 4 are non-date metadata cells (e.g. "NTA", "HOL") that parse safely as OFF.
+# Sub-columns between consecutive anchors carry split diagram/location tokens.
+# Column 30 is the O/T count (not a day).
+_DAY_ANCHORS = [3, 4, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 26, 28]
+_OT_COL      = 30
+
+
+def _parse_cell_to_day_entry(cell: object) -> 'RosterDayEntry':
+    """
+    Parse one table cell from the printed fortnight roster PDF.
+
+    Handled formats:
+      - Empty / "OFF" / "NTA" / "HOL" / "(AL )" / "OFF(AL )" …  → OFF
+      - "ADO" / "ADO(LSL )" …                                    → ADO
+      - "01:49 - 10:49\\n3154 MQ/SMB\\nF63"                     → worked day
+      - "16:15 - 00:34L\\n3167 MQ\\nF35"                        → cross-midnight
+      - "06:00 - 14:00\\nSBY x LVE\\nOnline Training…"          → SBY
+      - "04:00 - 12:00\\nSBY(AL ) F0"                           → SBY (annotation stripped)
+    """
+    text = str(cell or '').strip()
+    if not text:
+        return RosterDayEntry(diag='OFF', r_start=None, r_end=None, cm=False, r_hrs=0.0)
+
+    first_line = text.split('\n')[0].strip().upper()
+
+    # ADO — check before time-range (handles "ADO(LSL )" etc.)
+    if first_line.startswith('ADO'):
+        return RosterDayEntry(diag='ADO', r_start=None, r_end=None, cm=False, r_hrs=8.0)
+
+    # Look for a time range anywhere in the cell
+    m = _CELL_TIME_RE.search(text)
+    if not m:
+        # No time range → non-work day (NTA, HOL, leave, blank)
+        return RosterDayEntry(diag='OFF', r_start=None, r_end=None, cm=False, r_hrs=0.0)
+
+    r_start = _norm_time(m.group(1))
+    r_end   = _norm_time(m.group(2))
+    cm      = m.group(3).upper() == 'L'
+
+    # r_hrs: calculate from time range (overridden later if schedule is uploaded)
+    s_m = _time_to_mins(r_start)
+    e_m = _time_to_mins(r_end)
+    if cm:
+        e_m += 24 * 60
+    r_hrs = round(max(0.0, (e_m - s_m) / 60), 4)
+
+    # Diagram name: on the line(s) after the time range, or on the same line
+    after = text[m.end():].lstrip(' ')
+    diag  = 'SBY'
+
+    for ln in after.split('\n'):
+        ln = ln.strip()
+        if not ln:
+            continue
+        # Strip trailing fatigue token (e.g. " F63", " F0")
+        ln = _FAT_TRAIL_RE.sub('', ln).strip()
+        if not ln:
+            continue
+        toks = ln.split()
+        if not toks:
+            continue
+        first = toks[0]
+        if re.match(r'^\d{4}$', first):
+            # 4-digit diagram — also grab trailing location codes (MQ, SMB, MQ/RK, etc.)
+            locs = [t for t in toks[1:]
+                    if re.match(r'^[A-Z]{2,5}(/[A-Z]{2,5})*$', t)]
+            diag = first + (' ' + locs[0] if locs else '')
+        elif re.match(r'^[A-Z]', first, re.IGNORECASE):
+            # Non-numeric diagram: SBY, MSBYD3, AMV01, MY30 … strip annotations like "(LSL )"
+            clean = re.sub(r'\(.*$', '', first).strip()
+            diag  = clean.upper() if clean else 'SBY'
+        break  # diagram is always on the first non-empty line after the time range
+
+    return RosterDayEntry(diag=diag, r_start=r_start, r_end=r_end, cm=cm, r_hrs=r_hrs)
+
+
+def _parse_roster_from_pdf_tables(file_bytes: bytes, warnings: list[str]) -> dict:
+    """
+    Parse the Sydney Trains "Intercity Drivers Roster" PDF using pdfplumber's
+    table extraction.
+
+    Actual table layout (31 cols, 0-based):
+      col[0]  = empty spacer
+      col[1]  = roster line number (1-22 or 201-220)
+      col[2]  = driver crew name
+      col[3..28] = 14 day columns at _DAY_ANCHORS; sub-columns between anchors
+                   carry split diagram/location tokens
+      col[30] = O/T count (_OT_COL)
+
+    Logical lines span MULTIPLE table rows:
+      • "Anchor row" — cells[1] is a valid line number; may contain the time
+        range for a day but the diagram/location overflows to continuation rows.
+      • "Continuation rows" — cells[1] is empty; carry split tokens for any day
+        whose content didn't fit in the anchor row.
+
+    We group rows by anchor/continuation, then for each of the 14 day slots we
+    collect all non-empty text from the anchor column + its sub-columns across
+    every row in the group, join with '\\n', and pass to _parse_cell_to_day_entry.
+    """
+    if pdfplumber is None:
+        return {}
+
+    lines_data: dict = {}
+    try:
+        with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+            for page in pdf.pages:
+                # Prefer the explicit grid lines — the PDF has a drawn table border.
+                tables = page.extract_tables({
+                    'vertical_strategy':   'lines',
+                    'horizontal_strategy': 'lines',
+                }) or []
+                # Fall back to heuristic strategy if line-based found nothing.
+                if not tables:
+                    tables = page.extract_tables() or []
+
+                for table in (tables or []):
+                    # ── Group raw table rows into logical line-groups ─────────
+                    # Each group = one roster line (anchor row + any continuation rows).
+                    groups: list[dict] = []   # {'line_num': int, 'rows': list[list[str]]}
+                    current: dict | None = None
+
+                    for raw_row in (table or []):
+                        if not raw_row:
+                            continue
+                        # Normalise every cell to a stripped string; pad to _OT_COL+1
+                        cells = [str(c or '').strip() for c in raw_row]
+                        while len(cells) <= _OT_COL:
+                            cells.append('')
+
+                        c1 = cells[1]
+                        if re.match(r'^\d{1,3}$', c1):
+                            line_num = int(c1)
+                            if line_num in _VALID_LINES:
+                                # Start a new logical line group
+                                if current is not None:
+                                    groups.append(current)
+                                current = {'line_num': line_num, 'rows': [cells]}
+                            else:
+                                # Number outside valid range (e.g. header/total row)
+                                current = None
+                        elif current is not None:
+                            # Continuation row — attach it to the current group
+                            current['rows'].append(cells)
+
+                    if current is not None:
+                        groups.append(current)
+
+                    # ── Build 14 RosterDayEntry objects per logical line ──────
+                    for grp in groups:
+                        line_num = grp['line_num']
+                        if str(line_num) in lines_data:
+                            continue  # first occurrence wins (e.g. PDF spans pages)
+
+                        rows = grp['rows']
+                        entries: list[RosterDayEntry] = []
+
+                        for di, anchor in enumerate(_DAY_ANCHORS):
+                            # Sub-columns run from `anchor` up to (not including) the
+                            # next anchor.  The last day's sub-cols run up to _OT_COL.
+                            next_a = _DAY_ANCHORS[di + 1] if di + 1 < len(_DAY_ANCHORS) else _OT_COL
+                            col_range = range(anchor, next_a)
+
+                            # Collect text from every row × every column in this day slot
+                            parts: list[str] = []
+                            for row in rows:
+                                row_parts = [
+                                    row[col]
+                                    for col in col_range
+                                    if col < len(row) and row[col]
+                                ]
+                                if row_parts:
+                                    parts.append(' '.join(row_parts))
+
+                            cell_text = '\n'.join(parts)
+                            entries.append(_parse_cell_to_day_entry(cell_text))
+
+                        if len(entries) == 14:
+                            lines_data[str(line_num)] = entries
+                        else:
+                            warnings.append(
+                                f'Line {line_num}: built {len(entries)} day entries '
+                                f'(expected 14) — skipped.'
+                            )
+
+    except Exception as exc:
+        warnings.append(f'Table-extraction pass failed: {exc}')
+
+    return lines_data
 
 
 # ─── Schedule parser (v3.8: 2-column PDF support) ──────────────────────────────
