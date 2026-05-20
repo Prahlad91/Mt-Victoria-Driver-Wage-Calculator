@@ -304,7 +304,12 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
           aEnd:   actualEndUnchanged ? sched.sign_off : d.aEnd,
         }
       }
-      const ts = findByTimes(d.rStart, d.rEnd, d.dow, wd, we)
+      // Named-duty preservation (v3.15): skip findByTimes re-mapping for
+      // non-numeric duties (SBY, AMV01, MSBYD3, DSP, …) — the roster names the
+      // duty explicitly and we must not silently relabel it as a 4-digit
+      // diagram that happens to share the same scheduled times.
+      const diagStartsNumeric = /^\d/.test((d.diag || '').trim())
+      const ts = diagStartsNumeric ? findByTimes(d.rStart, d.rEnd, d.dow, wd, we) : null
       if (!ts) return d
       return {
         ...d,
@@ -386,7 +391,17 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
           rStart = sched.sign_on; rEnd = sched.sign_off; cm = sched.cm
           rHrs = sched.r_hrs; km = sched.km
         } else {
-          const ts = findByTimes(entry.r_start, entry.r_end, dow, wd, we)
+          // Named-duty preservation (v3.15): if the roster explicitly names a
+          // non-numeric duty (SBY, AMV01, MSBYD3, DSP, training codes …), the
+          // roster is authoritative for the duty type — don't silently re-map
+          // to a 4-digit diagram just because the schedule has one with the
+          // same sign-on/sign-off times.  findByTimes() is still used as a
+          // recovery fallback for numeric diagrams that couldn't cleanly
+          // parse their 4-digit number.
+          const diagStartsNumeric = /^\d/.test(entry.diag.trim())
+          const ts = diagStartsNumeric
+            ? findByTimes(entry.r_start, entry.r_end, dow, wd, we)
+            : null
           if (ts) {
             timeSource = 'schedule'
             diagNum = ts.diagNum
@@ -454,7 +469,12 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
         } else {
           const builtinStart = rS as string | null
           const builtinEnd   = rE as string | null
-          const ts = findByTimes(builtinStart, builtinEnd, dow, wd, we)
+          // Named-duty preservation (v3.15) — see corresponding comment in
+          // the roster-driven branch above.
+          const diagStartsNumeric = /^\d/.test(diag.trim())
+          const ts = diagStartsNumeric
+            ? findByTimes(builtinStart, builtinEnd, dow, wd, we)
+            : null
           if (ts) {
             timeSource = 'schedule'
             diagNum = ts.diagNum
