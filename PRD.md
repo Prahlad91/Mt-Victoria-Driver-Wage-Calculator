@@ -1,7 +1,7 @@
 # Product Requirements Document
 # Mt Victoria Driver Wage Calculator
 
-**Version:** 3.13
+**Version:** 3.14
 **Date:** May 2026
 **Author:** Prahlad Modi (Mt Victoria depot, Sydney Trains)
 **Status:** Active — governs all development on this repository
@@ -54,7 +54,7 @@ Mt Victoria is an intercity depot on the Blue Mountains line. Key characteristic
 
 - Long-distance shifts accumulate significant KMs (often 200–400+ km per shift)
 - The KM credit system (Cl. 146.4) is heavily used and contributes substantially to pay
-- Roster lines are fortnightly repeating patterns; lines 1–22 are permanent/fixed, lines 201–210 are standby/swinger lines whose diagram assignments change every fortnight
+- Roster lines are fortnightly repeating patterns; lines 1–22 are permanent/fixed, lines 201–214 are standby/swinger lines whose diagram assignments change every fortnight
 - The ADO system (19-day month) alternates short fortnights (ADO paid out) and long fortnights (ADO accruing)
 - Drivers frequently work shift swaps — taking a different diagram than originally rostered — on **any day of the fortnight**, including regular weekdays, Saturdays, Sundays, and public holidays. The ability to override the rostered diagram for any day is therefore a core operational need.
 - **Times and KMs come from the schedule file, not the master roster** — the master roster shows the assignment (which diagram on which day); the schedule file is the authoritative source for sign-on, sign-off and distance per diagram. Drivers may also override these values manually on any day if the schedule file is out of date.
@@ -90,7 +90,7 @@ Mt Victoria is an intercity depot on the Blue Mountains line. Key characteristic
 | **Long fortnight** | Fortnight with no ADO — all shifts worked; ADO accrues. |
 | **ADO** | Accrued Day Off. Under the 19-day month arrangement, drivers accumulate time building to one paid day off per 4-week cycle. |
 | **Master Roster** | Annual roster document for lines 1–22. Published once a year. Defines which diagram (schedule number) each line works on each of the 14 days. Format: ZIP archive containing manifest.json + text + image layers, OR real PDF. |
-| **Fortnight Roster** | Per-fortnight roster document for swinger lines 201–210. Published every fortnight. Same ZIP/PDF format as master roster. Defines which diagram each swinger line works that fortnight. |
+| **Fortnight Roster** | Per-fortnight roster document for swinger lines 201–214. Published every fortnight. Same ZIP/PDF format as master roster (also accepted as a printed "Intercity Drivers Roster" PDF). Defines which diagram each swinger line works that fortnight, plus the crew member assigned to each line. |
 | **Schedule file** | Per-diagram file (weekday or weekend). Authoritative source for sign-on, sign-off, total hours, and KM distance per diagram number. |
 | **Sign on** | The "Sign on" line in the schedule block (e.g. `Sign on 1:51a MOUNT VICTORIA`). Authoritative source for **scheduled start time** (subject to manual user override per FR-02-B). |
 | **Time off duty** | The "Time off duty" line in the schedule block (e.g. `Time off duty : 11:21a`). Authoritative source for **scheduled end time** (subject to manual user override per FR-02-B). |
@@ -101,7 +101,7 @@ Mt Victoria is an intercity depot on the Blue Mountains line. Key characteristic
 | **Time source** | Tags every day with where its scheduled times came from: `schedule` (from uploaded schedule file), `master` (from master roster), `builtin` (from built-in fallback data), `manual` (user override or user-edited times), `none` (OFF/ADO). |
 | **Manual diagram override** | User-entered diagram number that replaces the roster-assigned diagram for a specific day. Searches BOTH weekday and weekend schedules to find the diagram. Applies to **any day type**: regular workday, Saturday, Sunday, public holiday, OFF, or ADO. |
 | **Claim lift-up/layback** | Per-day Yes/No setting (default **Yes**) that controls whether the pay calculation includes lift-up/layback/buildup. When **Yes**, total shift duration = `max(scheduled_end, actual_end) − min(scheduled_start, actual_start)` (effective window — guarantees scheduled hours plus any extension). When **No**, total shift duration = `actual_end − actual_start` (driver paid only for hours physically on duty). See §5.7 and FR-02-F. |
-| **Swinger line** | Roster lines 201–210. Standby/flexible positions whose diagram assignments change each fortnight (sourced from the Fortnight Roster). |
+| **Swinger line** | Roster lines 201–214. Standby/flexible positions whose diagram assignments change each fortnight (sourced from the Fortnight Roster). |
 | **OT** | Overtime. Hours beyond 8 in a single day. 1.5× first 2 hrs, 2.0× beyond. |
 | **WOBOD** | Work on Book-Off Day. Working on a rostered day off. Cl. 140.4 primary rate (150%/200%/250% by day type and weekday OT-shift counter) + Cl. 140.7 50% Train Crew loading. No 4-hour minimum. |
 | **Lift-up / Buildup** | Driver signs on **before** scheduled start. The duration = `max(0, scheduled_start − actual_start)`. Treatment depends on the **Claim lift-up/layback** toggle — see §5.7. |
@@ -296,8 +296,8 @@ Three distinct roster/schedule documents exist, all in the same ZIP-based format
 
 | File | Update frequency | Purpose | Lines served |
 |------|-----------------|---------|--------------|
-| **Master Roster** | Annually | Maps lines 1–22 to diagram assignments for the 14-day window | 1–22 (and 201–210 as template) |
-| **Fortnight Roster** | Each fortnight | Maps swinger lines 201–210 to their actual diagram assignments for that fortnight | 201–210 |
+| **Master Roster** | Annually | Maps lines 1–22 to diagram assignments for the 14-day window | 1–22 (and 201–214 as template) |
+| **Fortnight Roster** | Each fortnight | Maps swinger lines 201–214 to their actual diagram assignments for that fortnight, plus per-line crew name | 201–214 |
 | **Weekday Schedule** | Annually (or as needed) | Per-diagram detail for weekday diagrams (3151–3168): sign-on, sign-off, KMs, total hrs | All weekday diagrams |
 | **Weekend Schedule** | Annually (or as needed) | Per-diagram detail for weekend diagrams (3651–3664): sign-on, sign-off, KMs, total hrs | All weekend diagrams |
 
@@ -309,12 +309,13 @@ Three distinct roster/schedule documents exist, all in the same ZIP-based format
 3. Display roster source badge: **"✓ Master roster"**
 4. Fallback: if master roster not uploaded, use built-in `roster.json` data
 
-**Lines 201–210 (swinger lines):**
+**Lines 201–214 (swinger lines):**
 1. Look up **fortnight roster** → get diagram name for each of the 14 days
 2. Look up schedule file → get sign-on, sign-off, KMs
 3. Display roster source badge: **"✓ Fortnight roster"**
-4. Fallback order: fortnight roster → master roster → built-in data
-5. Always indicate which source was used; swinger line notice shown when entering 201+ line
+4. **Fortnight roster is MANDATORY** for swinger lines (clarified v3.14) — the master roster does not carry swinger duty assignments, and the built-in `roster.json` fallback covers lines 1–22 only. If the user tries to load a 201–214 line before uploading the fortnight roster, `loadLine()` MUST return an error string and refuse to load; the SetupTab MUST surface that error as a red banner.
+5. Always indicate which source was used; swinger line notice shown when entering 201+ line. The notice MUST turn red ("Fortnight Roster required") when the fortnight roster has not been uploaded.
+6. **Crew member name** (new v3.14) — when the fortnight-roster PDF includes a crew-name column, the loaded crew member's name MUST be displayed in the Daily Entry toolbar so the user can confirm visually that the right line was loaded.
 
 ### 6.3 KM auto-fill (FR-R2)
 
@@ -326,14 +327,71 @@ When a weekday or weekend schedule is uploaded:
 ### 6.4 Master Roster upload (FR-U1)
 - Endpoint: `POST /api/parse-master-roster`
 - File format: ZIP archive (disguised as .pdf) containing `manifest.json` + `.txt` + `.jpeg` per page, OR real PDF
-- Parser extracts for each roster line (1–22, 201–210): per-day diagram name, sign-on, sign-off, cross-midnight flag, rostered hours, fatigue units
+- Parser extracts for each roster line (1–22, 201–214): per-day diagram name, sign-on, sign-off, cross-midnight flag, rostered hours, fatigue units
 - Uploaded once per year; replaces built-in roster data for lines 1–22
 
 ### 6.5 Fortnight Roster upload (FR-U2)
 - Endpoint: `POST /api/parse-fortnight-roster`
-- Same ZIP/PDF format as master roster
-- Used exclusively for swinger lines 201–210
-- Uploaded at the start of each fortnight
+- Accepts: the same ZIP/PDF formats as master roster **plus** the printed "Intercity Drivers Roster" PDF (the depot's published-each-fortnight document).
+- Used exclusively for swinger lines 201–214 (which are mandatory-from-fortnight-roster per §6.2).
+- Uploaded at the start of each fortnight.
+
+#### 6.5.1 Roster-date detection (v3.14)
+
+The parser MUST recognise both fortnight-date phrasings used by the various source documents:
+- `Fortnight ending DD/MM/YYYY` (ZIP exports, app exports) → `fn_end` = parsed date; `fn_start = fn_end − 13 days`.
+- `Fortnight commencing Weekday, DD Month YYYY` (printed Intercity Drivers Roster PDF) → `fn_start` = parsed date; `fn_end = fn_start + 13 days`.
+
+#### 6.5.2 Printed-PDF table extraction (v3.14)
+
+The depot's printed "Intercity Drivers Roster" PDF cannot be parsed by the text-regex approach used for ZIP exports because crew names sit between the line number and the day entries (so the regex `^<line#>\s+(?:OFF|ADO|HH:MM)` never matches). The parser MUST therefore fall back to **pdfplumber table extraction** (`page.find_tables` with `vertical_strategy='lines'` / `horizontal_strategy='lines'`) when the text-regex pass returns zero lines.
+
+**Multi-row logical lines.** Each printed roster line occupies multiple pdfplumber rows — an **anchor row** whose `cells[1]` is the line number, followed by one or more **continuation rows** whose `cells[1]` is empty. The parser MUST group anchor + following continuation rows into a single logical line before extracting day cells.
+
+**Four supported table layouts.** The parser MUST auto-detect both the table layout (main vs swinger) and the presence of a crew-name column:
+
+| Layout | Cols | Day anchors (0-based) | O/T col |
+|--------|------|----------------------|---------|
+| Main + crew column | ~30–31 | `[3, 4, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 26, 28]` | 30 |
+| Main, no crew column | ~29–30 | `[2, 3, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 25, 27]` | 29 |
+| Swinger + crew column | ~20 | `[3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 17, 18]` | 19 |
+| Swinger, no crew column | ~19 | `[2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 16, 17]` | 18 |
+
+Detection rules:
+- **Layout (main vs swinger):** `ncols ≤ 22` ⇒ swinger; otherwise main.
+- **Crew column presence:** inspect `cells[2]` of the first anchor row in the table; if it contains a time-range or day keyword (`OFF`/`ADO`/`NTA`/`HOL`/`SBY`/`RDO`/`ALT`), there is no crew column and day 1 starts at `cells[2]`.
+
+**Sub-columns.** Day anchors are not always consecutive — values between consecutive anchors carry split diagram/location tokens (e.g. `"3154"` in the anchor column, `"MQ/SMB"` in the next sub-column). The parser MUST concatenate `' '.join(parts)` across the sub-column range for each day before parsing.
+
+**Cell parsing.** Each day cell may contain:
+- Empty / `OFF` / `NTA` / `HOL` / `(AL …)` / `OFF(Off Roster)` → `RosterDayEntry(diag='OFF', r_start=None, r_end=None, r_hrs=0)`.
+- `ADO` / `ADO(LSL …)` → `RosterDayEntry(diag='ADO', r_start=None, r_end=None, r_hrs=8.0)`.
+- `HH:MM - HH:MM[L]\nDIAGRAM …` → `RosterDayEntry(diag=<DIAGRAM>, r_start=..., r_end=..., cm=(L flag), r_hrs=...)`.
+- Cross-midnight indicated by `L` suffix on the end time, e.g. `19:00 - 03:00L`.
+- Fatigue tokens (`F0`, `F24`, …) are stripped from the diagram name.
+
+#### 6.5.3 Strikethrough handling (v3.14)
+
+Some printed rosters show a crew member's days struck through to indicate they didn't show up for the duty (cf. user's example: line 207 with "Off Roster"-annotated cells). The parser MUST treat struck-through day cells as OFF.
+
+**Detection (text-colour brightness).** For each cell, the parser averages the non-stroking colour of all glyph characters inside the cell bounding box. Cells whose average brightness is ≥ 0.35 (mid-grey or lighter, i.e. visibly faded vs solid black at 0.0) are considered struck.
+
+**Day-column restriction (critical).** Strikethrough blanking MUST only be applied to **day columns** (`col_idx ≥ 3` with crew, or `≥ 2` without). The line-number column (col 1) and crew-name column (col 2) commonly use grey ink as **alternating-row styling** (every fourth row), which produced false positives that silently erased valid line numbers (lines 8, 18, 19, 205, 209, 212 in the depot's reference PDF). The fix is mandatory for any future strikethrough heuristic.
+
+Vector-line-based strikethrough detection (looking for horizontal lines passing through cells) was attempted in development but produced false positives from the table grid itself (mid-row separator lines between continuation rows of a logical line fall geometrically inside adjacent cells). The text-colour approach is the chosen authoritative method.
+
+#### 6.5.4 Crew-name extraction (v3.14)
+
+When the table has a crew-name column (`has_crew_col = True`), the parser MUST extract the crew member's name from `col 2` of the **anchor row only** (continuation rows excluded) and return it via the new `ParsedRosterResponse.crew_names: dict[str, str]` field, keyed by line number string.
+
+- Embedded newlines are collapsed to single spaces.
+- Trailing date annotations like `" (AL 18/04/26)"` are stripped.
+- Job-share lines that genuinely contain two crew names in the printed PDF (e.g. line 5: `"Fry (MQ), Lee-Anne / Ward (MQ), Ian"`) are preserved verbatim — the printed roster shows both.
+- The `crew_names` field is `Optional`/defaulted-empty for backwards compatibility; master rosters and ZIP-format fortnight rosters leave it empty.
+
+#### 6.5.5 First-occurrence-wins de-duplication
+
+A line may appear on multiple pages of the printed PDF. The parser MUST use the **first occurrence** (page-order) for each line number and ignore subsequent re-occurrences.
 
 ### 6.6 Schedule upload (FR-U3) — weekday or weekend
 
@@ -445,7 +503,7 @@ The frontend stores a `mvwc_cache_version` key in localStorage. On app load, if 
 ## 7. Functional Requirements
 
 ### FR-01: Fortnight Setup
-- User selects roster line number (1–22 or 201–210)
+- User selects roster line number (1–22 or 201–214)
 - User sets fortnight start date (snapped to Sunday)
 - Auto-detect short vs long fortnight
 - Public holiday dates entry
@@ -456,10 +514,11 @@ The frontend stores a `mvwc_cache_version` key in localStorage. On app load, if 
   - Weekday Schedule upload card
   - Weekend Schedule upload card
 - **Step 2 (load line):**
-  - Swinger line notice (201+) showing which roster will be used
+  - Swinger line notice (201+) showing which roster will be used. When the fortnight roster has NOT been uploaded, the notice MUST display in red ("Fortnight Roster required — upload it in Step 1 before loading this line") per §6.2 (clarified v3.14).
   - Lines 1–22 notice showing master roster will be used
   - Roster source badge after loading
   - KMs auto-fill indicator if schedule is uploaded
+  - **Pre-load validation (v3.14):** clicking **Load roster line** for a 201–214 line without the fortnight roster MUST refuse to load and surface a red error banner. `loadLine()` returns an error string in this case (signature: `(line, start, phs, psTotal) => string | null`).
 - Legacy: Payslip upload card + legacy fortnight roster PDF card
 
 ### FR-02: Daily Entry
@@ -492,7 +551,7 @@ Each work day row has TWO time-input sections, both always visible:
 
 **Actual times (user-editable inputs):**
 - Label: "Actual start" / "Actual end"
-- Pre-filled with scheduled times on load (so most days require no input)
+- **Pre-filled with scheduled times on load** (so most days require no input). This applies on every load path: `loadLine()`, `applyManualDiag()`, `markWorkedOnOff()`, and post-`loadLine` re-application when a schedule file is uploaded after the line was loaded (Trigger 3 per FR-02-D). The pre-fill is **mandatory** (clarified v3.14): the user opens Daily Entry and sees scheduled = actual on every day; they only edit actuals when they ran lift-up/layback/late-finish/etc.
 - User can override at any time to record actual start/end (lift-up, layback, late sign-off)
 - A **"Same as scheduled"** button next to the actual-time inputs copies scheduled → actual in one click (used to re-sync if user edited and wants to revert)
 
@@ -782,14 +841,20 @@ The `claim_liftup_layback` field defaults to `True` so older clients (without th
       { "diag": "OFF",       "r_start": null,    "r_end": null,    "cm": false, "r_hrs": 0.0 },
       { "diag": "3151 SMB",  "r_start": "00:51", "r_end": "09:18", "cm": false, "r_hrs": 8.45 }
     ],
-    "201": [
+    "209": [
       { "diag": "OFF",       "r_start": null,    "r_end": null,    "cm": false, "r_hrs": 0.0 },
-      { "diag": "SBY",       "r_start": "05:00", "r_end": "13:00", "cm": false, "r_hrs": 8.0 }
+      { "diag": "3160 MQ",   "r_start": "09:32", "r_end": "17:41", "cm": false, "r_hrs": 8.15 }
     ]
+  },
+  "crew_names": {
+    "209": "Saharan, Ravi",
+    "210": "Carrick-Allan (A/DT)(MQ), Gavin"
   },
   "warnings": []
 }
 ```
+
+The `crew_names` field (new v3.14) is keyed by line-number string and populated only when the source document is a printed fortnight roster with a crew-name column. Master rosters and ZIP-format roster exports return an empty object. The field is optional on the wire for backwards-compatibility; older clients ignore it.
 
 ### 9.5 API response — `POST /api/parse-schedule`
 ```json
@@ -893,11 +958,11 @@ Used only when no master/fortnight roster has been uploaded.
 - Each line: 14 entries (one per day, Sunday–Saturday–Sunday)
 - Diagram assignments come from master roster; timing detail from schedule files
 
-### 11.2 Swinger lines (201–210)
-- Flexible standby positions
+### 11.2 Swinger lines (201–214)
+- Flexible standby positions; crew member assigned to each swinger line is published in the per-fortnight roster (see §6.5.4).
 - **Diagram assignments change every fortnight** (sourced from fortnight roster)
-- Data source priority: **uploaded fortnight roster → uploaded master roster → built-in roster.json**
-- Always show swinger line notice in Setup tab when line 201+ is entered
+- **Data source is the fortnight roster only** (v3.14): fortnight roster is mandatory per §6.2; the prior "fortnight → master → built-in" fallback chain is removed because the master roster does not carry swinger duty assignments and the built-in fallback covers lines 1–22 only.
+- Always show swinger line notice in Setup tab when line 201+ is entered. The notice MUST turn red when the fortnight roster has not been uploaded (per §13.2).
 
 ### 11.3 Diagram numbering convention
 | Range | Day type | Schedule file |
@@ -974,13 +1039,13 @@ Cards use a **card-header / card-body** structure. Each card has a step-indicato
 
 **Step 1 — Upload rosters & schedules** (do before loading a line)
 - Upload card: **Master Roster** (annual, lines 1–22) — `Mt_Victoria_Drivers_Master.pdf`
-- Upload card: **Fortnight Roster** (swinger lines 201–210) — upload each fortnight
+- Upload card: **Fortnight Roster** (swinger lines 201–214) — upload each fortnight. Accepts ZIP exports AND the depot's printed "Intercity Drivers Roster" PDF (parser supports both per §6.5).
 - Upload card: **Weekday Schedule** — diagrams 3151–3168, auto-fills KMs + times
 - Upload card: **Weekend Schedule** — diagrams 3651–3664, auto-fills KMs + times
 
 **Step 2 — Load roster line**
-- Roster line input (1–22 or 201–210)
-- Swinger line info banner (when 201+ entered): shows which roster will be used
+- Roster line input (1–22 or 201–214)
+- Swinger line info banner (when 201+ entered): shows which roster will be used. **Banner colour is red ("Fortnight Roster required — upload it in Step 1 before loading this line") when the fortnight roster has NOT been uploaded** (v3.14); green/blue ("Duty assignments loaded from the Fortnight Roster") once it has.
 - Lines 1–22 info banner: shows master roster will be used
 - Fortnight start date
 - **Public holidays (multi-date picker — v3.13):** An `<input type="date">` field with an **"+ Add"** button. Each added date appears as a removable amber chip showing `📆 Fri 3 Apr 2026 ×`. Clicking the × removes that date. The full list of PH dates is stored as a `string[]` array and sent as `public_holidays` in the API request. This replaces the old comma-separated text input, which only picked up the first PH date when multiple were entered (multi-PH bug fixed v3.13).
@@ -994,6 +1059,14 @@ Cards use a **card-header / card-body** structure. Each card has a step-indicato
 - Legacy fortnight roster PDF card (for sign-on/sign-off pre-fill)
 
 ### 13.3 Daily Entry tab
+
+**Tab toolbar (above the 14-day list):**
+- **Calculate fortnight** button (primary action).
+- **Apply uploaded roster** button (visible when a roster upload is pending application).
+- **Line badge** — `Line N` showing the currently loaded roster line.
+- **Crew member badge (v3.14)** — `👤 <Crew Name>` displayed alongside the line badge when the loaded line came from a fortnight roster upload that included a crew-name column. Sourced from `ParsedRosterData.crew_names[line]` (§9.4); only set when `rosterSource === 'fortnight'`. Provides visual confirmation that the right line was loaded. Hidden when no crew name is available (master-roster lines, built-in fallback).
+- **Fortnight date range** chip (e.g. `2026-04-05 – 2026-04-18`).
+- **Fortnight-type badge** — `⚡ SHORT` (amber) or `📋 LONG` (accent).
 
 Each day row has two sections: **header** (always visible) and **body** (expanded on click).
 
@@ -1143,6 +1216,7 @@ Aggregated list of all audit flags across the fortnight, coloured amber for ALER
 | 3.10 | April 2026 | (1) **NEW per-day toggle** — `Claim lift-up/layback?` (default Yes) per FR-02-F. When Yes, pay calc uses the **effective window** (`min(scheduled_start, actual_start)` to `max(scheduled_end, actual_end)`); when No, uses actual times only with no lift-up/layback. See §5.7 worked examples. (2) **Scheduled times now editable** — the Scheduled start and Scheduled end inputs are no longer read-only; user can override (FR-02-B updated). KM field continues to be editable (FR-02-D). (3) **§5.7 rewritten** to use the effective-window model. This fixes a long-standing **double-counting bug** in v3.6–v3.9 where lift-up/layback gap components were added on top of `actual_hrs` that already included those minutes — e.g. a 9-hr actual against an 8-hr scheduled was over-paid as 10.25 base-rate units instead of the correct 9.5. (4) **Stale schedule cache invalidation** (§6.10) — frontend stores a `mvwc_cache_version` key; v3.10 clears `mvwc_weekday_schedule` and `mvwc_weekend_schedule` from localStorage on first load to force users to re-upload schedules with the v3.8 column-aware parser, resolving the user-visible bug where Daily Entry was displaying master-roster times because the cached schedule was missing diagrams. (5) Lift-up/layback are now emitted as **informational flags only** (no separate pay components), since they're already part of the effective-window total. (6) Shift penalty class continues to be determined by **actual sign-on time** regardless of the toggle, because the penalty depends on when the driver physically signs on. |
 | 3.11 | April 2026 | **Six backend accuracy fixes, all verified against the canonical Line 8 payslip (2026-03-22, $7,336.55 to the cent).** (1) **WOBOD rule corrected** (§5.6) — replaced the hallucinated "Cl. 136 double-time min 4 hrs" rule with the correct Cl. 140.4 primary rate (150%/200%/250% by day type, weekday OT-shift counter) + Cl. 140.7 50% Train Crew loading. No 4-hour minimum. Weekday counter is fortnight-scoped; Sat/Sun WOBOD do not increment it. (2) **Afternoon penalty fix** (§5.4) — trigger condition tightened to `10:00 ≤ sign-on < 18:00`, which guarantees ordinary time ends after 18:00. Previously used `actual_sign_off > 18:00` which over-triggered on late-finishing day shifts. (3) **Hours rounding fix** (NFR-05) — `amount = round(hours, 2) × rate` (round hours first, then multiply). Previously rounded the product, which diverged from the payroll system by up to 3 cents per line. (4) **Pooled 1001 line uses sum-of-rounded-per-day** (NFR-05) — e.g. 8 × round($398.547, 2) = $3,188.40, not 64h × $49.81842 = $3,188.38. (5) **Auto-suppress shift-swap** (§5.7) — if the scheduled/actual overlap is < 50% of the shorter shift, `claim_liftup_layback` is forced to `False` with a warning flag. Prevents the effective-window from spanning two non-overlapping shifts (e.g. Mar 28: sched 04:43–12:58, actual 12:00–20:00, 12% overlap → auto-suppressed). (6) **Short-fortnight tracking via `wasAdo`** (§5.8) — `wasAdo: boolean` added to `DayState`; preserved across all override mutations. `is_short_fortnight` sent explicitly in the `/api/calculate` request body; backend uses it as source of truth so converting a rostered ADO to WOBOD does not flip the fortnight type. (7) **Pydantic camelCase bug fixed** — `CamelModel` base with `alias_generator=to_camel` + `populate_by_name=True` added to all backend input models; previously every camelCase field from the frontend was silently dropped and all calculations returned $0. |
 | 3.12 | May 2026 | **Assoc / Un-assoc Payments Chart integration (§5.10, §6.11).** (1) **New depot chart data model** — `AssocChartEntry` stores `unAssocMins`, `assocPaymentMins`, `assocCalcMins` (pre-computed total), and `buildUpMins` (pre-computed build-up from physical chart's "Build Up" column) per diagram. Built-in defaults for all 32 Mt Victoria diagrams baked in from the Oct 2025 depot chart. (2) **Six diagrams have non-zero build-up from the physical chart:** 3155 (+25 min), 3160 (+51 min), 3161 (+70 min), 3168 (+27 min), 3657 (+30 min), 3660 (+30 min). When the chart's Build Up column is non-zero, that value is sent to the backend as `assocBuildUpHrs` and used directly (bypasses formula) for cent-perfect payroll matching. (3) **Lift-up interaction fix** — when lift-up/layback is claimed AND the effective window exceeds `r_hrs`, the effective window is used as the shift length for the 1454 formula. This prevents double-paying build-up on top of lift-up extra time (e.g. diagram 3155 with lift-up: effective window 9h26m > assoc calc 8h30m → build-up = 0; without this fix the app over-paid by $20.92). (4) **Setup tab chart card** — shows all 32 diagrams in a 7-column table (Diagram, Un-assoc mins/hrs, Assoc payment mins/hrs, Assoc Calc mins, Build Up mins); Build Up values highlighted green. CSV upload/download with 5-column format; PDF and image (Tesseract.js client-side OCR) also accepted. (5) **Backend Render deployment** switched to Docker (`env: docker`, `Dockerfile` with `apt-get install tesseract-ocr`) for reliable server-side image OCR. Client-side Tesseract.js also added as fallback for image uploads when backend OCR is unavailable. (6) **CSV template** updated to 5 columns including `assoc_calc_mins` and `build_up_mins`. |
+| 3.14 | May 2026 | **Printed fortnight-roster parser + swinger UX + crew-name display.** (1) **Real "Intercity Drivers Roster" PDF support** (§6.5.2) — pdfplumber `find_tables()` fallback when text-regex returns zero lines. Auto-detects four table layouts: main with-crew (~31 cols, anchors `[3,4,5,7,9,11,13,15,17,19,21,23,26,28]`), main no-crew (shifted left by 1), swinger with-crew (~20 cols, **consecutive** anchors `[3,4,5,6,7,8,10,11,12,13,14,15,17,18]` with sub-col separators at col 9 and col 16), swinger no-crew. Detection rules: `ncols ≤ 22` ⇒ swinger; `cells[2]` of first anchor row containing a time-range or day keyword ⇒ no crew column. **Multi-row logical-line grouping** (anchor row + continuation rows whose `cells[1]` is empty). Real-PDF verification: 36/36 lines parsed, 0 warnings; line 209 (Saharan, Ravi) correctly shows Tue 7 Apr = SBY 12:00–20:00, Fri 10 Apr = 3160 MQ 09:32–17:41, Sun 12 Apr = AMV01 11:58–21:25. (2) **Text-colour strikethrough handling** (§6.5.3) — cells whose average non-stroking colour brightness ≥ 0.35 are treated as struck through and parsed as OFF. **Day-column restriction is mandatory:** col 0 (spacer), col 1 (line#) and col 2 (crew name) MUST never be blanked — those columns use grey ink for alternating-row styling in some PDFs and were silently erasing lines 8, 18, 19, 205, 209, 212. (3) **"Fortnight commencing" date parsing** (§6.5.1) — added alongside the existing "Fortnight ending" recognition so printed-PDF date headers parse correctly. (4) **Lines 201–214** — swinger range extended from 201–210 to 201–214 across §2.3, §4, §6.1, §6.2, §6.4, §6.5, §11.2, §13.2, FR-01. SetupTab input `max="214"`. (5) **Fortnight roster is MANDATORY for swinger lines** (§6.2, §11.2, FR-01) — master-roster and built-in fallback chains removed for 201–214; `loadLine()` returns an error string when the user attempts to load a 201–214 line without the fortnight roster (signature changed to `(line, start, phs, psTotal) => string \| null`). SetupTab surfaces it as a red banner; the swinger-info chip turns red until the roster is uploaded. (6) **Crew-name extraction & display** — `ParsedRosterResponse` gains `crew_names: dict[str, str]` (§9.4); populated from `col 2` of the **anchor row only** (continuation rows excluded to avoid bleed). Frontend `FortnightContext` exposes `loadedCrewName: string \| null`, set only when `rosterSource === 'fortnight'`. Daily Entry toolbar shows `👤 <Crew Name>` next to the line badge (§13.3) so the user can visually confirm the right line was loaded. (7) **Actual times auto-pre-filled from scheduled on every load path** (FR-02-B) — `loadLine`/`applyManualDiag`/`markWorkedOnOff` all set `aStart = rStart, aEnd = rEnd`; most days require no further input. (8) **"Fill all rostered" toolbar button removed** from DailyEntryTab — redundant now that actuals pre-fill automatically on load. (9) **Cache schema bumped to 3.12** to invalidate any cached `ParsedRosterData` lacking the new `crew_names` field. No EA-rule or calculator changes. |
 | 3.13 | May 2026 | **Apple HIG redesign + accessibility + multi-PH bug fix.** (1) **Complete UI redesign** (§13.1–13.4) following Apple Human Interface Guidelines — `#f5f5f7` canvas, `#0071e3` accent, SF Pro font stack, frosted-glass sticky header (`backdrop-filter: saturate(180%) blur(20px)`), underline tab indicator (no pills), white card surfaces with hairline borders and minimal `1px` shadow, no gradients anywhere. (2) **App header restructured** — sticky frosted header (52px) above sticky tab bar (40px); header shows 🚂 logo mark, title/subtitle, fortnight-type badge, roster line badge, EA version badge. (3) **Setup tab** — cards now use card-header / card-body structure with numbered step circles (green ✓ / blue 2 / gray 3). (4) **Multi-PH bug fix** — public holiday input replaced: old comma-separated text input only picked up the first PH date when multiple were entered. New design uses `<input type="date">` + "Add" button to push dates into a `string[]` array; each PH appears as a removable amber chip showing `📆 Fri 3 Apr 2026 ×`. All PH dates are correctly sent to the API. (5) **Daily Entry — iOS toggle groups** — `<select>` dropdowns for Lift-up/layback, WOBOD, and Cross-midnight replaced with segmented toggle-group components (adjacent Yes/No buttons, active state filled with accent colour). ARIA `aria-pressed` on each button. (6) **Daily Entry — two-column times layout** — scheduled and actual times displayed side-by-side in a `1fr 1px 1fr` CSS grid with a hairline vertical divider. (7) **Auto-suppress chip in collapsed header** — when the system suppresses a lift-up/layback claim due to < 50% shift overlap (§5.7), an amber chip is visible in the collapsed day-row header so the driver is immediately alerted without needing to expand the row. (8) **Results tab — match/variance banner** — replaces the former inline variance text; full-width banner with green (match) or amber (variance) left-border accent; Export buttons are inlined in the banner. `role="status"` / `role="alert"` for screen-reader announcements. (9) **Results tab — metric cards** — four white cards in a responsive grid (total gross, ordinary hours, OT hours, ADO payout/fortnight type). (10) **Results tab — coloured code chips** — each payroll code in the payslip-format breakdown table is rendered as a colour-coded chip (blue 1001/1026, green 1462, amber 1470/1010/5042, purple 1487/1483, pink 1059/1100/1110, sky 1454, yellow 1064). (11) **WCAG 2.1 AA accessibility** (NFR-09) — `aria-label`, `aria-pressed`, `aria-selected`, `aria-expanded` on all interactive elements; `role="list"/"listitem"/"tab"` on structural elements; `tabIndex={0}` + keyboard Enter/Space on day rows; `focus-visible` ring; `prefers-reduced-motion` support. No code changes to backend. |
 
 ---
