@@ -179,6 +179,7 @@ def parse_roster_zip(file_bytes: bytes, filename: str) -> ParsedRosterResponse:
     # The real printed "Intercity Drivers Roster" PDF has crew names between the
     # line number and the day entries, so the regex above never matches.
     # pdfplumber.extract_tables() preserves cell boundaries and handles it cleanly.
+    crew_names: dict[str, str] = {}
     if not lines_data:
         is_zip = False
         try:
@@ -187,7 +188,7 @@ def parse_roster_zip(file_bytes: bytes, filename: str) -> ParsedRosterResponse:
         except Exception:
             pass
         if not is_zip:
-            lines_data = _parse_roster_from_pdf_tables(file_bytes, warnings)
+            lines_data, crew_names = _parse_roster_from_pdf_tables(file_bytes, warnings)
 
     if not lines_data:
         warnings.append('No roster lines found in this file.')
@@ -199,7 +200,7 @@ def parse_roster_zip(file_bytes: bytes, filename: str) -> ParsedRosterResponse:
     return ParsedRosterResponse(
         source_file=filename, line_type=line_type,
         fn_start=fn_start, fn_end=fn_end,
-        lines=lines_data, warnings=warnings,
+        lines=lines_data, crew_names=crew_names, warnings=warnings,
     )
 
 
@@ -320,6 +321,27 @@ _OT_COL          = 30
 # starts directly at col[2] (e.g. some exported / legacy roster PDFs).
 _DAY_ANCHORS_NOCREW = [a - 1 for a in _DAY_ANCHORS]  # [2, 3, 4, 6, 8, …, 27]
 _OT_COL_NOCREW      = _OT_COL - 1
+
+# Swinger / spare-line table (lines 209-214 on the real fortnight PDF) is much
+# narrower (~20 cols) than the main 30/31-col roster table.  Day cells run
+# consecutively from col 3, with sub-column separators at col 9 and col 16.
+#   col 0:   spacer
+#   col 1:   line number
+#   col 2:   crew name
+#   col 3-8: days 1-6                (consecutive)
+#   col 9:   sub-col separator (empty)
+#   col 10-15: days 7-12             (consecutive)
+#   col 16:  sub-col separator (empty)
+#   col 17-18: days 13-14
+#   col 19:  O/T count
+_SWINGER_DAY_ANCHORS        = [3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 17, 18]
+_SWINGER_OT_COL             = 19
+_SWINGER_DAY_ANCHORS_NOCREW = [a - 1 for a in _SWINGER_DAY_ANCHORS]
+_SWINGER_OT_COL_NOCREW      = _SWINGER_OT_COL - 1
+
+# Tables with this many columns or fewer use the swinger layout.  Real-world
+# values are 20 (with crew col) and 19 (without).  Main roster table is 30-31.
+_SWINGER_MAX_NCOLS = 22
 
 # Regex that matches text that looks like a day-slot entry in an anchor row.
 # Used to determine whether col[2] is a crew name or the first day column.
@@ -458,34 +480,59 @@ def _parse_cell_to_day_entry(cell: object) -> 'RosterDayEntry':
     return RosterDayEntry(diag=diag, r_start=r_start, r_end=r_end, cm=cm, r_hrs=r_hrs)
 
 
-def _parse_roster_from_pdf_tables(file_bytes: bytes, warnings: list[str]) -> dict:
+def _clean_crew_name(raw: str) -> str:
+    """
+    Normalise a raw crew-name cell from the fortnight roster.
+    Collapses embedded newlines (pdfplumber splits long names) and strips
+    annotations like '(AL 18/04/26)' that aren't part of the actual name.
+    """
+    s = re.sub(r'\s+', ' ', (raw or '').replace('\n', ' ')).strip()
+    # Strip trailing date-annotations e.g. " (AL 18/04/26)"
+    s = re.sub(r'\s*\([A-Z]{1,4}\s+\d{1,2}/\d{1,2}/\d{2,4}\)\s*$', '', s).strip()
+    return s
+
+
+def _parse_roster_from_pdf_tables(
+    file_bytes: bytes, warnings: list[str],
+) -> tuple[dict, dict]:
     """
     Parse the Sydney Trains "Intercity Drivers Roster" PDF using pdfplumber's
     table extraction.
 
+    Returns (lines_data, crew_names) where:
+      - lines_data:  {line_number_str → list[RosterDayEntry] of length 14}
+      - crew_names:  {line_number_str → crew member name string}  (may be empty)
+
     Supported table layouts (0-based columns):
-      WITH crew-name column:
+      MAIN ROSTER (30-31 cols, lines 1-22 & 201-208):
         col[0]=spacer  col[1]=Line#  col[2]=Crew  col[3..28]=14 days  col[30]=O/T
         Day anchors: _DAY_ANCHORS = [3, 4, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 26, 28]
-      WITHOUT crew-name column (days start at col[2]):
-        col[0]=spacer  col[1]=Line#  col[2..27]=14 days  col[29]=O/T
-        Day anchors: _DAY_ANCHORS_NOCREW (= each element minus 1)
+        No-crew variant: anchors shift left by 1, days start at col[2].
+      SWINGER TABLE (~20 cols, lines 209-214 on the printed PDF):
+        col[0]=spacer  col[1]=Line#  col[2]=Crew  col[3..18]=14 days  col[19]=O/T
+        Day anchors run CONSECUTIVELY at _SWINGER_DAY_ANCHORS, with sub-column
+        separators at col 9 and col 16.
+        No-crew variant likewise shifts left by 1.
 
-    Format is auto-detected: if col[2] of the first anchor row contains a time
-    range or a day keyword (OFF/ADO/NTA/HOL/…) then there is no crew column.
+    Layout is auto-detected by table width: ≤ _SWINGER_MAX_NCOLS (22) ⇒ swinger.
+    Crew-column presence is auto-detected by inspecting col[2] of the first
+    anchor row — if it contains a time-range or day keyword, no crew column.
 
     Logical lines span MULTIPLE table rows:
       • Anchor row   — cells[1] is a valid line number.
-      • Continuation rows — cells[1] is empty; carry split diagram/location tokens.
+      • Continuation rows — cells[1] is empty; carry split diagram/location tokens
+        and the back half of long crew names.
 
     Cells whose content is visually struck through (person didn't show up) are
-    treated as empty → OFF.  Detection uses horizontal lines from page.lines that
-    pass through a cell's interior, not its border.
+    treated as empty → OFF.  Detection uses character text colour (grey ⇒ struck);
+    restricted to day columns only so line-number / crew-name greyed-out alternating
+    row styling isn't mistaken for strikethrough.
     """
     if pdfplumber is None:
-        return {}
+        return {}, {}
 
     lines_data: dict = {}
+    crew_names: dict = {}
     try:
         with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
             for page in pdf.pages:
@@ -510,6 +557,10 @@ def _parse_roster_from_pdf_tables(file_bytes: bytes, warnings: list[str]) -> dic
                     if not table:
                         continue
 
+                    # ── Detect table-width-based layout: main vs swinger ──────
+                    ncols = max((len(r) for r in table if r), default=0)
+                    is_swinger_layout = 0 < ncols <= _SWINGER_MAX_NCOLS
+
                     # ── Detect whether there is a crew-name column ────────────
                     # Inspect col[2] of the first anchor row.  If it looks like a
                     # day entry, the days start at col[2] (no crew column present).
@@ -524,8 +575,16 @@ def _parse_roster_from_pdf_tables(file_bytes: bytes, warnings: list[str]) -> dic
                                 has_crew_col = False
                             break
 
-                    day_anchors = _DAY_ANCHORS     if has_crew_col else _DAY_ANCHORS_NOCREW
-                    ot_col      = _OT_COL          if has_crew_col else _OT_COL_NOCREW
+                    if is_swinger_layout:
+                        day_anchors = (_SWINGER_DAY_ANCHORS if has_crew_col
+                                       else _SWINGER_DAY_ANCHORS_NOCREW)
+                        ot_col      = (_SWINGER_OT_COL      if has_crew_col
+                                       else _SWINGER_OT_COL_NOCREW)
+                    else:
+                        day_anchors = (_DAY_ANCHORS if has_crew_col
+                                       else _DAY_ANCHORS_NOCREW)
+                        ot_col      = (_OT_COL      if has_crew_col
+                                       else _OT_COL_NOCREW)
 
                     # ── Build struck-cell set for this table ──────────────────
                     struck = (
@@ -575,6 +634,18 @@ def _parse_roster_from_pdf_tables(file_bytes: bytes, warnings: list[str]) -> dic
                             continue  # first occurrence wins (PDF may span pages)
 
                         rows = grp['rows']
+
+                        # Crew name: col 2 of the ANCHOR row only.  Continuation
+                        # rows' col 2 may contain bleed-through from adjacent
+                        # logical lines (the printed PDF visually merges tall
+                        # cells, but pdfplumber attributes the text to whichever
+                        # row vertically owns it).  The anchor row alone is the
+                        # safest source.
+                        if has_crew_col and rows:
+                            crew_name = _clean_crew_name(rows[0][2] if len(rows[0]) > 2 else '')
+                            if crew_name:
+                                crew_names[str(line_num)] = crew_name
+
                         entries: list[RosterDayEntry] = []
 
                         for di, anchor in enumerate(day_anchors):
@@ -609,7 +680,7 @@ def _parse_roster_from_pdf_tables(file_bytes: bytes, warnings: list[str]) -> dic
     except Exception as exc:
         warnings.append(f'Table-extraction pass failed: {exc}')
 
-    return lines_data
+    return lines_data, crew_names
 
 
 # ─── Schedule parser (v3.8: 2-column PDF support) ──────────────────────────────

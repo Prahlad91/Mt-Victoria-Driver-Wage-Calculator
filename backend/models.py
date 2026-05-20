@@ -218,6 +218,10 @@ class ParsedRosterResponse(BaseModel):
     fn_start: Optional[str] = None
     fn_end: Optional[str] = None
     lines: dict[str, list[RosterDayEntry]]
+    # Crew member name keyed by line number string (e.g. "209" -> "Saharan, Ravi").
+    # Populated only for fortnight rosters where the printed PDF has a crew-name
+    # column; master rosters use line numbers alone and leave this empty.
+    crew_names: dict[str, str] = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
 
 
