@@ -33,9 +33,10 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
 
   function handleLoad() {
     const line = parseInt(lineInput)
-    if (isNaN(line) || line < 1) { setErr('Enter a valid line number (1–22 or 201–210)'); return }
+    if (isNaN(line) || line < 1) { setErr('Enter a valid line number (1–22 or 201–214)'); return }
     const psVal = parseFloat(psInput)
-    ctx.loadLine(line, dateInput, phs, isNaN(psVal) ? null : psVal)
+    const loadErr = ctx.loadLine(line, dateInput, phs, isNaN(psVal) ? null : psVal)
+    if (loadErr) { setErr(loadErr); return }
     setErr('')
     onLoaded()
   }
@@ -131,13 +132,11 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
         <div className="card-body">
 
         {isSwingerLine ? (
-          <div className="alert alert-info" style={{marginBottom:10,fontSize:11}}>
-            ⓘ Line {lineInput || '201+'} is a <strong>swinger line</strong>. Diagram assignments come from the{' '}
+          <div className={`alert ${ctx.fnRosterUpload.status === 'success' ? 'alert-info' : 'alert-err'}`} style={{marginBottom:10,fontSize:11}}>
             {ctx.fnRosterUpload.status === 'success'
-              ? <strong>Fortnight Roster ✓</strong>
-              : <>Fortnight Roster <span style={{color:'var(--amber-text)'}}>— not yet uploaded</span></>}
-            {ctx.masterRosterUpload.status === 'success' && ctx.fnRosterUpload.status !== 'success'
-              && ' — will fall back to Master Roster'}.
+              ? <>✓ Line {lineInput} is a <strong>swinger line</strong>. Duty assignments loaded from the <strong>Fortnight Roster</strong>.</>
+              : <>⚠ Line {lineInput} is a <strong>swinger line (201–214)</strong>. <strong>Fortnight Roster is required</strong> — upload it in Step 1 before loading this line.</>
+            }
           </div>
         ) : (
           <div className="alert alert-info" style={{marginBottom:10,fontSize:11}}>
@@ -150,8 +149,8 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
 
         <div className="g3" style={{marginBottom:12}}>
           <div>
-            <label>Roster line <span style={{color:'var(--text3)'}}>1–22 or 201–210</span></label>
-            <input type="number" min="1" max="210" value={lineInput} onChange={e => setLine(e.target.value)} />
+            <label>Roster line <span style={{color:'var(--text3)'}}>1–22 or 201–214</span></label>
+            <input type="number" min="1" max="214" value={lineInput} onChange={e => setLine(e.target.value)} />
             {err && <p style={{color:'var(--red-text)',fontSize:11,marginTop:3}}>{err}</p>}
           </div>
           <div>

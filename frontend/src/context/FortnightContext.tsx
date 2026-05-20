@@ -116,7 +116,7 @@ interface Ctx {
   loadAssocChartCsv: (csvText: string) => string | null  // returns error or null
   resetAssocChart: () => void
   result: CalculateResponse | null; calculating: boolean; calcError: string | null
-  loadLine:            (line: number, start: string, phs: string[], psTotal: number | null) => void
+  loadLine:            (line: number, start: string, phs: string[], psTotal: number | null) => string | null
   fillAllRostered:     () => void
   copyScheduledToActual: (i: number) => void
   setDay:              (i: number, patch: Partial<DayState>) => void
@@ -317,7 +317,18 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
 
   const loadLine = useCallback((
     line: number, start: string, phs: string[], psTotal: number | null,
-  ) => {
+  ): string | null => {
+    // Point 7: swinger lines 201–214 require the fortnight roster.
+    // The fortnight roster is the ONLY authoritative source for swinger duties;
+    // falling back to master-roster or built-in data for these lines is wrong.
+    if (isSwinger(line) && !fnRosterUpload.result) {
+      return (
+        `Line ${line} is a swinger line (201–214). ` +
+        'Please upload the Fortnight Roster in Step 1 first — ' +
+        'swinger duty assignments are not in the master roster.'
+      )
+    }
+
     const snapped = toSunday(start)
     const dates   = makeFortnight(snapped)
     const mrData  = masterRosterUpload.result
@@ -470,6 +481,7 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
     setRosterLine(line); setFnStart(snapped); setPHs(phs); setPsTotal(psTotal)
     setDays(newDays); setFnLoaded(true); setResult(null); setCalcError(null)
     setRosterSource(source)
+    return null
   }, [
     masterRosterUpload.result, fnRosterUpload.result,
     weekdayScheduleUpload.result, weekendScheduleUpload.result, findByDow, findByTimes,
