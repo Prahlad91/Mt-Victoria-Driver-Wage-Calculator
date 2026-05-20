@@ -308,13 +308,85 @@ def _parse_day_entries(section_text: str) -> list[RosterDayEntry]:
 _CELL_TIME_RE  = re.compile(r'(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})(L?)', re.IGNORECASE)
 _FAT_TRAIL_RE  = re.compile(r'\bF\d+\s*$')   # trailing fatigue token e.g. "F24", "F0"
 
-# Anchor column indices for the 14 day-slot columns in the printed fortnight roster PDF.
-# Determined by debug analysis of pdfplumber table output on the real PDF.
+# Anchor column indices for the 14 day-slot columns in the printed fortnight roster PDF
+# WITH a crew-name column (col[2]).  Determined by debug analysis of the real PDF.
 # Columns 3 & 4 are non-date metadata cells (e.g. "NTA", "HOL") that parse safely as OFF.
 # Sub-columns between consecutive anchors carry split diagram/location tokens.
 # Column 30 is the O/T count (not a day).
-_DAY_ANCHORS = [3, 4, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 26, 28]
-_OT_COL      = 30
+_DAY_ANCHORS     = [3, 4, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 26, 28]
+_OT_COL          = 30
+
+# Same indices shifted left by 1: used when there is NO crew-name column and day 1
+# starts directly at col[2] (e.g. some exported / legacy roster PDFs).
+_DAY_ANCHORS_NOCREW = [a - 1 for a in _DAY_ANCHORS]  # [2, 3, 4, 6, 8, …, 27]
+_OT_COL_NOCREW      = _OT_COL - 1
+
+# Regex that matches text that looks like a day-slot entry in an anchor row.
+# Used to determine whether col[2] is a crew name or the first day column.
+_DAY_ANCHOR_RE = re.compile(
+    r'\d{1,2}:\d{2}\s*[-–]\s*\d{1,2}:\d{2}'         # time range
+    r'|^\s*(?:OFF|ADO|NTA|HOL|SBY|RDO|ALT)\s*$',    # non-work keyword
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def _build_struck_set(tbl_obj: object, page: object) -> frozenset[tuple[int, int]]:
+    """
+    Return (row_idx, col_idx) pairs for cells whose visible content is struck through.
+
+    Current implementation: detects struck-through cells by looking for characters
+    whose non-stroking (fill) colour is noticeably lighter than solid black — the
+    "greyed-out" rendering used by some roster printing systems to indicate a no-show.
+
+    Vector-line based detection was tried but proved unreliable: the multi-row table
+    layout (3 pdfplumber rows per logical line) means mid-row separator lines are
+    indistinguishable from intra-cell strikethrough by geometry alone.  Text-colour
+    detection is both simpler and more precise.
+
+    Falls back to an empty set on any error (e.g. pdfplumber without char attributes).
+    """
+    struck: set[tuple[int, int]] = set()
+    try:
+        chars = getattr(page, 'chars', None) or []
+        if not chars:
+            return frozenset()
+
+        # Build a map of (row_idx, col_idx) → list of char non-stroking colours for
+        # all text that falls inside each cell.
+        cell_colours: dict[tuple[int, int], list[float]] = {}
+        for ri, row in enumerate(tbl_obj.rows):    # type: ignore[attr-defined]
+            for ci, cell in enumerate(row.cells):
+                if cell is None:
+                    continue
+                x0, top, x1, bottom = cell
+                # Collect chars inside this cell
+                colours: list[float] = []
+                for ch in chars:
+                    cx = ch.get('x0', 0)
+                    cy = ch.get('top', 0)
+                    if x0 <= cx <= x1 and top <= cy <= bottom and ch.get('text', '').strip():
+                        nsc = ch.get('non_stroking_color')
+                        if isinstance(nsc, (int, float)):
+                            colours.append(float(nsc))
+                        elif isinstance(nsc, (list, tuple)) and nsc:
+                            colours.append(float(nsc[0]))
+                if colours:
+                    cell_colours[(ri, ci)] = colours
+
+        if not cell_colours:
+            return frozenset()
+
+        # A cell is "struck" if its average text brightness is significantly above 0
+        # (0 = solid black; 1 = white; struck text is often printed in a mid-grey).
+        # Threshold 0.35: black/dark text < 0.1; grey "struck" text typically 0.4-0.7.
+        for (ri, ci), colours in cell_colours.items():
+            avg = sum(colours) / len(colours)
+            if avg >= 0.35:
+                struck.add((ri, ci))
+
+    except Exception:
+        pass
+    return frozenset(struck)
 
 
 def _parse_cell_to_day_entry(cell: object) -> 'RosterDayEntry':
@@ -391,23 +463,24 @@ def _parse_roster_from_pdf_tables(file_bytes: bytes, warnings: list[str]) -> dic
     Parse the Sydney Trains "Intercity Drivers Roster" PDF using pdfplumber's
     table extraction.
 
-    Actual table layout (31 cols, 0-based):
-      col[0]  = empty spacer
-      col[1]  = roster line number (1-22 or 201-220)
-      col[2]  = driver crew name
-      col[3..28] = 14 day columns at _DAY_ANCHORS; sub-columns between anchors
-                   carry split diagram/location tokens
-      col[30] = O/T count (_OT_COL)
+    Supported table layouts (0-based columns):
+      WITH crew-name column:
+        col[0]=spacer  col[1]=Line#  col[2]=Crew  col[3..28]=14 days  col[30]=O/T
+        Day anchors: _DAY_ANCHORS = [3, 4, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 26, 28]
+      WITHOUT crew-name column (days start at col[2]):
+        col[0]=spacer  col[1]=Line#  col[2..27]=14 days  col[29]=O/T
+        Day anchors: _DAY_ANCHORS_NOCREW (= each element minus 1)
+
+    Format is auto-detected: if col[2] of the first anchor row contains a time
+    range or a day keyword (OFF/ADO/NTA/HOL/…) then there is no crew column.
 
     Logical lines span MULTIPLE table rows:
-      • "Anchor row" — cells[1] is a valid line number; may contain the time
-        range for a day but the diagram/location overflows to continuation rows.
-      • "Continuation rows" — cells[1] is empty; carry split tokens for any day
-        whose content didn't fit in the anchor row.
+      • Anchor row   — cells[1] is a valid line number.
+      • Continuation rows — cells[1] is empty; carry split diagram/location tokens.
 
-    We group rows by anchor/continuation, then for each of the 14 day slots we
-    collect all non-empty text from the anchor column + its sub-columns across
-    every row in the group, join with '\\n', and pass to _parse_cell_to_day_entry.
+    Cells whose content is visually struck through (person didn't show up) are
+    treated as empty → OFF.  Detection uses horizontal lines from page.lines that
+    pass through a cell's interior, not its border.
     """
     if pdfplumber is None:
         return {}
@@ -416,43 +489,81 @@ def _parse_roster_from_pdf_tables(file_bytes: bytes, warnings: list[str]) -> dic
     try:
         with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
             for page in pdf.pages:
-                # Prefer the explicit grid lines — the PDF has a drawn table border.
-                tables = page.extract_tables({
+                settings = {
                     'vertical_strategy':   'lines',
                     'horizontal_strategy': 'lines',
-                }) or []
-                # Fall back to heuristic strategy if line-based found nothing.
-                if not tables:
-                    tables = page.extract_tables() or []
+                }
 
-                for table in (tables or []):
+                # Prefer find_tables() — gives cell bboxes for strikethrough detection.
+                # Fall back to extract_tables() for older pdfplumber builds.
+                table_pairs: list[tuple[object | None, list]] = []
+                try:
+                    found = page.find_tables(settings) or []
+                    if not found:
+                        found = page.find_tables() or []
+                    table_pairs = [(tbl, tbl.extract()) for tbl in found]
+                except Exception:
+                    raw = page.extract_tables(settings) or page.extract_tables() or []
+                    table_pairs = [(None, t) for t in raw]
+
+                for tbl_obj, table in table_pairs:
+                    if not table:
+                        continue
+
+                    # ── Detect whether there is a crew-name column ────────────
+                    # Inspect col[2] of the first anchor row.  If it looks like a
+                    # day entry, the days start at col[2] (no crew column present).
+                    has_crew_col = True
+                    for raw_row in table:
+                        if not raw_row or len(raw_row) < 3:
+                            continue
+                        c1 = str(raw_row[1] or '').strip()
+                        if re.match(r'^\d{1,3}$', c1) and int(c1) in _VALID_LINES:
+                            c2 = str(raw_row[2] or '').strip()
+                            if _DAY_ANCHOR_RE.search(c2):
+                                has_crew_col = False
+                            break
+
+                    day_anchors = _DAY_ANCHORS     if has_crew_col else _DAY_ANCHORS_NOCREW
+                    ot_col      = _OT_COL          if has_crew_col else _OT_COL_NOCREW
+
+                    # ── Build struck-cell set for this table ──────────────────
+                    struck = (
+                        _build_struck_set(tbl_obj, page)
+                        if tbl_obj is not None
+                        else frozenset()
+                    )
+
                     # ── Group raw table rows into logical line-groups ─────────
-                    # Each group = one roster line (anchor row + any continuation rows).
-                    groups: list[dict] = []   # {'line_num': int, 'rows': list[list[str]]}
+                    groups: list[dict] = []
                     current: dict | None = None
 
-                    for raw_row in (table or []):
+                    for ri, raw_row in enumerate(table):
                         if not raw_row:
                             continue
-                        # Normalise every cell to a stripped string; pad to _OT_COL+1
-                        cells = [str(c or '').strip() for c in raw_row]
-                        while len(cells) <= _OT_COL:
+                        # Normalise cells; blank out struck-through day cells only.
+                        # Never blank col 0 (spacer), col 1 (line#), or col 2 (crew name)
+                        # — those columns can use grey text for alternating-row styling,
+                        # which would otherwise erase valid line numbers.
+                        _min_day_col = 3 if has_crew_col else 2
+                        cells = [
+                            ('' if (ri, ci) in struck and ci >= _min_day_col else str(c or '').strip())
+                            for ci, c in enumerate(raw_row)
+                        ]
+                        while len(cells) <= ot_col:
                             cells.append('')
 
-                        c1 = cells[1]
+                        c1 = cells[1] if len(cells) > 1 else ''
                         if re.match(r'^\d{1,3}$', c1):
                             line_num = int(c1)
                             if line_num in _VALID_LINES:
-                                # Start a new logical line group
                                 if current is not None:
                                     groups.append(current)
                                 current = {'line_num': line_num, 'rows': [cells]}
                             else:
-                                # Number outside valid range (e.g. header/total row)
-                                current = None
+                                current = None      # header / total row
                         elif current is not None:
-                            # Continuation row — attach it to the current group
-                            current['rows'].append(cells)
+                            current['rows'].append(cells)   # continuation row
 
                     if current is not None:
                         groups.append(current)
@@ -461,18 +572,15 @@ def _parse_roster_from_pdf_tables(file_bytes: bytes, warnings: list[str]) -> dic
                     for grp in groups:
                         line_num = grp['line_num']
                         if str(line_num) in lines_data:
-                            continue  # first occurrence wins (e.g. PDF spans pages)
+                            continue  # first occurrence wins (PDF may span pages)
 
                         rows = grp['rows']
                         entries: list[RosterDayEntry] = []
 
-                        for di, anchor in enumerate(_DAY_ANCHORS):
-                            # Sub-columns run from `anchor` up to (not including) the
-                            # next anchor.  The last day's sub-cols run up to _OT_COL.
-                            next_a = _DAY_ANCHORS[di + 1] if di + 1 < len(_DAY_ANCHORS) else _OT_COL
-                            col_range = range(anchor, next_a)
+                        for di, anchor in enumerate(day_anchors):
+                            next_a = day_anchors[di + 1] if di + 1 < len(day_anchors) else ot_col
+                            col_range = range(anchor, min(next_a, ot_col))
 
-                            # Collect text from every row × every column in this day slot
                             parts: list[str] = []
                             for row in rows:
                                 row_parts = [
@@ -483,15 +591,19 @@ def _parse_roster_from_pdf_tables(file_bytes: bytes, warnings: list[str]) -> dic
                                 if row_parts:
                                     parts.append(' '.join(row_parts))
 
-                            cell_text = '\n'.join(parts)
-                            entries.append(_parse_cell_to_day_entry(cell_text))
+                            entries.append(_parse_cell_to_day_entry('\n'.join(parts)))
 
                         if len(entries) == 14:
                             lines_data[str(line_num)] = entries
+                        elif 0 < len(entries) < 14:
+                            # Pad with OFF if column detection was short
+                            off = RosterDayEntry(diag='OFF', r_start=None, r_end=None,
+                                                 cm=False, r_hrs=0.0)
+                            entries.extend([off] * (14 - len(entries)))
+                            lines_data[str(line_num)] = entries
                         else:
                             warnings.append(
-                                f'Line {line_num}: built {len(entries)} day entries '
-                                f'(expected 14) — skipped.'
+                                f'Line {line_num}: no day entries found — skipped.'
                             )
 
     except Exception as exc:
