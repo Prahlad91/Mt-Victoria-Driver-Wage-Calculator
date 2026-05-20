@@ -30,6 +30,20 @@ export default function DailyEntryTab({ onCalculated }: { onCalculated: () => vo
         )}
         <span className="toolbar-label">
           <strong>Line {ctx.rosterLine}</strong>
+          {ctx.loadedCrewName && (
+            <>
+              {'  '}
+              <span
+                title="Crew member from the uploaded fortnight roster"
+                style={{
+                  color: 'var(--accent)',
+                  fontWeight: 600,
+                }}
+              >
+                👤 {ctx.loadedCrewName}
+              </span>
+            </>
+          )}
           {'  '}
           {ctx.days[0]?.date} – {ctx.days[13]?.date}
           {'  '}

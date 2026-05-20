@@ -59,7 +59,7 @@ const DEFAULT_ASSOC_CHART: AssocChart = {
 // PRD §6.10 — cache invalidation. v3.11 forces clear because v3.10 and earlier
 // had a Pydantic camelCase bug that returned $0 for all calculations and bad
 // schedule cache from the v3.7 column-interleave parser.
-const CACHE_SCHEMA_VERSION = '3.11'
+const CACHE_SCHEMA_VERSION = '3.12'  // bumped: ParsedRosterData now includes crew_names
 
 if (typeof window !== 'undefined') {
   try {
@@ -102,6 +102,9 @@ function extractDiagNum(diag: string | null | undefined): string | null {
 interface Ctx {
   rosterLine: number; fnStart: string; publicHolidays: string[]; payslipTotal: number | null
   fnLoaded: boolean; fnType: 'short' | 'long' | null; rosterSource: RosterSource
+  /** Crew member name from the fortnight roster, if the loaded line came from
+   *  a fortnight-roster upload with a crew-name column.  null otherwise. */
+  loadedCrewName: string | null
   days: DayState[]; previews: ReturnType<typeof previewDay>[]
   config: RateConfig; codes: PayrollCodes; unassocAmt: number
   setConfig: (p: Partial<RateConfig>) => void; setCodes: (p: Partial<PayrollCodes>) => void
@@ -148,6 +151,7 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
   const [fnLoaded,       setFnLoaded]   = useState(false)
   const [days,           setDays]       = useState<DayState[]>([])
   const [rosterSource, setRosterSource] = useState<RosterSource>('builtin')
+  const [loadedCrewName, setLoadedCrewName] = useState<string | null>(null)
 
   const [config, setConfigState] = useState<RateConfig>(() => ({ ...DEFAULT_CONFIG, ...fromLS(LS_CFG, {}) }))
   const [codes,  setCodesState]  = useState<PayrollCodes>(() => ({ ...DEFAULT_CODES, ...fromLS(LS_CODES, {}) }))
@@ -478,9 +482,16 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
       })
     }
 
+    // Capture the crew member name when loading from the fortnight roster —
+    // shown in the daily-entry toolbar so the user can confirm the right line.
+    const crewName =
+      source === 'fortnight'
+        ? (frData?.crew_names?.[String(line)] ?? null)
+        : null
+
     setRosterLine(line); setFnStart(snapped); setPHs(phs); setPsTotal(psTotal)
     setDays(newDays); setFnLoaded(true); setResult(null); setCalcError(null)
-    setRosterSource(source)
+    setRosterSource(source); setLoadedCrewName(crewName)
     return null
   }, [
     masterRosterUpload.result, fnRosterUpload.result,
@@ -741,6 +752,7 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
   return (
     <Context.Provider value={{
       rosterLine, fnStart, publicHolidays, payslipTotal, fnLoaded, fnType, rosterSource,
+      loadedCrewName,
       days, previews, config, codes, unassocAmt,
       setConfig, setCodes, setUnassocAmt, saveConfig, saveCodes,
       rosterUpload, payslipUpload,

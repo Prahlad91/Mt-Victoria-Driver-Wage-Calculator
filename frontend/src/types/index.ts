@@ -155,6 +155,10 @@ export interface ParsedRosterData {
   fn_start: string | null;
   fn_end: string | null;
   lines: Record<string, RosterDayEntry[]>;
+  /** Crew member name keyed by line number string. Populated only for
+   *  fortnight rosters where the printed PDF has a crew-name column.
+   *  Older backends may omit this field; treat as empty when undefined. */
+  crew_names?: Record<string, string>;
   warnings: string[];
 }
 
