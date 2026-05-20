@@ -23,8 +23,7 @@ export default function DailyEntryTab({ onCalculated }: { onCalculated: () => vo
         <button className="btn-primary" onClick={handleCalc} disabled={ctx.calculating}>
           {ctx.calculating ? '⏳ Calculating…' : '✦ Calculate fortnight'}
         </button>
-        <button onClick={ctx.fillAllRostered}>Fill all rostered</button>
-        {ctx.rosterUpload.status === 'success' && !ctx.rosterUpload.applied && (
+{ctx.rosterUpload.status === 'success' && !ctx.rosterUpload.applied && (
           <button className="btn-primary btn-sm" onClick={ctx.applyUploadedRoster}>
             Apply uploaded roster
           </button>
