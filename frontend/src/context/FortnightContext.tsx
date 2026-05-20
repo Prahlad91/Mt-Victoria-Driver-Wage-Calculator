@@ -59,7 +59,11 @@ const DEFAULT_ASSOC_CHART: AssocChart = {
 // PRD §6.10 — cache invalidation. v3.11 forces clear because v3.10 and earlier
 // had a Pydantic camelCase bug that returned $0 for all calculations and bad
 // schedule cache from the v3.7 column-interleave parser.
-const CACHE_SCHEMA_VERSION = '3.12'  // bumped: ParsedRosterData now includes crew_names
+// v3.15: bumped from 3.12 → 3.15 to invalidate cached fortnight + master roster
+// data parsed by the pre-v3.14 anchor mapping. Without clearing LS_FR / LS_MR
+// the user keeps seeing shifted days for line 209 etc. (Wed shows Fri's data)
+// because the cached ParsedRosterData was produced by the buggy old parser.
+const CACHE_SCHEMA_VERSION = '3.15'
 
 if (typeof window !== 'undefined') {
   try {
@@ -67,11 +71,14 @@ if (typeof window !== 'undefined') {
     if (stored !== CACHE_SCHEMA_VERSION) {
       window.localStorage.removeItem(LS_WD)
       window.localStorage.removeItem(LS_WE)
+      // v3.15: also clear roster caches so the new parser output replaces the old.
+      window.localStorage.removeItem(LS_MR)
+      window.localStorage.removeItem(LS_FR)
       window.localStorage.setItem(LS_VERSION, CACHE_SCHEMA_VERSION)
       // eslint-disable-next-line no-console
       console.info(
         `[mvwc] Cache schema bumped to ${CACHE_SCHEMA_VERSION} ` +
-        `(was ${stored ?? 'unset'}). Cleared cached schedule data — please re-upload weekday + weekend schedules.`
+        `(was ${stored ?? 'unset'}). Cleared cached roster + schedule data — please re-upload them in the Setup tab.`
       )
     }
   } catch { /* localStorage unavailable */ }
