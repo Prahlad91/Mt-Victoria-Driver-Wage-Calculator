@@ -415,7 +415,10 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
             rStart = ts.info.sign_on; rEnd = ts.info.sign_off
             cm = ts.info.cm; rHrs = ts.info.r_hrs; km = ts.info.km
           } else {
-            timeSource = entry.r_start ? 'master' : 'none'
+            // v3.17: badge tracks the actual roster source ('fortnight' for
+            // swinger lines, 'master' for permanent lines) instead of always
+            // labelling roster-derived times as "Master roster".
+            timeSource = entry.r_start ? (source as TimeSource) : 'none'
             rStart = entry.r_start; rEnd = entry.r_end; cm = entry.cm
             rHrs = entry.r_hrs; km = 0
           }

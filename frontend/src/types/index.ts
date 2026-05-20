@@ -6,7 +6,7 @@
  * v3.11 — added wasAdo, fortnight_components, optional date+pool_to_ordinary on PayComponent.
  */
 
-export type TimeSource = 'schedule' | 'master' | 'builtin' | 'manual' | 'none'
+export type TimeSource = 'schedule' | 'fortnight' | 'master' | 'builtin' | 'manual' | 'none'
 
 // ─── Day state (PRD §9.1)
 export interface DayState {

@@ -10,11 +10,12 @@ function fmtDate(d: Date) { return `${DW[d.getDay()]} ${d.getDate()} ${MO[d.getM
 
 function sourceBadge(src: TimeSource, diagNum: string | null) {
   switch (src) {
-    case 'schedule': return { label: '✓ Schedule', cls: 'src-schedule', tip: `Times from uploaded schedule (diagram ${diagNum ?? '?'})` }
-    case 'master':   return { label: 'ⓘ Master roster', cls: 'src-master', tip: 'Diagram not in uploaded schedule — using master roster times' }
-    case 'builtin':  return { label: 'ⓘ Built-in', cls: 'src-master', tip: 'No master roster uploaded — using built-in fallback times' }
-    case 'manual':   return { label: '✏ Manual', cls: 'src-manual', tip: 'Manually overridden by user' }
-    case 'none':     return null
+    case 'schedule':  return { label: '✓ Schedule', cls: 'src-schedule', tip: `Times from uploaded schedule (diagram ${diagNum ?? '?'})` }
+    case 'fortnight': return { label: 'ⓘ Fortnight roster', cls: 'src-master', tip: 'Diagram not in uploaded schedule — using fortnight-roster times' }
+    case 'master':    return { label: 'ⓘ Master roster', cls: 'src-master', tip: 'Diagram not in uploaded schedule — using master-roster times' }
+    case 'builtin':   return { label: 'ⓘ Built-in', cls: 'src-master', tip: 'No master roster uploaded — using built-in fallback times' }
+    case 'manual':    return { label: '✏ Manual', cls: 'src-manual', tip: 'Manually overridden by user' }
+    case 'none':      return null
   }
 }
 
@@ -258,9 +259,14 @@ function WorkForm({
                     onChange={e => editScheduledTime('rEnd', e.target.value)} />
                 </div>
               </div>
+              {day.timeSource === 'fortnight' && (
+                <p className="note" style={{ marginTop: 6, color: 'var(--amber)' }}>
+                  ⚠ Schedule didn't have diagram #{day.diagNum ?? day.diag} — using fortnight-roster times. Edit above if needed.
+                </p>
+              )}
               {day.timeSource === 'master' && (
                 <p className="note" style={{ marginTop: 6, color: 'var(--amber)' }}>
-                  ⚠ Schedule didn't have diagram #{day.diagNum} — using master roster. Edit above if needed.
+                  ⚠ Schedule didn't have diagram #{day.diagNum} — using master-roster times. Edit above if needed.
                 </p>
               )}
               {day.timeSource === 'builtin' && (
