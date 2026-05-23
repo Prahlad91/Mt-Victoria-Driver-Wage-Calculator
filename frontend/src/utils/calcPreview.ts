@@ -190,8 +190,10 @@ export function previewDay(
   // ─── Non-WOBOD ─────────────────────────────────────────────────
   const ordH = r2Hrs(Math.min(workedHrs, 8));
   const otH = r2Hrs(Math.max(0, workedHrs - 8));
-  const ot1h = r2Hrs(Math.min(otH, 2));
-  const ot2h = r2Hrs(Math.max(0, otH - 2));
+  // Cl. 78.3: first 3 hours of daily OT at 1.5×, beyond that at 2.0×.
+  // (Fixed v3.19 — was incorrectly using a 2-hour boundary.)
+  const ot1h = r2Hrs(Math.min(otH, 3));
+  const ot2h = r2Hrs(Math.max(0, otH - 3));
 
   if (isPH) {
     const loadingPct = isSat || isSun ? 1.5 : 0.5;

@@ -10,8 +10,8 @@ fortnight:
 
 rates:
   base_hourly: 49.81842   # Sch. 4A — Train Driver rate from 1 Jul 2025
-  ot1: 1.5                # Cl. 140.1 — first 2 hrs OT
-  ot2: 2.0                # Cl. 140.1 — beyond 2 hrs OT
+  ot1: 1.5                # Cl. 78.3 — first 3 hrs OT (fixed v3.19, was first 2 hrs)
+  ot2: 2.0                # Cl. 78.3 — beyond 3 hrs OT
   sat: 1.5                # Cl. 54/134 — Saturday ordinary
   sun: 2.0                # Cl. 133/54 — Sunday ordinary
   sat_ot: 2.0             # Saturday OT >8 hrs

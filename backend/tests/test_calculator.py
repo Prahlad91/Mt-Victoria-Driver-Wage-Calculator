@@ -99,7 +99,11 @@ class TestOrdinaryWeekday:
         assert result.hours == 0.0
 
 
-# ─── Overtime (Cl. 140.1) ────────────────────────────────────────────────── PRD §5.2
+# ─── Overtime (Cl. 78.3) ─────────────────────────────────────────────────── PRD §5.2
+#
+# Cl. 78.3 (Page 93 of the EA 2025): "Overtime worked in excess of 8 hours in any
+# one Shift will be paid at the rate of time and one half for the first 3 hours
+# and double time thereafter."
 
 class TestOvertime:
     def test_exactly_2hrs_ot_tier1(self, cfg, codes):
@@ -110,11 +114,22 @@ class TestOvertime:
         assert any(c.code == "1026" for c in result.components)
         assert not any(c.code == "1110" for c in result.components)
 
-    def test_3hrs_ot_splits_at_2(self, cfg, codes):
-        """11 hrs: 8 ordinary + 2 OT tier1 (1.5×) + 1 OT tier2 (2.0×). Code 1110."""
+    def test_3hrs_ot_all_at_tier1(self, cfg, codes):
+        """11 hrs: 8 ordinary + 3 OT all at 1.5× (still within the 3-hr tier-1 band).
+        Was incorrectly 2+1 split in v3.18 and earlier (fixed v3.19 per Cl. 78.3)."""
         day = make_day(a_start="06:00", a_end="17:00", dow=1)
         result = compute_day(day, cfg, codes)
-        assert result.total_pay == r2(r2(8 * B) + r2(2 * B * 1.5) + r2(1 * B * 2.0))
+        assert result.total_pay == r2(r2(8 * B) + r2(3 * B * 1.5))
+        assert any(c.code == "1026" for c in result.components)
+        assert not any(c.code == "1110" for c in result.components)
+
+    def test_4hrs_ot_splits_at_3(self, cfg, codes):
+        """12 hrs: 8 ordinary + 3 OT tier1 (1.5×) + 1 OT tier2 (2.0×). Code 1110 emitted.
+        Locks in the Cl. 78.3 3-hr boundary so a future regression cannot move it."""
+        day = make_day(a_start="06:00", a_end="18:00", dow=1)
+        result = compute_day(day, cfg, codes)
+        assert result.total_pay == r2(r2(8 * B) + r2(3 * B * 1.5) + r2(1 * B * 2.0))
+        assert any(c.code == "1026" for c in result.components)
         assert any(c.code == "1110" for c in result.components)
 
 

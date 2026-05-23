@@ -318,8 +318,10 @@ def compute_day(day: DayState, cfg: RateConfig, codes: PayrollCodes,
     # ─── Non-WOBOD ─────────────────────────────────────────────────
     ord_h = r2_hrs(min(worked_hrs, 8.0))
     ot_h = r2_hrs(max(0.0, worked_hrs - 8.0))
-    ot1h = r2_hrs(min(ot_h, 2.0))
-    ot2h = r2_hrs(max(0.0, ot_h - 2.0))
+    # Cl. 78.3: first 3 hours of daily OT at 1.5×, beyond that at 2.0×.
+    # (Fixed v3.19 — was incorrectly using a 2-hour boundary.)
+    ot1h = r2_hrs(min(ot_h, 3.0))
+    ot2h = r2_hrs(max(0.0, ot_h - 3.0))
     
     if is_ph:
         # PH worked: base at 1× pooled, loading at 0.5× (wkdy) or 1.5× (weekend)
@@ -467,7 +469,7 @@ def compute_day(day: DayState, cfg: RateConfig, codes: PayrollCodes,
         )
     
     if ot_h > 0:
-        flags.append(f"Daily OT: {ot_h:.2f} hrs beyond 8-hr ordinary limit (Cl. 140.1).")
+        flags.append(f"Daily OT: {ot_h:.2f} hrs beyond 8-hr ordinary limit (Cl. 78.3).")
 
     total = r2(sum(c.amount for c in components))
     paid_hrs = r2(worked_hrs + build_up) if build_up > 0 else worked_hrs
@@ -711,7 +713,7 @@ def compute_fortnight(req: CalculateRequest) -> CalculateResponse:
                 f"(${abs(payslip_variance):.2f} possible {direction})"
             )
     if fn_ot_hrs > 0:
-        audit_flags.append(f"Fortnight OT: {fn_ot_hrs:.2f} hrs above {fn_threshold:.0f}-hr threshold (Cl. 140.1).")
+        audit_flags.append(f"Fortnight OT: {fn_ot_hrs:.2f} hrs above {fn_threshold:.0f}-hr threshold (Cl. 78.3).")
     for dr in day_results:
         for f in dr.flags:
             if "ALERT" in f or "⚠" in f:
