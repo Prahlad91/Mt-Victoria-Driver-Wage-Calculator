@@ -3,8 +3,8 @@ import { useFortnightContext } from '../context/FortnightContext'
 
 const RATE_DEFS = [
   {k:'base_rate',  label:'Base hourly rate ($/hr)',             ea:'Sch. 4A'},
-  {k:'ot1',        label:'OT tier 1 multiplier (first 2 hrs)', ea:'Cl. 140.1'},
-  {k:'ot2',        label:'OT tier 2 multiplier (beyond 2 hrs)',ea:'Cl. 140.1'},
+  {k:'ot1',        label:'OT tier 1 multiplier (first 3 hrs)', ea:'Cl. 78.3'},
+  {k:'ot2',        label:'OT tier 2 multiplier (beyond 3 hrs)',ea:'Cl. 78.3'},
   {k:'sat_rate',   label:'Saturday rate (x)',                  ea:'Sch. 4A'},
   {k:'sun_rate',   label:'Sunday rate (x)',                    ea:'Cl. 133'},
   {k:'sat_ot',     label:'Saturday OT >8 hrs (x)',             ea:'Cl. 140+Sch.4A'},
@@ -20,8 +20,8 @@ const RATE_DEFS = [
 
 const CODE_DEFS = [
   {k:'base',    label:'Ordinary time'},
-  {k:'ot1',     label:'OT first 2 hrs'},
-  {k:'ot2',     label:'OT beyond 2 hrs'},
+  {k:'ot1',     label:'OT first 3 hrs'},
+  {k:'ot2',     label:'OT beyond 3 hrs'},
   {k:'sat',     label:'Saturday'},
   {k:'sun',     label:'Sunday loading (100%)'},
   {k:'sat_ot',  label:'Saturday / Sunday OT (200%)'},

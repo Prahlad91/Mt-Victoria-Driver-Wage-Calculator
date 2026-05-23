@@ -429,3 +429,36 @@ class TestComputeFortnight:
         )
         assert pooled is not None, "Pooled 1001 component not found"
         assert pooled.amount == 5 * r2(8.0 * B)
+
+
+# ─── PH worked — paid vs accrued (Cl. 31.5) ──────────────────────────────── PRD §5.3, §5.9
+
+class TestPublicHolidayWorked:
+    def test_phw_pays_loading_plus_additional_day(self, cfg, codes):
+        """`PHW` — Cl. 31.5: pay 150% loading on rostered hours + 8-hr additional day."""
+        day = make_day(a_start="06:00", a_end="14:00", dow=1, ph=True, leave_cat="PHW")
+        result = compute_day(day, cfg, codes)
+        expected = r2(r2(8 * B * 1.5) + r2(8 * B))
+        # _compute_leave uses single rounding on (loading + add_day); accept either form
+        assert abs(result.total_pay - expected) < 0.01
+        loading_components = [c for c in result.components if "loading" in c.name.lower()]
+        add_day_components = [c for c in result.components if "additional day" in c.name.lower()]
+        assert len(loading_components) == 1
+        assert len(add_day_components) == 1
+        assert any("additional day" in f.lower() or "31.5" in f for f in result.flags)
+
+    def test_phwa_pays_loading_only_no_additional_day(self, cfg, codes):
+        """`PHWA` (new v3.20) — Cl. 31.5(a)+(b): pay 150% loading ONLY; additional 8-hr
+        day accrues for future off-day rather than being paid this fortnight."""
+        day = make_day(a_start="06:00", a_end="14:00", dow=1, ph=True, leave_cat="PHWA")
+        result = compute_day(day, cfg, codes)
+        # Only the 150% loading is paid: 8 hrs × base × 1.5
+        expected = r2(8 * B * 1.5)
+        assert result.total_pay == expected
+        # Exactly one component, the loading line
+        assert len(result.components) == 1
+        assert "loading" in result.components[0].name.lower()
+        # No "additional day" line item
+        assert not any("additional day" in c.name.lower() for c in result.components)
+        # Flag must mention the accrual
+        assert any("accru" in f.lower() for f in result.flags)

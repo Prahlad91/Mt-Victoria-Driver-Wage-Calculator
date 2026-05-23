@@ -547,6 +547,26 @@ def _compute_leave(day: DayState, cfg: RateConfig, codes: PayrollCodes) -> DayRe
             ],
             flags=["PHW: 150% loading + additional day (Cl. 31.5)."],
         )
+
+    if cat == 'PHWA':
+        # PH worked and accrued (v3.20): pays the 150% loading on rostered hours,
+        # but the additional 8-hr ordinary day per Cl. 31.5(b) is BANKED as a
+        # future day off rather than paid this fortnight.  Driver elects this
+        # via the leave-category dropdown when they want time-off instead of
+        # the extra day's pay.  Total pay this fortnight = r_hrs × base × 1.5.
+        loading = r_hrs * B * 1.5
+        return DayResult(
+            date=day.date, diag=day.diag, day_type='leave',
+            hours=r_hrs, paid_hrs=r_hrs, total_pay=r2(loading),
+            components=[
+                _comp('', 'PHW — 150% loading', 'Cl. 31.5(a)',
+                      f'{r_hrs:.2f} hrs', '1.5× ordinary', loading, date=day.date),
+            ],
+            flags=[
+                "PHW (accrued): 150% loading paid; "
+                "additional 8-hr day accrues for future use (Cl. 31.5(b))."
+            ],
+        )
     
     return DayResult(date=day.date, diag=day.diag, day_type='leave',
                      hours=0, paid_hrs=0, total_pay=0,

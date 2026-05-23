@@ -410,6 +410,22 @@ function previewLeave(day: DayState, cfg: RateConfig, codes: PayrollCodes): DayR
       flags: ['PHW: 150% + additional day.'],
     };
   }
+  if (cat === 'PHWA') {
+    // v3.20: PH worked and accrued — pays 150% loading only.  The additional
+    // 8-hr day under Cl. 31.5(b) is BANKED for a future off-day, not paid.
+    const loading = rHrs * B * 1.5;
+    return {
+      date: day.date, diag: day.diag, day_type: 'leave',
+      hours: rHrs, paid_hrs: rHrs, total_pay: r2(loading),
+      components: [
+        { name: 'PHW — 150% loading', ea: 'Cl. 31.5(a)', code: '',
+          hrs: `${rHrs.toFixed(2)} hrs`, rate: '1.5×', amount: r2(loading), cls: '', date: day.date },
+      ],
+      flags: [
+        'PHW (accrued): 150% loading paid; additional 8-hr day accrues for future use (Cl. 31.5(b)).',
+      ],
+    };
+  }
   return {
     date: day.date, diag: day.diag, day_type: 'leave',
     hours: 0, paid_hrs: 0, total_pay: 0, components: [], flags: [`Unknown leave: ${cat}`],
