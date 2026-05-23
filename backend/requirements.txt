@@ -10,3 +10,7 @@ pytest==8.2.0
 httpx==0.27.0
 Pillow>=10.0.0
 pytesseract>=0.3.10
+# v3.22 — server-side persistence for parsed roster/schedule/chart payloads.
+# asyncpg is async-native and pairs well with FastAPI. Falls back to a no-op
+# storage layer when DATABASE_URL is unset (local dev / first-boot).
+asyncpg>=0.29.0
