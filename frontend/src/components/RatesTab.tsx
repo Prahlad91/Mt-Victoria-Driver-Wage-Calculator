@@ -49,56 +49,62 @@ export default function RatesTab() {
   return (
     <>
       <div className="card">
-        <h2>Pay rates <span className="ea-ref">(EA 2025 Sch. 4A/4B — 1 Jul 2025 values pre-set)</span></h2>
-        <div className="g3">
-          {RATE_DEFS.map(d=>(
-            <div key={d.k}>
-              <label>{d.label} <span className="ea-ref">{d.ea}</span></label>
-              <input type="number" step="any"
-                value={(ctx.config as any)[d.k]}
-                onChange={e=>ctx.setConfig({[d.k]:parseFloat(e.target.value)||0} as any)} />
-            </div>
-          ))}
-        </div>
-        <hr />
-        <button onClick={handleSaveCfg}>Save rates</button>
-        {cfgSaved&&<span className="saved-msg">Saved ✓</span>}
-        <p className="note" style={{marginTop:8}}>Rates are saved to localStorage and persist across browser sessions.</p>
-      </div>
-
-      <div className="card">
-        <h2>Payroll codes <span className="ea-ref">(from your payslip — for matching display only, no effect on calculations)</span></h2>
-        <div className="g3">
-          {CODE_DEFS.map(d=>(
-            <div key={d.k}>
-              <label>{d.label}</label>
-              <input type="text" placeholder="payslip code"
-                value={(ctx.codes as any)[d.k]||''}
-                onChange={e=>ctx.setCodes({[d.k]:e.target.value} as any)} />
-            </div>
-          ))}
-        </div>
-        <hr />
-        <button onClick={handleSaveCodes}>Save codes</button>
-        {codeSaved&&<span className="saved-msg">Saved ✓</span>}
-      </div>
-
-      <div className="card">
-        <h2>Un-associated duties <span className="ea-ref">(Cl. 146.4(d) / Cl. 157.2)</span></h2>
-        <p className="note" style={{marginBottom:8}}>Additional duties not directly associated with train operations (road review, pilot prep, etc.) are payable for shifts ≥161 km.</p>
-        <div className="g2">
-          <div>
-            <label>$ per shift (≥161 km)</label>
-            <input type="number" step="0.01" value={ctx.unassocAmt} onChange={e=>ctx.setUnassocAmt(parseFloat(e.target.value)||0)} />
+        <div className="card-body">
+          <h2>Pay rates <span className="ea-ref">(EA 2025 Sch. 4A/4B — 1 Jul 2025 values pre-set)</span></h2>
+          <div className="g3">
+            {RATE_DEFS.map(d=>(
+              <div key={d.k}>
+                <label>{d.label} <span className="ea-ref">{d.ea}</span></label>
+                <input type="number" step="any"
+                  value={(ctx.config as any)[d.k]}
+                  onChange={e=>ctx.setConfig({[d.k]:parseFloat(e.target.value)||0} as any)} />
+              </div>
+            ))}
           </div>
-          <div>
-            <label>Payroll code</label>
-            <input type="text" placeholder="code from payslip" value={ctx.codes.unassoc||''} onChange={e=>ctx.setCodes({unassoc:e.target.value})} />
-          </div>
-        </div>
-        <div style={{marginTop:10}}>
-          <button onClick={handleSaveCfg}>Save</button>
+          <hr />
+          <button onClick={handleSaveCfg}>Save rates</button>
           {cfgSaved&&<span className="saved-msg">Saved ✓</span>}
+          <p className="note" style={{marginTop:8}}>Rates are saved to localStorage and persist across browser sessions.</p>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-body">
+          <h2>Payroll codes <span className="ea-ref">(from your payslip — for matching display only, no effect on calculations)</span></h2>
+          <div className="g3">
+            {CODE_DEFS.map(d=>(
+              <div key={d.k}>
+                <label>{d.label}</label>
+                <input type="text" placeholder="payslip code"
+                  value={(ctx.codes as any)[d.k]||''}
+                  onChange={e=>ctx.setCodes({[d.k]:e.target.value} as any)} />
+              </div>
+            ))}
+          </div>
+          <hr />
+          <button onClick={handleSaveCodes}>Save codes</button>
+          {codeSaved&&<span className="saved-msg">Saved ✓</span>}
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-body">
+          <h2>Un-associated duties <span className="ea-ref">(Cl. 146.4(d) / Cl. 157.2)</span></h2>
+          <p className="note" style={{marginBottom:8}}>Additional duties not directly associated with train operations (road review, pilot prep, etc.) are payable for shifts ≥161 km.</p>
+          <div className="g2">
+            <div>
+              <label>$ per shift (≥161 km)</label>
+              <input type="number" step="0.01" value={ctx.unassocAmt} onChange={e=>ctx.setUnassocAmt(parseFloat(e.target.value)||0)} />
+            </div>
+            <div>
+              <label>Payroll code</label>
+              <input type="text" placeholder="code from payslip" value={ctx.codes.unassoc||''} onChange={e=>ctx.setCodes({unassoc:e.target.value})} />
+            </div>
+          </div>
+          <div style={{marginTop:10}}>
+            <button onClick={handleSaveCfg}>Save</button>
+            {cfgSaved&&<span className="saved-msg">Saved ✓</span>}
+          </div>
         </div>
       </div>
     </>

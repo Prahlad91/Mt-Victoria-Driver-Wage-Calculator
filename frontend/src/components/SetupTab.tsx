@@ -257,19 +257,21 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
 
       {/* ── Penalty reference ────────────────────────────────────────────── */}
       <div className="card">
-        <h3>Shift Penalty Rules — Cl. 134 (EA 2025)</h3>
-        <table>
-          <thead><tr><th>Item</th><th>Type</th><th>Definition</th><th>Rate</th><th>Unit</th><th>Note</th></tr></thead>
-          <tbody>
-            <tr><td>Base</td><td>Ordinary</td><td>Weekday ordinary hours</td><td>$49.818</td><td>per hr</td><td>Sch. 4A</td></tr>
-            <tr><td>Item 6</td><td>Afternoon</td><td>Commences before AND finishes after 18:00</td><td>$4.84</td><td>per hr</td><td>Cl. 134.3(b) rounding</td></tr>
-            <tr><td>Item 7</td><td>Night</td><td>Sign-on 18:00–03:59</td><td>$5.69</td><td>per hr</td><td>Same rounding</td></tr>
-            <tr><td>Item 8</td><td>Early morning</td><td>Sign-on 04:00–05:30</td><td>$4.84</td><td>per hr</td><td>Same rounding</td></tr>
-            <tr><td>Item 9</td><td>Additional</td><td>Sign-on/off 01:01–03:59 Mon–Fri (not PH, not OT)</td><td>$5.69</td><td>per shift flat</td><td>Cl. 134.4</td></tr>
-          </tbody>
-        </table>
-        <p className="note" style={{marginTop:8}}>⚠️ Penalties NOT payable on Saturday, Sunday, or Public Holidays (Cl. 134.3(a)).</p>
-        <p className="note">Rounding rule Cl. 134.3(b): fraction &lt;30 min → disregard; ≥30 min → round up to next hour.</p>
+        <div className="card-body">
+          <h3>Shift Penalty Rules — Cl. 134 (EA 2025)</h3>
+          <table>
+            <thead><tr><th>Item</th><th>Type</th><th>Definition</th><th>Rate</th><th>Unit</th><th>Note</th></tr></thead>
+            <tbody>
+              <tr><td>Base</td><td>Ordinary</td><td>Weekday ordinary hours</td><td>$49.818</td><td>per hr</td><td>Sch. 4A</td></tr>
+              <tr><td>Item 6</td><td>Afternoon</td><td>Commences before AND finishes after 18:00</td><td>$4.84</td><td>per hr</td><td>Cl. 134.3(b) rounding</td></tr>
+              <tr><td>Item 7</td><td>Night</td><td>Sign-on 18:00–03:59</td><td>$5.69</td><td>per hr</td><td>Same rounding</td></tr>
+              <tr><td>Item 8</td><td>Early morning</td><td>Sign-on 04:00–05:30</td><td>$4.84</td><td>per hr</td><td>Same rounding</td></tr>
+              <tr><td>Item 9</td><td>Additional</td><td>Sign-on/off 01:01–03:59 Mon–Fri (not PH, not OT)</td><td>$5.69</td><td>per shift flat</td><td>Cl. 134.4</td></tr>
+            </tbody>
+          </table>
+          <p className="note" style={{marginTop:8}}>⚠️ Penalties NOT payable on Saturday, Sunday, or Public Holidays (Cl. 134.3(a)).</p>
+          <p className="note">Rounding rule Cl. 134.3(b): fraction &lt;30 min → disregard; ≥30 min → round up to next hour.</p>
+        </div>
       </div>
     </>
   )
@@ -478,6 +480,7 @@ function AssocChartCard() {
 
   return (
     <div className="card">
+      <div className="card-body">
       <h2>
         Assoc / Un-assoc Payments Chart
         <span className="ea-ref" style={{marginLeft:8}}>(Cl. 157.1(b) / Cl. 146.4 — used for 1454 calculation)</span>
@@ -587,6 +590,7 @@ function AssocChartCard() {
         CSV is the most reliable format; use the template above as a starting point.
         The <strong>Build Up</strong> column (green) is used directly by the calculator when present — it overrides the formula.
       </p>
+      </div>
     </div>
   )
 }
