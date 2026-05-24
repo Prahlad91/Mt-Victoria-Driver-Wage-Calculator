@@ -417,18 +417,18 @@ function AssocChartCard() {
     }
 
     // ── PDF: send to backend (pdfplumber, no tesseract needed) ────────────────
-    // v3.26: route through the admin endpoint so the parsed result persists
-    // server-side for all drivers.  Requires admin sign-in (X-Admin-Token).
+    // v3.26/v3.28: route through the admin endpoint so the parsed result
+    // persists server-side for all drivers.  Requires admin sign-in.
     setUploading(true)
     try {
       const form = new FormData(); form.append('file', file)
-      if (!ctx.adminToken) {
+      if (!ctx.adminPassword) {
         throw new Error('Admin sign-in required to upload the chart. Click "🔐 Admin" in the header to sign in.')
       }
       const r = await fetch('/api/admin/upload-chart', {
         method: 'POST',
         body: form,
-        headers: { 'X-Admin-Token': ctx.adminToken },
+        headers: { 'X-Admin-Password': ctx.adminPassword },
       })
       if (!r.ok) {
         const e = await r.json().catch(() => ({ detail: 'Parse failed' }))

@@ -19,7 +19,7 @@ const TABS: { id: Tab; label: string }[] = [
 export default function App() {
   const [active, setActive] = useState<Tab>('setup')
   const [adminModalOpen, setAdminModalOpen] = useState(false)
-  const { result, fnType, fnLoaded, rosterLine, adminToken, setAdminToken } = useFortnightContext()
+  const { result, fnType, fnLoaded, rosterLine, adminPassword, setAdminPassword } = useFortnightContext()
 
   return (
     <>
@@ -51,12 +51,12 @@ export default function App() {
             <span className="badge" style={{background:'var(--accent-bg)',color:'var(--accent)',fontSize:11}}>
               EA 2025
             </span>
-            {/* v3.26: admin sign-in pill — opens modal to enter ADMIN_TOKEN */}
-            {adminToken ? (
+            {/* v3.26/v3.28: admin sign-in pill — opens modal to enter ADMIN_PASSWORD */}
+            {adminPassword ? (
               <button
                 type="button"
                 onClick={() => {
-                  if (confirm('Sign out as admin?')) setAdminToken(null)
+                  if (confirm('Sign out as admin?')) setAdminPassword(null)
                 }}
                 className="badge"
                 title="Signed in as admin. Click to sign out."
@@ -91,11 +91,11 @@ export default function App() {
         </div>
       </header>
 
-      {/* v3.26: admin sign-in modal */}
+      {/* v3.26/v3.28: admin sign-in modal */}
       {adminModalOpen && (
         <AdminSignInModal
           onClose={() => setAdminModalOpen(false)}
-          onSubmit={(token) => { setAdminToken(token); setAdminModalOpen(false) }}
+          onSubmit={(pw) => { setAdminPassword(pw); setAdminModalOpen(false) }}
         />
       )}
 

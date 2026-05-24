@@ -69,18 +69,33 @@ def health():
 # unset (e.g. local dev), admin endpoints are unreachable — explicit rather
 # than silently open.
 
-def _require_admin(x_admin_token: Optional[str]) -> None:
-    expected = (os.environ.get("ADMIN_TOKEN") or "").strip()
+def _require_admin(
+    x_admin_password: Optional[str] = None,
+    x_admin_token: Optional[str] = None,
+) -> None:
+    """Verify the admin shared secret.
+
+    v3.28: prefers `ADMIN_PASSWORD` env var + `X-Admin-Password` header, but
+    falls back to the legacy `ADMIN_TOKEN` env var + `X-Admin-Token` header so
+    a Vercel/Render deploy out-of-order doesn't break admin sign-in during
+    the rollout window.  Once both platforms have the new vars set, the old
+    fallbacks can be removed."""
+    expected = (
+        (os.environ.get("ADMIN_PASSWORD") or "").strip()
+        or (os.environ.get("ADMIN_TOKEN") or "").strip()
+    )
     if not expected:
         raise HTTPException(
             status_code=503,
             detail=(
-                "Admin uploads disabled: server has no ADMIN_TOKEN configured. "
-                "Set the ADMIN_TOKEN env var on the backend to enable."
+                "Admin uploads disabled: server has no ADMIN_PASSWORD configured. "
+                "Set the ADMIN_PASSWORD env var on the backend to enable. "
+                "(The legacy ADMIN_TOKEN env var also still works.)"
             ),
         )
-    if not x_admin_token or x_admin_token.strip() != expected:
-        raise HTTPException(status_code=401, detail="Invalid admin token.")
+    submitted = (x_admin_password or x_admin_token or "").strip()
+    if not submitted or submitted != expected:
+        raise HTTPException(status_code=401, detail="Invalid admin password.")
 
 
 # ─── Session-id validation (v3.23 — per-user fortnight roster) ──────────────
@@ -275,7 +290,7 @@ def export_csv(result: CalculateResponse):
 #
 # Admin-published artifacts are uploaded once per change-cycle (typically once
 # per year for master roster / schedules / chart) and read by every driver.
-# Gated by the X-Admin-Token shared secret.
+# Gated by the X-Admin-Password (or legacy X-Admin-Token) shared secret.
 #
 # The fortnight roster does NOT live here — per v3.23 it is user-driven, see
 # the next section below.
@@ -286,12 +301,13 @@ _SCHEDULE_TYPES = {"weekday", "weekend"}
 @app.post("/api/admin/upload-roster", response_model=ParsedRosterResponse)
 async def admin_upload_master_roster(
     file: UploadFile = File(...),
-    x_admin_token: Optional[str] = Header(None, alias="X-Admin-Token"),
+    x_admin_password: Optional[str] = Header(None, alias="X-Admin-Password"),
+    x_admin_token:    Optional[str] = Header(None, alias="X-Admin-Token"),
 ):
     """Admin: parse the master roster ZIP/PDF and persist globally.
     Only the master roster is admin-uploaded; the fortnight roster is per-user
     (POST /api/upload-fortnight-roster).  Annual cadence."""
-    _require_admin(x_admin_token)
+    _require_admin(x_admin_password, x_admin_token)
     content = await file.read()
     try:
         parsed = parse_roster_zip(content, filename=file.filename or "master_roster")
@@ -309,10 +325,11 @@ async def admin_upload_master_roster(
 async def admin_upload_schedule(
     type: str = Query(..., description="schedule type: 'weekday' or 'weekend'"),
     file: UploadFile = File(...),
-    x_admin_token: Optional[str] = Header(None, alias="X-Admin-Token"),
+    x_admin_password: Optional[str] = Header(None, alias="X-Admin-Password"),
+    x_admin_token:    Optional[str] = Header(None, alias="X-Admin-Token"),
 ):
     """Admin: parse a weekday/weekend schedule and persist for all drivers."""
-    _require_admin(x_admin_token)
+    _require_admin(x_admin_password, x_admin_token)
     if type not in _SCHEDULE_TYPES:
         raise HTTPException(status_code=400, detail=f"type must be one of {sorted(_SCHEDULE_TYPES)}")
     content = await file.read()
@@ -332,10 +349,11 @@ async def admin_upload_schedule(
 @app.post("/api/admin/upload-chart", response_model=ParseAssocChartResponse)
 async def admin_upload_chart(
     file: UploadFile = File(...),
-    x_admin_token: Optional[str] = Header(None, alias="X-Admin-Token"),
+    x_admin_password: Optional[str] = Header(None, alias="X-Admin-Password"),
+    x_admin_token:    Optional[str] = Header(None, alias="X-Admin-Token"),
 ):
     """Admin: parse an assoc/un-assoc payments chart and persist for all drivers."""
-    _require_admin(x_admin_token)
+    _require_admin(x_admin_password, x_admin_token)
     content = await file.read()
     try:
         parsed = parse_assoc_chart_file(content, filename=file.filename or "chart")

@@ -106,13 +106,15 @@ if (typeof window !== 'undefined') {
 // request so the server can scope rows to this browser (per v3.23 — fortnight
 // roster is user-uploaded, each user owns their own row).
 //
-// `mvwc_admin_token` lives in sessionStorage (NOT localStorage) — cleared
+// `mvwc_admin_password` lives in sessionStorage (NOT localStorage) — cleared
 // when the browser tab closes.  This is a stopgap before the proper JWT
-// auth PR; tokens-in-sessionStorage are vulnerable to XSS but the surface is
-// minimal because we don't render arbitrary HTML.
+// auth PR; secrets-in-sessionStorage are vulnerable to XSS but the surface is
+// minimal because we don't render arbitrary HTML.  v3.28 renamed from
+// `mvwc_admin_token` so currently-signed-in admins re-enter their password
+// once on next page load (the rename forces a fresh sign-in).
 
-const LS_SID         = 'mvwc_session_id'
-const SS_ADMIN_TOKEN = 'mvwc_admin_token'
+const LS_SID            = 'mvwc_session_id'
+const SS_ADMIN_PASSWORD = 'mvwc_admin_password'
 
 function _newSessionId(): string {
   try {
@@ -143,13 +145,13 @@ function getSessionId(): string {
   }
 }
 
-function getAdminToken(): string | null {
-  try { return sessionStorage.getItem(SS_ADMIN_TOKEN) } catch { return null }
+function getAdminPassword(): string | null {
+  try { return sessionStorage.getItem(SS_ADMIN_PASSWORD) } catch { return null }
 }
-function setAdminTokenStorage(token: string | null) {
+function setAdminPasswordStorage(password: string | null) {
   try {
-    if (token) sessionStorage.setItem(SS_ADMIN_TOKEN, token)
-    else sessionStorage.removeItem(SS_ADMIN_TOKEN)
+    if (password) sessionStorage.setItem(SS_ADMIN_PASSWORD, password)
+    else sessionStorage.removeItem(SS_ADMIN_PASSWORD)
   } catch { /* ignore */ }
 }
 
@@ -195,9 +197,11 @@ interface Ctx {
   assocChart: AssocChart; assocChartIsCustom: boolean
   loadAssocChartCsv: (csvText: string) => string | null  // returns error or null
   resetAssocChart: () => void
-  // v3.26: admin sign-in (sessionStorage-backed) + per-browser session id
-  adminToken: string | null
-  setAdminToken: (token: string | null) => void
+  // v3.26: admin sign-in (sessionStorage-backed) + per-browser session id.
+  // v3.28: renamed adminToken → adminPassword (was a token-named field but
+  // semantically a human-memorable password since v3.28).
+  adminPassword: string | null
+  setAdminPassword: (pw: string | null) => void
   sessionId: string
   result: CalculateResponse | null; calculating: boolean; calcError: string | null
   loadLine:            (line: number, start: string, phs: string[], psTotal: number | null) => string | null
@@ -254,12 +258,14 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
   const [calculating, setCalcing]   = useState(false)
   const [calcError,   setCalcError] = useState<string | null>(null)
 
-  // v3.26: admin token state.  Reads sessionStorage on mount; setter syncs
+  // v3.26: admin password state.  Reads sessionStorage on mount; setter syncs
   // both React state and sessionStorage so the modal in App.tsx stays in lock-step.
-  const [adminToken, setAdminTokenState] = useState<string | null>(() => getAdminToken())
-  const setAdminToken = useCallback((token: string | null) => {
-    setAdminTokenStorage(token)
-    setAdminTokenState(token)
+  // v3.28: renamed from adminToken — the secret is now a human-chosen password,
+  // not a random 64-char hex token.
+  const [adminPassword, setAdminPasswordState] = useState<string | null>(() => getAdminPassword())
+  const setAdminPassword = useCallback((pw: string | null) => {
+    setAdminPasswordStorage(pw)
+    setAdminPasswordState(pw)
   }, [])
   // Session id is generated lazily on first call to getSessionId(); exposed
   // here for any consumer (e.g. SetupTab swinger-validation message) that
@@ -836,15 +842,15 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
       const form = new FormData(); form.append('file', file)
       const headers: Record<string, string> = {}
       if (scope === 'admin') {
-        const tok = getAdminToken()
-        if (!tok) {
+        const pw = getAdminPassword()
+        if (!pw) {
           setter({
             status: 'error', result: null,
             error: 'Admin sign-in required to upload this file. Click "🔐 Admin" in the header to sign in.',
           })
           return
         }
-        headers['X-Admin-Token'] = tok
+        headers['X-Admin-Password'] = pw
       } else if (scope === 'user') {
         headers['X-Session-Id'] = getSessionId()
       }
@@ -962,7 +968,7 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
       rosterUpload, payslipUpload,
       masterRosterUpload, fnRosterUpload, weekdayScheduleUpload, weekendScheduleUpload,
       assocChart, assocChartIsCustom, loadAssocChartCsv, resetAssocChart,
-      adminToken, setAdminToken, sessionId,
+      adminPassword, setAdminPassword, sessionId,
       result, calculating, calcError,
       loadLine, fillAllRostered, copyScheduledToActual, setDay, applyManualDiag, markWorkedOnOff,
       resetDay, applyUploadedRoster,

@@ -145,25 +145,29 @@ Vercel and Render are separate platforms — env vars do NOT cross-wire.
 > transparently with either Neon's pooled `DATABASE_URL` or the unpooled
 > `DATABASE_URL_UNPOOLED`.  Either is fine.
 
-**4.3 Generate + set `ADMIN_TOKEN`**
+**4.3 Set `ADMIN_PASSWORD`**
 
 This is the shared secret that gates the admin upload endpoints
 (`/api/admin/upload-roster`, `/api/admin/upload-schedule`, `/api/admin/upload-chart`).
+Pick a human-memorable password that you'll type into the 🔐 Admin sign-in
+modal in the deployed app.
 
-```bash
-# Generate a strong random token
-openssl rand -hex 32
-# Save it in a password manager — losing it means rotating via the dashboards.
-```
+Recommendations:
+- **At least 12 characters** of mixed case + digits + at least one symbol.
+- Not reused from another account.
+- Save it in a password manager (1Password, Bitwarden, etc.).
 
-Add it as an env var on **both** platforms:
+> The backend uses a plaintext comparison (not bcrypt) since this is a
+> single-shared-secret model, not per-user auth.  Treat the env var value
+> the same way you'd treat any other production secret.
 
-- **Render** → Environment → Add → Key `ADMIN_TOKEN` → Value `<paste>` → Save.
-- **Vercel** → Settings → Environment Variables → Add → Key `ADMIN_TOKEN` → Value `<paste>` → check Production + Preview + Development → Save.
+Add it to **Render** (the only place it's actually checked):
 
-> Vercel currently doesn't need the token because the frontend reads it
-> from the user via the 🔐 Admin sign-in modal, not from build-time env.
-> Adding it on Vercel is harmless future-proofing.
+- Render → Environment → Add → Key `ADMIN_PASSWORD` → Value `<your password>` → Save.
+
+> The legacy `ADMIN_TOKEN` env var is still accepted as a backwards-compat
+> fallback so a deploy partway through this rename doesn't break sign-in.
+> Once `ADMIN_PASSWORD` is set, the old `ADMIN_TOKEN` can be deleted.
 
 **4.4 Verify the deploy**
 
@@ -178,32 +182,32 @@ curl -sS https://YOUR-BACKEND.onrender.com/health
 curl -sS https://YOUR-BACKEND.onrender.com/api/roster/current
 # {"detail":"No master roster published yet."}
 
-# Admin gate — wrong token returns 401, missing token returns 503
+# Admin gate — wrong password returns 401, missing password returns 503
 curl -sS -X POST https://YOUR-BACKEND.onrender.com/api/admin/upload-roster \
-  -H "X-Admin-Token: WRONG"
-# {"detail":"Invalid admin token."}
+  -H "X-Admin-Password: WRONG"
+# {"detail":"Invalid admin password."}
 ```
 
 **4.5 First-time admin sign-in (in the deployed app)**
 
 1. Open the deployed frontend (`https://YOUR-FRONTEND.vercel.app`).
 2. Click the **🔐 Admin** pill in the header.
-3. Paste your `ADMIN_TOKEN` value → **Sign in**.
-   - Wrong token → red inline error.
-   - Right token → pill turns green (`👤 Admin`).
+3. Enter your `ADMIN_PASSWORD` value → **Sign in**.
+   - Wrong password → red inline error.
+   - Correct password → pill turns green (`👤 Admin`).
 4. Use the Step-1 upload cards in **Setup** to push the master roster /
    schedules / chart to the server.  All drivers will see this data on
    next page load.
 
-The admin token persists in `sessionStorage` and is cleared when you
-close the browser tab.  This is intentional — the token gives full
+The admin password persists in `sessionStorage` and is cleared when you
+close the browser tab.  This is intentional — the password gives full
 write access to shared data, so it shouldn't sit on disk.
 
-**4.6 Rotating `ADMIN_TOKEN`**
+**4.6 Rotating `ADMIN_PASSWORD`**
 
-If the token leaks: regenerate (`openssl rand -hex 32`), update both
-Render and Vercel env vars, save — Render auto-redeploys.  Anyone using
-the old token will get 401 on next admin write request.
+If the password leaks or you want to change it: edit the value on
+Render → Environment, save — Render auto-redeploys (~2 min).  Anyone
+using the old password will get 401 on next admin write request.
 
 ---
 

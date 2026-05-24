@@ -3,27 +3,30 @@ import { useEffect, useState } from 'react'
 
 interface Props {
   onClose: () => void
-  onSubmit: (token: string) => void
+  onSubmit: (password: string) => void
 }
 
 /**
- * v3.26 — Admin sign-in modal.
+ * v3.26/v3.28 — Admin sign-in modal.
  *
- * Captures the `ADMIN_TOKEN` value so admin-write endpoints (master roster,
- * schedule, chart uploads) can attach it as `X-Admin-Token`.  Stored in
- * sessionStorage by the context's `setAdminToken`, so the token is cleared
- * when the browser tab closes (not persisted to disk).
+ * Captures the `ADMIN_PASSWORD` value so admin-write endpoints (master roster,
+ * schedule, chart uploads) can attach it as the `X-Admin-Password` header.
+ * Stored in sessionStorage by the context's `setAdminPassword`, so the password
+ * is cleared when the browser tab closes (not persisted to disk).
  *
  * This is NOT real authentication — it's a stopgap before the proper JWT
- * auth PR.  Anyone who learns the token can impersonate the admin until it
- * is rotated.
+ * auth PR.  Anyone who learns the password can impersonate the admin until
+ * it is rotated.
  *
- * Verifies the token by POSTing to `/api/admin/upload-roster` with no file —
- * the server returns 401 for a bad token, 422 for a good token + bad file.
- * 422 is treated as a successful gate check.
+ * Verifies the password by POSTing to `/api/admin/upload-roster` with a
+ * zero-byte file — the server returns 401 for a bad password, 422 for a good
+ * password + bad file.  422 is treated as a successful gate check.
+ *
+ * v3.28: renamed from "admin token" to "admin password" because the secret
+ * is now a human-chosen value rather than a 64-char random hex string.
  */
 export default function AdminSignInModal({ onClose, onSubmit }: Props) {
-  const [token, setToken] = useState('')
+  const [password, setPassword] = useState('')
   const [verifying, setVerifying] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -35,31 +38,31 @@ export default function AdminSignInModal({ onClose, onSubmit }: Props) {
   }, [onClose])
 
   async function verifyAndSubmit() {
-    const t = token.trim()
-    if (!t) { setError('Enter the admin token.'); return }
+    const pw = password.trim()
+    if (!pw) { setError('Enter the admin password.'); return }
     setVerifying(true)
     setError(null)
     try {
       const form = new FormData()
       // Use a zero-byte file — gate will pass before the parser runs and fail
-      // at parse time with 422.  A 401 means the token is wrong.
+      // at parse time with 422.  A 401 means the password is wrong.
       form.append('file', new Blob([''], { type: 'application/pdf' }), 'probe.pdf')
       const r = await fetch('/api/admin/upload-roster', {
         method: 'POST',
         body: form,
-        headers: { 'X-Admin-Token': t },
+        headers: { 'X-Admin-Password': pw },
       })
       if (r.status === 401) {
-        setError('Invalid admin token. Check the ADMIN_TOKEN value on the backend.')
+        setError('Invalid admin password. Check the ADMIN_PASSWORD value on the backend.')
         return
       }
       if (r.status === 503) {
-        setError('Backend has no ADMIN_TOKEN configured. Set it as a Render env var.')
+        setError('Backend has no ADMIN_PASSWORD configured. Set it as a Render env var.')
         return
       }
       // 422 = gate passed but the probe file is garbage; that's expected.
       // 200 (unlikely with a 0-byte file) also fine.
-      onSubmit(t)
+      onSubmit(pw)
     } catch (e) {
       setError(`Network error: ${(e as Error).message}`)
     } finally {
@@ -94,9 +97,9 @@ export default function AdminSignInModal({ onClose, onSubmit }: Props) {
           🔐 Admin sign-in
         </h2>
         <p style={{ margin: 0, marginBottom: 14, fontSize: 12, color: 'var(--text2)' }}>
-          Paste the <strong>ADMIN_TOKEN</strong> value from the backend's env
-          vars. Required for uploading the master roster, weekday / weekend
-          schedule, and assoc/un-assoc chart.
+          Enter the <strong>admin password</strong> (the <code>ADMIN_PASSWORD</code>
+          value from the backend's env vars). Required for uploading the master
+          roster, weekday / weekend schedule, and assoc/un-assoc chart.
         </p>
         <p style={{ margin: 0, marginBottom: 14, fontSize: 11, color: 'var(--text3)' }}>
           Stored in this tab's sessionStorage and cleared when you close the tab.
@@ -105,9 +108,9 @@ export default function AdminSignInModal({ onClose, onSubmit }: Props) {
           type="password"
           autoFocus
           autoComplete="off"
-          placeholder="paste admin token here"
-          value={token}
-          onChange={(e) => setToken(e.target.value)}
+          placeholder="admin password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') verifyAndSubmit() }}
           style={{
             width: '100%', padding: '8px 10px',
@@ -134,7 +137,7 @@ export default function AdminSignInModal({ onClose, onSubmit }: Props) {
             type="button"
             onClick={verifyAndSubmit}
             className="btn-sm btn-primary"
-            disabled={verifying || !token.trim()}
+            disabled={verifying || !password.trim()}
           >
             {verifying ? '⏳ Verifying…' : 'Sign in'}
           </button>
