@@ -625,7 +625,7 @@ function UploadCard({ title, hint, icon = '📄', state, onFile, successMsg, fil
   const [drag, setDrag] = useState(false)
   const localRef = useRef<HTMLInputElement>(null)
   const ref = fileRef || localRef
-  const { status, error, cached } = state
+  const { status, error, cached, fromServer } = state
   const cardCls = `upload-card${drag ? ' drag-over' : ''}${status === 'success' ? ' success' : ''}${status === 'error' ? ' error' : ''}`
 
   return (
@@ -646,7 +646,13 @@ function UploadCard({ title, hint, icon = '📄', state, onFile, successMsg, fil
         {status === 'success'   && (
           <div style={{fontSize:11, color:'var(--green-text)'}}>
             {successMsg}
-            {cached && (
+            {fromServer ? (
+              <span style={{marginLeft:6, fontSize:10, padding:'1px 6px', borderRadius:10,
+                background:'rgba(0,113,227,.12)', color:'var(--accent)', border:'1px solid rgba(0,113,227,.4)'}}
+                title="Loaded from the server (admin's published data, or your last upload). Click the card to replace.">
+                🌐 from server · click to replace
+              </span>
+            ) : cached && (
               <span style={{marginLeft:6, fontSize:10, padding:'1px 6px', borderRadius:10,
                 background:'rgba(26,122,60,.12)', color:'var(--green-text)', border:'1px solid #8fcca8'}}>
                 cached · click to replace

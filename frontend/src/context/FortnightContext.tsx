@@ -403,15 +403,15 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
       if (cancelled) return
       if (master) {
         toLS(LS_MR, master)
-        setMR({ status: 'success', result: master, error: null })
+        setMR({ status: 'success', result: master, error: null, fromServer: true })
       }
       if (weekday) {
         toLS(LS_WD, weekday)
-        setWD({ status: 'success', result: weekday, error: null })
+        setWD({ status: 'success', result: weekday, error: null, fromServer: true })
       }
       if (weekend) {
         toLS(LS_WE, weekend)
-        setWE({ status: 'success', result: weekend, error: null })
+        setWE({ status: 'success', result: weekend, error: null, fromServer: true })
       }
       if (chart?.chart && Object.keys(chart.chart).length) {
         toLS(LS_AC, chart.chart)
@@ -423,7 +423,7 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
       if (cancelled) return
       if (fn) {
         toLS(LS_FR, fn)
-        setFR({ status: 'success', result: fn, error: null })
+        setFR({ status: 'success', result: fn, error: null, fromServer: true })
       }
     })()
     return () => { cancelled = true }

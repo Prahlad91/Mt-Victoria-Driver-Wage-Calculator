@@ -183,5 +183,10 @@ export interface SimpleUploadState<T> {
   status: UploadStatus;
   result: T | null;
   error: string | null;
+  /** True when restored from localStorage at app startup (not a fresh upload). */
   cached?: boolean;
+  /** True when hydrated from the v3.22+ server bootstrap (admin-published or
+   *  the user's own most-recent fortnight roster).  Mutually exclusive with
+   *  `cached` for display purposes — `fromServer` takes precedence. */
+  fromServer?: boolean;
 }

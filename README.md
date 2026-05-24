@@ -115,6 +115,96 @@ Commit and push the change.
 
 > The `/legacy` route will continue to serve the original `index.html` calculator.
 
+### Step 4 — Persistence + admin auth setup (v3.22+)
+
+Required for the shared-roster / shared-schedule / shared-chart workflow
+introduced in v3.22 and v3.23.  Without these env vars the admin endpoints
+return `503 Admin uploads disabled`; the calculator itself still works
+locally using built-in fallback data.
+
+**4.1 Install Neon Postgres via Vercel Marketplace**
+
+1. Vercel dashboard → your project → **Storage** → **Marketplace** → **Neon**.
+2. Click **Install** → choose the free tier (0.5 GB storage, 1 compute-hour/day).
+3. After install, Vercel auto-injects `DATABASE_URL` and a few sibling
+   variables (`DATABASE_URL_UNPOOLED`, `PGHOST`, …) into your project's
+   environment variables.
+
+**4.2 Copy `DATABASE_URL` to Render**
+
+Vercel and Render are separate platforms — env vars do NOT cross-wire.
+
+1. Vercel → Settings → Environment Variables → click `DATABASE_URL` → **Show value** → **Copy**.
+   It looks like `postgres://neondb_owner:xxxx@ep-yyyy.aws.neon.tech/neondb?sslmode=require`.
+2. Render → your backend service → **Environment** → **Add Environment Variable**:
+   - Key: `DATABASE_URL`
+   - Value: paste from Vercel
+3. **Save Changes** — Render auto-redeploys (~2 min).
+
+> The backend's `db.py` uses `statement_cache_size=0` so it works
+> transparently with either Neon's pooled `DATABASE_URL` or the unpooled
+> `DATABASE_URL_UNPOOLED`.  Either is fine.
+
+**4.3 Generate + set `ADMIN_TOKEN`**
+
+This is the shared secret that gates the admin upload endpoints
+(`/api/admin/upload-roster`, `/api/admin/upload-schedule`, `/api/admin/upload-chart`).
+
+```bash
+# Generate a strong random token
+openssl rand -hex 32
+# Save it in a password manager — losing it means rotating via the dashboards.
+```
+
+Add it as an env var on **both** platforms:
+
+- **Render** → Environment → Add → Key `ADMIN_TOKEN` → Value `<paste>` → Save.
+- **Vercel** → Settings → Environment Variables → Add → Key `ADMIN_TOKEN` → Value `<paste>` → check Production + Preview + Development → Save.
+
+> Vercel currently doesn't need the token because the frontend reads it
+> from the user via the 🔐 Admin sign-in modal, not from build-time env.
+> Adding it on Vercel is harmless future-proofing.
+
+**4.4 Verify the deploy**
+
+After both platforms have redeployed:
+
+```bash
+# Health endpoint — should report v3.22+
+curl -sS https://YOUR-BACKEND.onrender.com/health
+# {"status":"ok","version":"3.22.0"}
+
+# DB connectivity — should return 404 (DB connected, no data yet)
+curl -sS https://YOUR-BACKEND.onrender.com/api/roster/current
+# {"detail":"No master roster published yet."}
+
+# Admin gate — wrong token returns 401, missing token returns 503
+curl -sS -X POST https://YOUR-BACKEND.onrender.com/api/admin/upload-roster \
+  -H "X-Admin-Token: WRONG"
+# {"detail":"Invalid admin token."}
+```
+
+**4.5 First-time admin sign-in (in the deployed app)**
+
+1. Open the deployed frontend (`https://YOUR-FRONTEND.vercel.app`).
+2. Click the **🔐 Admin** pill in the header.
+3. Paste your `ADMIN_TOKEN` value → **Sign in**.
+   - Wrong token → red inline error.
+   - Right token → pill turns green (`👤 Admin`).
+4. Use the Step-1 upload cards in **Setup** to push the master roster /
+   schedules / chart to the server.  All drivers will see this data on
+   next page load.
+
+The admin token persists in `sessionStorage` and is cleared when you
+close the browser tab.  This is intentional — the token gives full
+write access to shared data, so it shouldn't sit on disk.
+
+**4.6 Rotating `ADMIN_TOKEN`**
+
+If the token leaks: regenerate (`openssl rand -hex 32`), update both
+Render and Vercel env vars, save — Render auto-redeploys.  Anyone using
+the old token will get 401 on next admin write request.
+
 ---
 
 ## Project Structure
