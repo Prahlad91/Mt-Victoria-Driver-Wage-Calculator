@@ -99,6 +99,61 @@ if (typeof window !== 'undefined') {
   } catch { /* localStorage unavailable */ }
 }
 
+// ─── Session id + admin token (v3.26 — server bootstrap, see PRD §6.12) ────
+//
+// `mvwc_session_id` is a v4 UUID generated once per browser and persisted in
+// localStorage.  Sent as `X-Session-Id` header on every fortnight-roster
+// request so the server can scope rows to this browser (per v3.23 — fortnight
+// roster is user-uploaded, each user owns their own row).
+//
+// `mvwc_admin_token` lives in sessionStorage (NOT localStorage) — cleared
+// when the browser tab closes.  This is a stopgap before the proper JWT
+// auth PR; tokens-in-sessionStorage are vulnerable to XSS but the surface is
+// minimal because we don't render arbitrary HTML.
+
+const LS_SID         = 'mvwc_session_id'
+const SS_ADMIN_TOKEN = 'mvwc_admin_token'
+
+function _newSessionId(): string {
+  try {
+    if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+      return (crypto as Crypto & { randomUUID: () => string }).randomUUID()
+    }
+  } catch { /* fall through */ }
+  // Fallback: 32-char hex from Math.random (less entropy but unique enough)
+  const hex = '0123456789abcdef'
+  let s = ''
+  for (let i = 0; i < 32; i++) s += hex[Math.floor(Math.random() * 16)]
+  return s
+}
+
+function getSessionId(): string {
+  try {
+    let sid = localStorage.getItem(LS_SID)
+    if (!sid) {
+      sid = _newSessionId()
+      localStorage.setItem(LS_SID, sid)
+    }
+    return sid
+  } catch {
+    // localStorage blocked (e.g. private mode) — return a per-call UUID; the
+    // user won't have persistent server-side fortnight roster but everything
+    // else still works.
+    return _newSessionId()
+  }
+}
+
+function getAdminToken(): string | null {
+  try { return sessionStorage.getItem(SS_ADMIN_TOKEN) } catch { return null }
+}
+function setAdminTokenStorage(token: string | null) {
+  try {
+    if (token) sessionStorage.setItem(SS_ADMIN_TOKEN, token)
+    else sessionStorage.removeItem(SS_ADMIN_TOKEN)
+  } catch { /* ignore */ }
+}
+
+
 function fromLS<T>(k: string, fb: T): T {
   try { const s = localStorage.getItem(k); return s ? JSON.parse(s) : fb } catch { return fb }
 }
@@ -140,6 +195,10 @@ interface Ctx {
   assocChart: AssocChart; assocChartIsCustom: boolean
   loadAssocChartCsv: (csvText: string) => string | null  // returns error or null
   resetAssocChart: () => void
+  // v3.26: admin sign-in (sessionStorage-backed) + per-browser session id
+  adminToken: string | null
+  setAdminToken: (token: string | null) => void
+  sessionId: string
   result: CalculateResponse | null; calculating: boolean; calcError: string | null
   loadLine:            (line: number, start: string, phs: string[], psTotal: number | null) => string | null
   fillAllRostered:     () => void
@@ -194,6 +253,18 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
   const [result,      setResult]    = useState<CalculateResponse | null>(null)
   const [calculating, setCalcing]   = useState(false)
   const [calcError,   setCalcError] = useState<string | null>(null)
+
+  // v3.26: admin token state.  Reads sessionStorage on mount; setter syncs
+  // both React state and sessionStorage so the modal in App.tsx stays in lock-step.
+  const [adminToken, setAdminTokenState] = useState<string | null>(() => getAdminToken())
+  const setAdminToken = useCallback((token: string | null) => {
+    setAdminTokenStorage(token)
+    setAdminTokenState(token)
+  }, [])
+  // Session id is generated lazily on first call to getSessionId(); exposed
+  // here for any consumer (e.g. SetupTab swinger-validation message) that
+  // wants to surface it.
+  const sessionId = useMemo(() => getSessionId(), [])
 
   const wdSchedRef = useRef<ParsedScheduleData | null>(null)
   const weSchedRef = useRef<ParsedScheduleData | null>(null)
@@ -301,6 +372,63 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
         return { diagNum, info }
     }
     return null
+  }, [])
+
+  // v3.26: server bootstrap.  On mount, fetch admin-published artifacts
+  // (master roster, weekday/weekend schedule, assoc chart) and this browser's
+  // most recent fortnight roster (scoped by X-Session-Id) from the v3.22 +
+  // v3.23 endpoints.  Any 200 response hydrates state and overwrites any
+  // stale localStorage cache.  404 / network errors are silently ignored so
+  // the app degrades gracefully to localStorage / built-ins.
+  useEffect(() => {
+    let cancelled = false
+    const sid = getSessionId()
+
+    async function tryFetch<T>(url: string, headers: Record<string, string> = {}): Promise<T | null> {
+      try {
+        const r = await fetch(url, { headers })
+        if (!r.ok) return null
+        return await r.json() as T
+      } catch { return null }
+    }
+
+    ;(async () => {
+      // Admin-published (public reads, no auth required)
+      const [master, weekday, weekend, chart] = await Promise.all([
+        tryFetch<ParsedRosterData>('/api/roster/current'),
+        tryFetch<ParsedScheduleData>('/api/schedule/current?type=weekday'),
+        tryFetch<ParsedScheduleData>('/api/schedule/current?type=weekend'),
+        tryFetch<{ chart: Record<string, AssocChart[string]> }>('/api/chart/current'),
+      ])
+      if (cancelled) return
+      if (master) {
+        toLS(LS_MR, master)
+        setMR({ status: 'success', result: master, error: null })
+      }
+      if (weekday) {
+        toLS(LS_WD, weekday)
+        setWD({ status: 'success', result: weekday, error: null })
+      }
+      if (weekend) {
+        toLS(LS_WE, weekend)
+        setWE({ status: 'success', result: weekend, error: null })
+      }
+      if (chart?.chart && Object.keys(chart.chart).length) {
+        toLS(LS_AC, chart.chart)
+        setAssocChart(chart.chart as AssocChart)
+        setAssocChartIsCustom(true)
+      }
+      // User fortnight roster (scoped to this browser's session id)
+      const fn = await tryFetch<ParsedRosterData>('/api/fortnight-roster/current', { 'X-Session-Id': sid })
+      if (cancelled) return
+      if (fn) {
+        toLS(LS_FR, fn)
+        setFR({ status: 'success', result: fn, error: null })
+      }
+    })()
+    return () => { cancelled = true }
+  // Run once on mount.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -691,12 +819,37 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
     setRU(prev => ({ ...prev, applied: true }))
   }, [rosterUpload.result])
 
-  function makeZipUploader<T>(endpoint: string, setter: (s: SimpleUploadState<T>) => void, lsKey: string) {
+  // v3.26: makeZipUploader gains a `scope` argument that controls which auth
+  // header is attached.
+  //   'admin' — POST /api/admin/*  with X-Admin-Token (returns 401/503 if not signed in)
+  //   'user'  — POST /api/upload-* with X-Session-Id  (always works; per-browser scope)
+  //   'public'— legacy /api/parse-* endpoints, no headers
+  type UploadScope = 'admin' | 'user' | 'public'
+  function makeZipUploader<T>(
+    endpoint: string,
+    setter: (s: SimpleUploadState<T>) => void,
+    lsKey: string,
+    scope: UploadScope = 'public',
+  ) {
     return async (file: File) => {
       setter({ status: 'uploading', result: null, error: null })
       const form = new FormData(); form.append('file', file)
+      const headers: Record<string, string> = {}
+      if (scope === 'admin') {
+        const tok = getAdminToken()
+        if (!tok) {
+          setter({
+            status: 'error', result: null,
+            error: 'Admin sign-in required to upload this file. Click "🔐 Admin" in the header to sign in.',
+          })
+          return
+        }
+        headers['X-Admin-Token'] = tok
+      } else if (scope === 'user') {
+        headers['X-Session-Id'] = getSessionId()
+      }
       try {
-        const r = await fetch(endpoint, { method: 'POST', body: form })
+        const r = await fetch(endpoint, { method: 'POST', body: form, headers })
         if (!r.ok) { const e = await r.json().catch(() => ({ detail: 'Parse failed' })); throw new Error(e.detail) }
         const data: T = await r.json()
         toLS(lsKey, data)
@@ -708,10 +861,16 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
   }
 
   /* eslint-disable react-hooks/exhaustive-deps */
-  const uploadMasterRoster    = useCallback(makeZipUploader<ParsedRosterData>('/api/parse-master-roster',    setMR, LS_MR), [])
-  const uploadFnRoster        = useCallback(makeZipUploader<ParsedRosterData>('/api/parse-fortnight-roster', setFR, LS_FR), [])
-  const uploadWeekdaySchedule = useCallback(makeZipUploader<ParsedScheduleData>('/api/parse-schedule', setWD, LS_WD), [])
-  const uploadWeekendSchedule = useCallback(makeZipUploader<ParsedScheduleData>('/api/parse-schedule', setWE, LS_WE), [])
+  // v3.26: rerouted to v3.22/v3.23 endpoints.  Admin endpoints require sign-in
+  // (X-Admin-Token); the fortnight roster is per-user (X-Session-Id).
+  const uploadMasterRoster    = useCallback(makeZipUploader<ParsedRosterData>(
+    '/api/admin/upload-roster', setMR, LS_MR, 'admin'), [])
+  const uploadFnRoster        = useCallback(makeZipUploader<ParsedRosterData>(
+    '/api/upload-fortnight-roster', setFR, LS_FR, 'user'), [])
+  const uploadWeekdaySchedule = useCallback(makeZipUploader<ParsedScheduleData>(
+    '/api/admin/upload-schedule?type=weekday', setWD, LS_WD, 'admin'), [])
+  const uploadWeekendSchedule = useCallback(makeZipUploader<ParsedScheduleData>(
+    '/api/admin/upload-schedule?type=weekend', setWE, LS_WE, 'admin'), [])
   /* eslint-enable react-hooks/exhaustive-deps */
 
   const uploadRoster = useCallback(async (file: File) => {
@@ -803,6 +962,7 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
       rosterUpload, payslipUpload,
       masterRosterUpload, fnRosterUpload, weekdayScheduleUpload, weekendScheduleUpload,
       assocChart, assocChartIsCustom, loadAssocChartCsv, resetAssocChart,
+      adminToken, setAdminToken, sessionId,
       result, calculating, calcError,
       loadLine, fillAllRostered, copyScheduledToActual, setDay, applyManualDiag, markWorkedOnOff,
       resetDay, applyUploadedRoster,
