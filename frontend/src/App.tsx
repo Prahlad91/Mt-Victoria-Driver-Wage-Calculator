@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import SetupTab from './components/SetupTab'
 import DailyEntryTab from './components/DailyEntryTab'
 import ResultsTab from './components/ResultsTab'
@@ -8,18 +8,29 @@ import AdminSignInModal from './components/AdminSignInModal'
 import { useFortnightContext } from './context/FortnightContext'
 
 type Tab = 'setup' | 'daily' | 'results' | 'rates' | 'km'
-const TABS: { id: Tab; label: string }[] = [
+const ALL_TABS: { id: Tab; label: string }[] = [
   { id: 'setup',   label: 'Setup' },
   { id: 'daily',   label: 'Daily Entry' },
   { id: 'results', label: 'Results' },
   { id: 'rates',   label: 'Rates & Codes' },
   { id: 'km',      label: 'KM Table' },
 ]
+// v3.29: tabs that only admins see.  Drivers (non-admin) get a slimmer task-
+// focused UI per the PRD §3.29 spec.
+const ADMIN_ONLY_TABS: ReadonlySet<Tab> = new Set(['rates', 'km'])
 
 export default function App() {
   const [active, setActive] = useState<Tab>('setup')
   const [adminModalOpen, setAdminModalOpen] = useState(false)
   const { result, fnType, fnLoaded, rosterLine, adminPassword, setAdminPassword } = useFortnightContext()
+
+  // v3.29: build the visible-tab list from admin state, and redirect away
+  // from hidden tabs when admin signs out so the active state stays valid.
+  const isAdmin = !!adminPassword
+  const visibleTabs = isAdmin ? ALL_TABS : ALL_TABS.filter(t => !ADMIN_ONLY_TABS.has(t.id))
+  useEffect(() => {
+    if (!isAdmin && ADMIN_ONLY_TABS.has(active)) setActive('setup')
+  }, [isAdmin, active])
 
   return (
     <>
@@ -102,7 +113,7 @@ export default function App() {
       {/* ── Sticky tab bar ────────────────────────────────── */}
       <nav className="tabs-bar" aria-label="App sections">
         <div className="tabs-inner">
-          {TABS.map(t => (
+          {visibleTabs.map(t => (
             <button
               key={t.id}
               className={`tab${active === t.id ? ' active' : ''}`}

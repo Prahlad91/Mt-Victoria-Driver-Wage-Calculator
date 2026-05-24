@@ -51,6 +51,9 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
   return (
     <>
       {/* ── Step 1 ──────────────────────────────────────────────────────── */}
+      {/* v3.29: split into admin-upload cards (admin only) vs read-only
+          info rows for drivers.  Fortnight roster card is always shown
+          because that's user-uploaded by every driver. */}
       <div className="card">
         <div className="card-header">
           <div>
@@ -60,61 +63,111 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
                 color:'#fff',fontSize:11,fontWeight:700,display:'inline-flex',
                 alignItems:'center',justifyContent:'center',flexShrink:0,
               }}>✓</span>
-              <span style={{fontWeight:600,fontSize:14}}>Upload rosters &amp; schedules</span>
+              <span style={{fontWeight:600,fontSize:14}}>
+                {ctx.adminPassword ? 'Upload rosters & schedules' : 'Reference files provided by admin'}
+              </span>
             </div>
-            <p className="note" style={{marginTop:4,marginLeft:32}}>Upload once — saved in browser and reloaded automatically</p>
+            <p className="note" style={{marginTop:4,marginLeft:32}}>
+              {ctx.adminPassword
+                ? 'Upload once — saved server-side and visible to all drivers.'
+                : 'These files are managed by the depot admin and shared with everyone.'}
+            </p>
           </div>
         </div>
         <div className="card-body">
-        <div className="g2" style={{marginBottom:10}}>
-          <UploadCard
-            title="Master Roster (annual, lines 1–22)"
-            hint="Mt_Victoria_Drivers_Master.pdf — upload once a year"
-            icon="📌"
-            state={ctx.masterRosterUpload}
-            onFile={ctx.uploadMasterRoster}
-            successMsg={ctx.masterRosterUpload.result
-              ? `${Object.keys(ctx.masterRosterUpload.result.lines).length} lines · ${ctx.masterRosterUpload.result.fn_start ?? ''}`
-              : ''}
-          />
-          <UploadCard
-            title="Fortnight Roster (swinger lines 201–210)"
-            hint="Changes every fortnight — upload at the start of each new fortnight"
-            icon="🔄"
-            state={ctx.fnRosterUpload}
-            onFile={ctx.uploadFnRoster}
-            successMsg={ctx.fnRosterUpload.result
-              ? `${Object.keys(ctx.fnRosterUpload.result.lines).length} lines · ${ctx.fnRosterUpload.result.fn_start ?? ''} – ${ctx.fnRosterUpload.result.fn_end ?? ''}`
-              : ''}
-          />
-        </div>
-        <div className="g2" style={{marginTop:0}}>
-          <UploadCard
-            title="Weekday Schedule (auto-fills KMs & times)"
-            hint="MTVICDRWD…_weekday.pdf — diagrams 3151–3168"
-            icon="🗓️"
-            state={ctx.weekdayScheduleUpload}
-            onFile={ctx.uploadWeekdaySchedule}
-            successMsg={ctx.weekdayScheduleUpload.result
-              ? `${Object.keys(ctx.weekdayScheduleUpload.result.diagrams).length} diagrams loaded`
-              : ''}
-          />
-          <UploadCard
-            title="Weekend Schedule (auto-fills KMs & times)"
-            hint="MTVICDRWE…_weekend.pdf — diagrams 3651–3664"
-            icon="🗓️"
-            state={ctx.weekendScheduleUpload}
-            onFile={ctx.uploadWeekendSchedule}
-            successMsg={ctx.weekendScheduleUpload.result
-              ? `${Object.keys(ctx.weekendScheduleUpload.result.diagrams).length} diagrams loaded`
-              : ''}
-          />
-        </div>
+        {ctx.adminPassword ? (
+          /* ── Admin view: full upload cards for master + schedules ────── */
+          <>
+            <div className="g2" style={{marginBottom:10}}>
+              <UploadCard
+                title="Master Roster (annual, lines 1–22)"
+                hint="Mt_Victoria_Drivers_Master.pdf — upload once a year"
+                icon="📌"
+                state={ctx.masterRosterUpload}
+                onFile={ctx.uploadMasterRoster}
+                successMsg={ctx.masterRosterUpload.result
+                  ? `${Object.keys(ctx.masterRosterUpload.result.lines).length} lines · ${ctx.masterRosterUpload.result.fn_start ?? ''}`
+                  : ''}
+              />
+              <UploadCard
+                title="Fortnight Roster (swinger lines 201–214)"
+                hint="Changes every fortnight — each driver uploads their own"
+                icon="🔄"
+                state={ctx.fnRosterUpload}
+                onFile={ctx.uploadFnRoster}
+                successMsg={ctx.fnRosterUpload.result
+                  ? `${Object.keys(ctx.fnRosterUpload.result.lines).length} lines · ${ctx.fnRosterUpload.result.fn_start ?? ''} – ${ctx.fnRosterUpload.result.fn_end ?? ''}`
+                  : ''}
+              />
+            </div>
+            <div className="g2" style={{marginTop:0}}>
+              <UploadCard
+                title="Weekday Schedule (auto-fills KMs & times)"
+                hint="MTVICDRWD…_weekday.pdf — diagrams 3151–3168"
+                icon="🗓️"
+                state={ctx.weekdayScheduleUpload}
+                onFile={ctx.uploadWeekdaySchedule}
+                successMsg={ctx.weekdayScheduleUpload.result
+                  ? `${Object.keys(ctx.weekdayScheduleUpload.result.diagrams).length} diagrams loaded`
+                  : ''}
+              />
+              <UploadCard
+                title="Weekend Schedule (auto-fills KMs & times)"
+                hint="MTVICDRWE…_weekend.pdf — diagrams 3651–3664"
+                icon="🗓️"
+                state={ctx.weekendScheduleUpload}
+                onFile={ctx.uploadWeekendSchedule}
+                successMsg={ctx.weekendScheduleUpload.result
+                  ? `${Object.keys(ctx.weekendScheduleUpload.result.diagrams).length} diagrams loaded`
+                  : ''}
+              />
+            </div>
+          </>
+        ) : (
+          /* ── Driver view: read-only info rows for admin-provided files,
+                + the driver's own fortnight-roster upload card ──────── */
+          <>
+            <AdminProvidedRow
+              label="Master Roster"
+              detail={ctx.masterRosterUpload.result
+                ? `${Object.keys(ctx.masterRosterUpload.result.lines).length} lines · valid from ${ctx.masterRosterUpload.result.fn_start ?? '—'}`
+                : null}
+            />
+            <AdminProvidedRow
+              label="Weekday Schedule"
+              detail={ctx.weekdayScheduleUpload.result
+                ? `${Object.keys(ctx.weekdayScheduleUpload.result.diagrams).length} diagrams (3151–3168)`
+                : null}
+            />
+            <AdminProvidedRow
+              label="Weekend Schedule"
+              detail={ctx.weekendScheduleUpload.result
+                ? `${Object.keys(ctx.weekendScheduleUpload.result.diagrams).length} diagrams (3651–3664)`
+                : null}
+            />
+            <div style={{height:14}} />
+            <p className="note" style={{fontWeight:600, marginBottom:8}}>
+              Your fortnight roster (you upload this each fortnight):
+            </p>
+            <div style={{maxWidth:'100%'}}>
+              <UploadCard
+                title="Fortnight Roster"
+                hint="The fortnightly roster PDF the depot publishes — drop it here"
+                icon="🔄"
+                state={ctx.fnRosterUpload}
+                onFile={ctx.uploadFnRoster}
+                successMsg={ctx.fnRosterUpload.result
+                  ? `${Object.keys(ctx.fnRosterUpload.result.lines).length} lines · ${ctx.fnRosterUpload.result.fn_start ?? ''} – ${ctx.fnRosterUpload.result.fn_end ?? ''}`
+                  : ''}
+              />
+            </div>
+          </>
+        )}
         </div>{/* end card-body */}
       </div>
 
-      {/* ── Assoc / Un-assoc Payments Chart ─────────────────────────────── */}
-      <AssocChartCard />
+      {/* ── Assoc / Un-assoc Payments Chart (admin only) ────────────────── */}
+      {ctx.adminPassword && <AssocChartCard />}
 
       {/* ── Step 2 ──────────────────────────────────────────────────────── */}
       <div className="card">
@@ -223,7 +276,8 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
         </div>{/* end card-body */}
       </div>
 
-      {/* ── Step 3 ──────────────────────────────────────────────────────── */}
+      {/* ── Step 3 (admin only — v3.29) ─────────────────────────────────── */}
+      {ctx.adminPassword && (
       <div className="card">
         <div className="card-header">
           <div style={{display:'flex',alignItems:'center',gap:10}}>
@@ -254,8 +308,10 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
         </div>
         </div>{/* end card-body */}
       </div>
+      )}
 
-      {/* ── Penalty reference ────────────────────────────────────────────── */}
+      {/* ── Penalty reference (admin only — v3.29) ──────────────────────── */}
+      {ctx.adminPassword && (
       <div className="card">
         <div className="card-body">
           <h3>Shift Penalty Rules — Cl. 134 (EA 2025)</h3>
@@ -273,7 +329,33 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
           <p className="note">Rounding rule Cl. 134.3(b): fraction &lt;30 min → disregard; ≥30 min → round up to next hour.</p>
         </div>
       </div>
+      )}{/* end admin-only penalty reference */}
     </>
+  )
+}
+
+// ── AdminProvidedRow ────────────────────────────────────────────────────────
+// v3.29: read-only info row shown to non-admin drivers in Step 1, for files
+// the depot admin has uploaded centrally.  Replaces the upload card UI when
+// the driver doesn't have the admin password.
+function AdminProvidedRow({ label, detail }: { label: string; detail: string | null }) {
+  const provided = detail !== null
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 10,
+      padding: '8px 12px',
+      background: provided ? 'var(--green-bg, rgba(26,122,60,.08))' : 'var(--amber-bg, rgba(232,140,30,.10))',
+      border: `1px solid ${provided ? 'var(--green-border, #8fcca8)' : 'var(--amber-border, #e2c08d)'}`,
+      borderRadius: 8,
+      marginBottom: 6,
+      fontSize: 12,
+    }}>
+      <span style={{ fontSize: 14 }}>{provided ? '✅' : '⚠️'}</span>
+      <span style={{ fontWeight: 600, minWidth: 150 }}>{label}</span>
+      <span style={{ color: provided ? 'var(--green-text)' : 'var(--amber-text)' }}>
+        {provided ? detail : 'Not yet uploaded by admin — calculator may use built-in fallback data.'}
+      </span>
+    </div>
   )
 }
 
