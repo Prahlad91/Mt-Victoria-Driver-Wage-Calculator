@@ -54,11 +54,18 @@ async def get_pool() -> Optional["asyncpg.Pool"]:
     if not url:                                       # no DB configured
         return None
     if _POOL is None:
+        # statement_cache_size=0 — Neon's default DATABASE_URL is a PgBouncer
+        # transaction-level pooled connection that doesn't support PostgreSQL
+        # server-side prepared statements.  Disabling asyncpg's statement cache
+        # makes this code work transparently with either the pooled URL or the
+        # unpooled DATABASE_URL_UNPOOLED.  Performance cost is negligible for
+        # our workload (few writes, sub-100-row reads).
         _POOL = await asyncpg.create_pool(
             url,
             min_size=1,
             max_size=4,
             command_timeout=30,
+            statement_cache_size=0,
         )
     if not _INITIALISED:
         await _ensure_schema(_POOL)
