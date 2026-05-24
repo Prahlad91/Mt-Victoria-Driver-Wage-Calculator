@@ -83,6 +83,38 @@ def _require_admin(x_admin_token: Optional[str]) -> None:
         raise HTTPException(status_code=401, detail="Invalid admin token.")
 
 
+# ─── Session-id validation (v3.23 — per-user fortnight roster) ──────────────
+# The frontend generates a UUID once per browser on first load (persisted in
+# localStorage as `mvwc_session_id`) and sends it as `X-Session-Id` on every
+# fortnight-roster request.  This scopes the DB row to that browser so each
+# driver only ever replaces their OWN previous fortnight roster.
+#
+# This is NOT auth — anyone who steals a session id could read/overwrite that
+# driver's roster.  The proper user-level auth lands in the separate JWT PR.
+
+import re
+
+_SESSION_ID_RE = re.compile(r"^[A-Za-z0-9_-]{16,64}$")
+
+
+def _require_session_id(x_session_id: Optional[str]) -> str:
+    """Validate that X-Session-Id looks like a UUID-ish token.  Return the
+    sanitised value or raise 400.  Rejects empty, too-short, and characters
+    outside `[A-Za-z0-9_-]` to keep junk out of the uploaded_by column."""
+    if not x_session_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Missing X-Session-Id header.  Reload the page to get a fresh session id.",
+        )
+    sid = x_session_id.strip()
+    if not _SESSION_ID_RE.match(sid):
+        raise HTTPException(
+            status_code=400,
+            detail="X-Session-Id must be 16-64 chars of [A-Za-z0-9_-].",
+        )
+    return sid
+
+
 # ─── Roster and config data ──────────────────────────────────────────────────
 
 @app.get("/api/roster")
@@ -239,44 +271,36 @@ def export_csv(result: CalculateResponse):
         raise HTTPException(status_code=500, detail=f"CSV export failed: {str(e)}")
 
 
-# ─── Admin uploads — parse + persist (v3.22) ────────────────────────────────
+# ─── Admin uploads — parse + persist (v3.22 / v3.23) ────────────────────────
 #
-# These endpoints replace the per-driver use of /api/parse-* for the SHARED
-# workflow (admin uploads once, all drivers read).  The original /api/parse-*
-# endpoints remain for one-off / non-persisted parsing (e.g. payslip audit).
+# Admin-published artifacts are uploaded once per change-cycle (typically once
+# per year for master roster / schedules / chart) and read by every driver.
+# Gated by the X-Admin-Token shared secret.
 #
-# Each admin endpoint:
-#   1. Verifies the X-Admin-Token shared-secret header.
-#   2. Runs the existing parser (synchronous; same 3:39 wait the admin always had).
-#   3. Persists the parsed payload to Postgres via db.save_artifact().
-#   4. Returns the parsed payload so the admin UI can preview before publish.
+# The fortnight roster does NOT live here — per v3.23 it is user-driven, see
+# the next section below.
 
-_ROSTER_TYPES = {"master", "fortnight"}
 _SCHEDULE_TYPES = {"weekday", "weekend"}
 
 
 @app.post("/api/admin/upload-roster", response_model=ParsedRosterResponse)
-async def admin_upload_roster(
-    type: str = Query(..., description="roster type: 'master' or 'fortnight'"),
+async def admin_upload_master_roster(
     file: UploadFile = File(...),
     x_admin_token: Optional[str] = Header(None, alias="X-Admin-Token"),
 ):
-    """Admin: parse a roster ZIP/PDF and persist for all drivers to read.
-    Per v3.22 §6.12.  Replaces the per-driver use of /api/parse-master-roster /
-    /api/parse-fortnight-roster — those endpoints remain but should not be on
-    the driver request hot path."""
+    """Admin: parse the master roster ZIP/PDF and persist globally.
+    Only the master roster is admin-uploaded; the fortnight roster is per-user
+    (POST /api/upload-fortnight-roster).  Annual cadence."""
     _require_admin(x_admin_token)
-    if type not in _ROSTER_TYPES:
-        raise HTTPException(status_code=400, detail=f"type must be one of {sorted(_ROSTER_TYPES)}")
     content = await file.read()
     try:
-        parsed = parse_roster_zip(content, filename=file.filename or f"{type}_roster")
+        parsed = parse_roster_zip(content, filename=file.filename or "master_roster")
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Roster parse failed: {e}")
     await save_artifact(
-        kind=f"{type}_roster",
+        kind="master_roster",
         payload=parsed.model_dump(),
-        source_file=file.filename or f"{type}_roster",
+        source_file=file.filename or "master_roster",
     )
     return parsed
 
@@ -329,21 +353,63 @@ async def admin_upload_chart(
     return parsed
 
 
-# ─── User reads — fetch latest persisted artifacts (v3.22) ──────────────────
+# ─── User-driven fortnight roster (v3.23) ───────────────────────────────────
 #
-# Public-read endpoints.  Return 404 when no admin upload exists yet — frontend
-# falls back to its localStorage cache (or, ultimately, the built-in defaults).
+# Each driver uploads their own fortnight roster every ~14 days.  Scoped to the
+# uploader's session id (X-Session-Id header — a UUID generated once per
+# browser by the frontend, persisted in localStorage).  Each new upload by the
+# same session replaces (soft-deletes) that session's prior fortnight roster
+# row, leaving other drivers' rows untouched.
+
+@app.post("/api/upload-fortnight-roster", response_model=ParsedRosterResponse)
+async def user_upload_fortnight_roster(
+    file: UploadFile = File(...),
+    x_session_id: Optional[str] = Header(None, alias="X-Session-Id"),
+):
+    """User: parse a fortnight roster ZIP/PDF and persist scoped to this browser.
+    No admin token required — every driver does this individually each fortnight."""
+    sid = _require_session_id(x_session_id)
+    content = await file.read()
+    try:
+        parsed = parse_roster_zip(content, filename=file.filename or "fortnight_roster")
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"Fortnight roster parse failed: {e}")
+    await save_artifact(
+        kind="fortnight_roster",
+        payload=parsed.model_dump(),
+        source_file=file.filename or "fortnight_roster",
+        uploaded_by=sid,
+        scope_by_uploader=True,
+    )
+    return parsed
+
+
+@app.get("/api/fortnight-roster/current", response_model=ParsedRosterResponse)
+async def get_current_fortnight_roster(
+    x_session_id: Optional[str] = Header(None, alias="X-Session-Id"),
+):
+    """User: return this browser's most recently uploaded fortnight roster."""
+    sid = _require_session_id(x_session_id)
+    row = await get_latest_artifact(kind="fortnight_roster", uploaded_by=sid)
+    if row is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No fortnight roster uploaded for this session yet.",
+        )
+    return ParsedRosterResponse.model_validate(row["payload"])
+
+
+# ─── Admin-published reads (v3.22) ──────────────────────────────────────────
+#
+# Public reads of the admin-published artifacts.  Return 404 when no admin
+# upload exists yet — frontend falls back to its localStorage cache.
 
 @app.get("/api/roster/current", response_model=ParsedRosterResponse)
-async def get_current_roster(
-    type: str = Query(..., description="roster type: 'master' or 'fortnight'"),
-):
-    """Return the latest admin-published roster of the requested type."""
-    if type not in _ROSTER_TYPES:
-        raise HTTPException(status_code=400, detail=f"type must be one of {sorted(_ROSTER_TYPES)}")
-    row = await get_latest_artifact(kind=f"{type}_roster")
+async def get_current_master_roster():
+    """Return the latest admin-published master roster.  Public read."""
+    row = await get_latest_artifact(kind="master_roster")
     if row is None:
-        raise HTTPException(status_code=404, detail=f"No {type} roster published yet.")
+        raise HTTPException(status_code=404, detail="No master roster published yet.")
     return ParsedRosterResponse.model_validate(row["payload"])
 
 

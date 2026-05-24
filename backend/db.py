@@ -129,35 +129,60 @@ async def save_artifact(
     source_file: str,
     sub_kind: Optional[str] = None,
     uploaded_by: Optional[str] = None,
+    scope_by_uploader: bool = False,
 ) -> Optional[int]:
     """Insert a new parsed artifact and mark prior versions inactive.
 
     Returns the new row id, or None if no DB is configured (no-op fallback).
 
-    The (kind, sub_kind) pair identifies the slot: e.g.
+    The (kind, sub_kind) pair identifies the slot:
         kind='schedule', sub_kind='weekday'   ← all weekday schedules share a slot
         kind='schedule', sub_kind='weekend'   ← weekend slot
         kind='master_roster', sub_kind=None
-    Only the latest active row per slot is what `get_latest_artifact` returns;
-    old rows stay around for audit history."""
+        kind='fortnight_roster', sub_kind=None — but scoped per uploader (v3.23)
+
+    `scope_by_uploader=True` (used for fortnight_roster per v3.23): the soft-delete
+    of prior active rows is filtered to `uploaded_by = <session_id>` so each user
+    only replaces their OWN previous upload, not someone else's.  `uploaded_by`
+    must be non-empty when scope_by_uploader is True (raises ValueError otherwise).
+
+    `scope_by_uploader=False` (admin globals): all prior active rows for the slot
+    are soft-deleted, so the new upload becomes the single global source of truth.
+    """
     if kind not in KINDS:
         raise ValueError(f"invalid kind {kind!r}; expected one of {sorted(KINDS)}")
+    if scope_by_uploader and not uploaded_by:
+        raise ValueError("scope_by_uploader=True requires a non-empty uploaded_by")
     pool = await get_pool()
     if pool is None:
         return None
     async with pool.acquire() as conn:
         async with conn.transaction():
-            # Soft-delete prior active rows for this slot.
-            await conn.execute(
-                """
-                UPDATE parsed_artifact
-                   SET active = FALSE
-                 WHERE kind = $1
-                   AND sub_kind IS NOT DISTINCT FROM $2
-                   AND active = TRUE
-                """,
-                kind, sub_kind,
-            )
+            # Soft-delete prior active rows for this slot.  Optionally scope to
+            # the same uploader so other users' rows are untouched.
+            if scope_by_uploader:
+                await conn.execute(
+                    """
+                    UPDATE parsed_artifact
+                       SET active = FALSE
+                     WHERE kind = $1
+                       AND sub_kind IS NOT DISTINCT FROM $2
+                       AND uploaded_by = $3
+                       AND active = TRUE
+                    """,
+                    kind, sub_kind, uploaded_by,
+                )
+            else:
+                await conn.execute(
+                    """
+                    UPDATE parsed_artifact
+                       SET active = FALSE
+                     WHERE kind = $1
+                       AND sub_kind IS NOT DISTINCT FROM $2
+                       AND active = TRUE
+                    """,
+                    kind, sub_kind,
+                )
             row = await conn.fetchrow(
                 """
                 INSERT INTO parsed_artifact
@@ -174,29 +199,49 @@ async def save_artifact(
 async def get_latest_artifact(
     kind: str,
     sub_kind: Optional[str] = None,
+    uploaded_by: Optional[str] = None,
 ) -> Optional[dict[str, Any]]:
-    """Return the latest active payload for the (kind, sub_kind) slot.
+    """Return the latest active payload for the (kind, sub_kind[, uploaded_by]) slot.
 
-    Returns None if no DB is configured OR no upload has happened yet.
-    Callers should treat None as 'no data yet' and respond with 404 to the user."""
+    `uploaded_by` is optional.  When provided, only rows uploaded by that
+    identifier are returned (used for per-user fortnight rosters per v3.23).
+    When None, the query is unscoped (used for admin globals).
+
+    Returns None if no DB is configured OR no matching upload exists.
+    Callers should treat None as 'no data yet' and respond with 404."""
     if kind not in KINDS:
         raise ValueError(f"invalid kind {kind!r}; expected one of {sorted(KINDS)}")
     pool = await get_pool()
     if pool is None:
         return None
     async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            """
-            SELECT payload, source_file, uploaded_at, id
-              FROM parsed_artifact
-             WHERE kind = $1
-               AND sub_kind IS NOT DISTINCT FROM $2
-               AND active = TRUE
-             ORDER BY uploaded_at DESC
-             LIMIT 1
-            """,
-            kind, sub_kind,
-        )
+        if uploaded_by is not None:
+            row = await conn.fetchrow(
+                """
+                SELECT payload, source_file, uploaded_at, id
+                  FROM parsed_artifact
+                 WHERE kind = $1
+                   AND sub_kind IS NOT DISTINCT FROM $2
+                   AND uploaded_by = $3
+                   AND active = TRUE
+                 ORDER BY uploaded_at DESC
+                 LIMIT 1
+                """,
+                kind, sub_kind, uploaded_by,
+            )
+        else:
+            row = await conn.fetchrow(
+                """
+                SELECT payload, source_file, uploaded_at, id
+                  FROM parsed_artifact
+                 WHERE kind = $1
+                   AND sub_kind IS NOT DISTINCT FROM $2
+                   AND active = TRUE
+                 ORDER BY uploaded_at DESC
+                 LIMIT 1
+                """,
+                kind, sub_kind,
+            )
     if row is None:
         return None
     return {
