@@ -22,38 +22,47 @@ const LS_WE      = 'mvwc_weekend_schedule'
 const LS_AC      = 'mvwc_assoc_chart'      // v3.12: Assoc/Un-assoc payments chart
 const LS_VERSION = 'mvwc_cache_version'
 
-// ─── Default Assoc/Un-assoc chart data (from depot chart, valid as of Apr 2026)
-// Only non-zero diagrams listed; all others default to {0, 0}.
-// Weekday diagrams 3151–3168:
-//   3153: 3:02 un-assoc (road review / pilot prep)
-//   3154: 0:30 un-assoc
-//   3155: 0:30 assoc payment
-//   3159: 0:38 un-assoc
-//   3161: 1:56 un-assoc
-//   3164, 3165: 1:11 un-assoc
-// Weekend diagrams 3651–3664:
-//   3653: 0:35 un-assoc + 0:32 assoc payment
-//   3655, 3656: 0:10 un-assoc
-//   3657: 0:30 un-assoc
-//   3660: 0:30 un-assoc (NOT 3658 — verified against physical chart Oct-2025)
+// ─── Default Assoc/Un-assoc chart — Mt Victoria depot, effective 19-04-26
+// (v3.24, replaces the Oct-2025 baked-in chart with the values from
+// `docs/111616112.pdf`).  Only diagrams that appear on the chart are listed;
+// all others default to zero un-assoc / assoc-pay / build-up, so the 1454
+// build-up reduces to the standard EA 146.4 formula.
+//
+// Column mapping from the physical chart:
+//   unAssocMins       ← "Un-Associated Payment Time"
+//   assocPaymentMins  ← "Associated Payment Time"
+//   assocCalcMins     ← "Associated Calculation" (= un_assoc + assoc_pay + dist_pay)
+//   buildUpMins       ← "Total Build Up Over Shift Length"  (used directly when > 0)
+//
+// New chart's notable changes vs Oct-2025: removed 3154, 3159, 3160, 3164, 3653;
+// added 3151, 3156, 3158, 3162, 3167, 3169, 3171, 3651, 3652, 3658, 3659, 3661,
+// 3662, 3664; substantial value shifts on 3155, 3161, 3165, 3168, 3657, 3660.
 const DEFAULT_ASSOC_CHART: AssocChart = {
-  // assocCalcMins = un_assoc + assoc_payment + dist_pay (pre-computed, from physical chart)
-  // buildUpMins   = max(0, assocCalcMins − shift_mins) from physical chart "Build Up" column.
-  //                 When > 0 this is used directly by the calculator (no formula re-derivation).
-  '3153': { unAssocMins: 182, assocPaymentMins: 0,  assocCalcMins: 482, buildUpMins: 0  },
-  '3154': { unAssocMins: 30,  assocPaymentMins: 0,  assocCalcMins: 510, buildUpMins: 0  },
-  '3155': { unAssocMins: 0,   assocPaymentMins: 30, assocCalcMins: 510, buildUpMins: 25 },
-  '3159': { unAssocMins: 38,  assocPaymentMins: 0,  assocCalcMins: 518, buildUpMins: 0  },
-  '3160': { unAssocMins: 0,   assocPaymentMins: 0,  assocCalcMins: 540, buildUpMins: 51 },  // shift 8:09, dist 9:00
-  '3161': { unAssocMins: 116, assocPaymentMins: 0,  assocCalcMins: 596, buildUpMins: 70 },
-  '3164': { unAssocMins: 71,  assocPaymentMins: 0,  assocCalcMins: 551, buildUpMins: 0  },
-  '3165': { unAssocMins: 71,  assocPaymentMins: 0,  assocCalcMins: 371, buildUpMins: 0  },
-  '3168': { unAssocMins: 0,   assocPaymentMins: 0,  assocCalcMins: 540, buildUpMins: 27 },  // shift 8:33, dist 9:00
-  '3653': { unAssocMins: 35,  assocPaymentMins: 32, assocCalcMins: 547, buildUpMins: 0  },
-  '3655': { unAssocMins: 10,  assocPaymentMins: 0,  assocCalcMins: 550, buildUpMins: 0  },
-  '3656': { unAssocMins: 10,  assocPaymentMins: 0,  assocCalcMins: 550, buildUpMins: 0  },
-  '3657': { unAssocMins: 30,  assocPaymentMins: 0,  assocCalcMins: 510, buildUpMins: 30 },
-  '3660': { unAssocMins: 30,  assocPaymentMins: 0,  assocCalcMins: 510, buildUpMins: 30 },  // corrected: was 3658 (wrong)
+  // Weekday diagrams (effective 19-04-26)
+  '3151': { unAssocMins: 0,   assocPaymentMins: 7,  assocCalcMins: 427, buildUpMins: 0   },
+  '3153': { unAssocMins: 160, assocPaymentMins: 0,  assocCalcMins: 460, buildUpMins: 0   },
+  '3155': { unAssocMins: 50,  assocPaymentMins: 0,  assocCalcMins: 470, buildUpMins: 0   },
+  '3156': { unAssocMins: 20,  assocPaymentMins: 0,  assocCalcMins: 440, buildUpMins: 0   },
+  '3158': { unAssocMins: 39,  assocPaymentMins: 0,  assocCalcMins: 459, buildUpMins: 0   },
+  '3161': { unAssocMins: 0,   assocPaymentMins: 0,  assocCalcMins: 540, buildUpMins: 51  },
+  '3162': { unAssocMins: 80,  assocPaymentMins: 0,  assocCalcMins: 500, buildUpMins: 0   },
+  '3165': { unAssocMins: 0,   assocPaymentMins: 0,  assocCalcMins: 480, buildUpMins: 0   },
+  '3167': { unAssocMins: 0,   assocPaymentMins: 0,  assocCalcMins: 420, buildUpMins: 0   },
+  '3168': { unAssocMins: 0,   assocPaymentMins: 0,  assocCalcMins: 540, buildUpMins: 7   },
+  '3169': { unAssocMins: 0,   assocPaymentMins: 0,  assocCalcMins: 480, buildUpMins: 0   },
+  '3171': { unAssocMins: 0,   assocPaymentMins: 0,  assocCalcMins: 540, buildUpMins: 35  },
+  // Weekend diagrams (effective 19-04-26)
+  '3651': { unAssocMins: 0,   assocPaymentMins: 0,  assocCalcMins: 420, buildUpMins: 0   },
+  '3652': { unAssocMins: 22,  assocPaymentMins: 89, assocCalcMins: 591, buildUpMins: 7   },
+  '3655': { unAssocMins: 10,  assocPaymentMins: 0,  assocCalcMins: 550, buildUpMins: 0   },
+  '3656': { unAssocMins: 10,  assocPaymentMins: 0,  assocCalcMins: 550, buildUpMins: 0   },
+  '3657': { unAssocMins: 50,  assocPaymentMins: 0,  assocCalcMins: 590, buildUpMins: 81  },
+  '3658': { unAssocMins: 0,   assocPaymentMins: 0,  assocCalcMins: 540, buildUpMins: 0   },
+  '3659': { unAssocMins: 0,   assocPaymentMins: 0,  assocCalcMins: 540, buildUpMins: 0   },
+  '3660': { unAssocMins: 217, assocPaymentMins: 0,  assocCalcMins: 697, buildUpMins: 238 },
+  '3661': { unAssocMins: 0,   assocPaymentMins: 0,  assocCalcMins: 540, buildUpMins: 2   },
+  '3662': { unAssocMins: 0,   assocPaymentMins: 0,  assocCalcMins: 540, buildUpMins: 1   },
+  '3664': { unAssocMins: 50,  assocPaymentMins: 0,  assocCalcMins: 470, buildUpMins: 0   },
 }
 
 // PRD §6.10 — cache invalidation. v3.11 forces clear because v3.10 and earlier
@@ -63,7 +72,10 @@ const DEFAULT_ASSOC_CHART: AssocChart = {
 // data parsed by the pre-v3.14 anchor mapping. Without clearing LS_FR / LS_MR
 // the user keeps seeing shifted days for line 209 etc. (Wed shows Fri's data)
 // because the cached ParsedRosterData was produced by the buggy old parser.
-const CACHE_SCHEMA_VERSION = '3.15'
+// v3.24: bumped from 3.15 → 3.24 — DEFAULT_ASSOC_CHART replaced with the
+// 19-04-26 chart values; users with a localStorage copy of the Oct-2025
+// chart need to drop it so they pick up the new built-in defaults.
+const CACHE_SCHEMA_VERSION = '3.24'
 
 if (typeof window !== 'undefined') {
   try {
@@ -74,6 +86,9 @@ if (typeof window !== 'undefined') {
       // v3.15: also clear roster caches so the new parser output replaces the old.
       window.localStorage.removeItem(LS_MR)
       window.localStorage.removeItem(LS_FR)
+      // v3.24: clear cached assoc/un-assoc chart so users pick up the new
+      // 19-04-26 baked-in DEFAULT_ASSOC_CHART instead of their stale copy.
+      window.localStorage.removeItem(LS_AC)
       window.localStorage.setItem(LS_VERSION, CACHE_SCHEMA_VERSION)
       // eslint-disable-next-line no-console
       console.info(
