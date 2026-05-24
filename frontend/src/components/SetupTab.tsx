@@ -426,9 +426,17 @@ function AssocChartCard() {
         throw new Error(e.detail || 'Unknown error')
       }
       const data = await r.json()
-      const lines = ['diagram,un_assoc_mins,assoc_payment_mins',
-        ...Object.entries(data.chart as Record<string, {unAssocMins:number, assocPaymentMins:number}>)
-          .map(([d, e]) => `${d},${e.unAssocMins},${e.assocPaymentMins}`)]
+      // v3.25: forward all 4 chart fields (was dropping assocCalcMins +
+      // buildUpMins).  loadAssocChartCsv accepts a 3-or-5-column CSV.
+      type ChartEntry = {
+        unAssocMins: number
+        assocPaymentMins: number
+        assocCalcMins?: number
+        buildUpMins?: number
+      }
+      const lines = ['diagram,un_assoc_mins,assoc_payment_mins,assoc_calc_mins,build_up_mins',
+        ...Object.entries(data.chart as Record<string, ChartEntry>)
+          .map(([d, e]) => `${d},${e.unAssocMins ?? 0},${e.assocPaymentMins ?? 0},${e.assocCalcMins ?? 0},${e.buildUpMins ?? 0}`)]
       const err = ctx.loadAssocChartCsv(lines.join('\n'))
       if (err) setFileError(err)
       else {

@@ -998,18 +998,60 @@ def _parse_payslip_pdf(file_bytes: bytes, filename: str) -> ParsePayslipResponse
     )
 
 
-# ─── Assoc / Un-assoc Payments Chart parser (v3.12) ─────────────────────────
+# ─── Assoc / Un-assoc Payments Chart parser (v3.12, rewritten v3.25) ────────
+#
+# v3.25 rewrite handles the two real-world chart formats users upload:
+#   1. Phone photos (e.g. WhatsApp Image, Oct-2025 chart) — correctly oriented,
+#      OCR-able directly.
+#   2. Scanned image-only PDFs (e.g. docs/111616112.pdf, Apr-2026 chart) —
+#      rotated 90°, no text layer.  Old parser returned "no diagrams found".
+#
+# Pipeline:
+#   PDF  → try pdfplumber text-extract → if empty/no diagrams, render every
+#          page to a PIL image at 200 dpi → auto-rotate via Tesseract OSD →
+#          OCR (`--psm 6`) → parse text.
+#   IMG  → load PIL image → auto-rotate via Tesseract OSD → OCR → parse.
+#   CSV  → parse as before, with all 4 columns supported.
+#
+# Parser extracts all 4 fields per diagram (un-assoc, assoc-pay, assoc-calc,
+# build-up) using a positional + sum-check heuristic — see _parse_chart_text.
 
-# Diagram numbers for Mt Victoria drivers (weekday 3151-3168, weekend 3651-3664)
-_DIAG_RE   = re.compile(r'\b(3(?:15[1-9]|1[6][0-8]|6[5-9]\d|6[0-4]\d))\b')
+# Diagram numbers for Mt Victoria drivers — widened v3.25 from the original
+# 3151-3168/3651-3664 to cover newer diagrams (3169, 3171, etc.).
+_DIAG_RE   = re.compile(r'\b(3(?:1[5-9]\d|6\d\d))\b')
 _TIME_RE   = re.compile(r'\b(\d{1,2}:\d{2})\b')
-_DIAG_RANGE = set(range(3151, 3169)) | set(range(3651, 3665))
+_DIAG_RANGE = set(range(3151, 3200)) | set(range(3601, 3700))
+
+# Common Tesseract OCR confusions for digits in thin/narrow table text.
+# Applied at the start of each line to recover diagram numbers that came out
+# mangled (e.g. "3i55" → "3155", "316l" → "3161", "(36S2" → "(3652").
+_DIGIT_CONFUSIONS = str.maketrans({
+    'i': '1', 'I': '1', 'l': '1', 'L': '1', '|': '1',
+    'O': '0', 'o': '0',
+    'S': '5', 's': '5',
+    'B': '8', 'Z': '2',
+})
+
+
+def _normalise_diag_token(s: str) -> str:
+    """If `s` looks like a 4-token starting with 3 (possibly with OCR-mangled
+    digits in positions 1-3), return the cleaned 4-digit diagram number, else
+    return the original.  Conservative: only fixes the FIRST 4-character run
+    that starts with '3' near the start of the line."""
+    return s.translate(_DIGIT_CONFUSIONS)
+
+# OCR-or-text tokens that count as a chart "cell" after the distance number.
+# Captures HH:MM (with optional leading +) or dash variants (-, –, —).
+_CELL_RE = re.compile(r'(?P<time>\+?\d{1,2}:\d{2})|(?P<dash>[-–—]+)')
 
 
 def _mins(t: str) -> int:
-    """HH:MM → integer minutes. Returns 0 on any parse error."""
+    """HH:MM (with optional leading +) → integer minutes. 0 on any parse error."""
+    if not t or t in {'-', '–', '—'}:
+        return 0
     try:
-        h, m = t.split(':')
+        s = t.lstrip('+').strip()
+        h, m = s.split(':')
         v = int(h) * 60 + int(m)
         return v if 0 <= v <= 1439 else 0
     except Exception:
@@ -1017,60 +1059,155 @@ def _mins(t: str) -> int:
 
 
 def _parse_chart_text(text: str) -> tuple[dict, list[str]]:
-    """Parse assoc chart from any extracted text.
+    """Parse the assoc chart from OCR-or-text-extracted content into the full
+    4-field-per-diagram model (un-assoc, assoc-pay, assoc-calc, build-up).
 
-    Heuristic: each row that begins with a known 4-digit Mt Victoria diagram
-    number is followed by time columns in HH:MM format.  The column order
-    for the depot Associated & Un-associated Payments Chart is:
-        Diagram | Un-Assoc Wrk Time | Assoc Payment | Distance Payment | ...
-    So we take the first two HH:MM values from each diagram row as
-    un_assoc_mins and assoc_payment_mins respectively.
-    Rows where both are zero are omitted (not needed by the formula).
+    Per-row column order on the physical chart (after the day-of-operation
+    abbreviation `.MTWTF.` etc.):
+
+        Shift Length | Distance | Un-Assoc | Assoc-Pay | Dist-Pay | Assoc-Calc | Build-Up
+
+    The first HH:MM after the diagram is the Shift Length (skipped here — we
+    don't store it).  The distance is a decimal number with a dot.  Everything
+    after the distance is parsed as ordered cells (HH:MM or dash).  The trailing
+    cell with a `+` prefix or a dash is the Build-Up.  The last two non-build-up
+    cells are Dist-Pay and Assoc-Calc.  Anything before them is Un-Assoc and
+    Assoc-Pay (positionally; dashes preserve the slot).
+
+    A sum-check `un + assoc_pay + dist_pay ≈ assoc_calc` validates the mapping.
+    When there's exactly one HH:MM token before dist-pay (ambiguous), the
+    parser swaps un-assoc ↔ assoc-pay if the sum-check fails.
+
+    Rows where all four fields are zero are omitted to keep the chart sparse.
     """
     chart: dict = {}
     warnings: list[str] = []
     diag_found = 0
+    rows_with_data = 0
 
-    for line in text.split('\n'):
-        line = line.strip()
+    for raw_line in text.split('\n'):
+        line = raw_line.strip()
+        if not line:
+            continue
+        # First try direct match.  If that fails, try OCR-confusion-corrected
+        # match — Tesseract often misreads thin '1's as 'i'/'l'/'|', '5' as 'S',
+        # etc. in tabular contexts.
         m = _DIAG_RE.search(line)
         if not m:
-            continue
+            normalised = _normalise_diag_token(line)
+            m = _DIAG_RE.search(normalised)
+            if not m:
+                continue
+            # Use the normalised line going forward so HH:MM values are clean too.
+            line = normalised
         diag = m.group(1)
         if int(diag) not in _DIAG_RANGE:
             continue
         diag_found += 1
-        times = _TIME_RE.findall(line)
-        if len(times) < 2:
-            # Only one time value on the line — skip, likely a partial parse
+
+        # Anchor parsing after the distance value — that's how we tell shift
+        # length apart from the cells we care about.
+        after_diag = line[m.end():]
+        dist_m = re.search(r'\d{2,3}\.\d{1,3}', after_diag)
+        if not dist_m:
+            # No distance found — partial OCR row, skip silently
             continue
-        un_min  = _mins(times[0])
-        asc_min = _mins(times[1])
-        if un_min > 0 or asc_min > 0:
-            chart[diag] = {'unAssocMins': un_min, 'assocPaymentMins': asc_min}
+        after_dist = after_diag[dist_m.end():]
+
+        # Collect ordered cells: each is either an HH:MM string (with optional +)
+        # or '-' for a dash.  Order is preserved so positional mapping works.
+        cells: list[str] = []
+        for cm in _CELL_RE.finditer(after_dist):
+            cells.append(cm.group('time') if cm.group('time') else '-')
+        if len(cells) < 2:
+            # Need at least dist-pay + assoc-calc
+            continue
+
+        # Last cell: is it the build-up?  Has '+' prefix, OR is a dash and
+        # we have ≥3 cells (so dist-pay/assoc-calc/build-up positions all present).
+        build_up_str = '-'
+        if cells[-1].startswith('+'):
+            build_up_str = cells[-1]
+            cells = cells[:-1]
+        elif cells[-1] == '-' and len(cells) >= 3:
+            cells = cells[:-1]
+
+        if len(cells) < 2:
+            continue
+        dist_pay_str   = cells[-2]
+        assoc_calc_str = cells[-1]
+        before_dist    = cells[:-2]
+
+        # Map the cells before dist-pay onto (un-assoc, assoc-pay).  Dashes
+        # are preserved so position is meaningful.
+        if len(before_dist) == 0:
+            un_assoc_str, assoc_pay_str = '-', '-'
+        elif len(before_dist) == 1:
+            # Ambiguous — initial guess: it's un-assoc.  Sum-check below will
+            # swap if needed.
+            un_assoc_str, assoc_pay_str = before_dist[0], '-'
+        else:
+            un_assoc_str, assoc_pay_str = before_dist[0], before_dist[1]
+
+        un_min = _mins(un_assoc_str)
+        ap_min = _mins(assoc_pay_str)
+        dp_min = _mins(dist_pay_str)
+        ac_min = _mins(assoc_calc_str)
+        bu_min = _mins(build_up_str)
+
+        # Sum check.  Allow 1-min slop for HH:MM rounding artefacts on the chart.
+        sum_diff = (un_min + ap_min + dp_min) - ac_min
+        if abs(sum_diff) > 1 and len(before_dist) == 1:
+            # Try the other interpretation: the single value was assoc-pay.
+            un_min, ap_min = 0, un_min
+            sum_diff = (un_min + ap_min + dp_min) - ac_min
+        if abs(sum_diff) > 1:
+            # Math doesn't validate — likely an OCR misread on this row.  Skip
+            # it rather than store potentially-wrong data; surface a warning
+            # so the user knows to verify.
+            warnings.append(
+                f"Diagram {diag}: math doesn't validate "
+                f"(un_assoc {un_min} + assoc_pay {ap_min} + dist_pay {dp_min} "
+                f"≠ assoc_calc {ac_min}, diff {sum_diff}m).  "
+                f"OCR likely misread a value — row skipped, please verify."
+            )
+            continue
+
+        if any(v > 0 for v in (un_min, ap_min, ac_min, bu_min)):
+            chart[diag] = {
+                'unAssocMins':      un_min,
+                'assocPaymentMins': ap_min,
+                'assocCalcMins':    ac_min,
+                'buildUpMins':      bu_min,
+            }
+            rows_with_data += 1
 
     if diag_found == 0:
         warnings.append(
-            'No Mt Victoria diagram numbers (3151–3168 / 3651–3664) found in the '
-            'parsed content. Check the file is the Associated & Un-associated '
-            'Payments Chart for Mt Victoria drivers.'
+            'No Mt Victoria diagram numbers (3151-3199 / 3601-3699) found in the '
+            'parsed content.  If you uploaded an image or scanned PDF, OCR quality '
+            'on chart photos is variable — for reliable results, use the CSV '
+            'template (download below) and fill in the values from the chart.'
         )
-    elif not chart:
+    elif rows_with_data < 5:
         warnings.append(
-            f'{diag_found} diagram rows found but all had zero un-assoc and assoc '
-            'payment times. If this is unexpected, check the column order in the file.'
+            f'OCR extracted {rows_with_data} diagram(s) confidently — fewer than '
+            f'the ~23 expected for a Mt Victoria chart.  OCR on scanned/photographed '
+            f'charts is unreliable; if values look wrong, please use the CSV '
+            f'template instead (chart values can be hand-entered with full accuracy).'
         )
     return chart, warnings
 
 
 def _pdf_text(file_bytes: bytes) -> str:
-    """Extract raw text from every page of a PDF via pdfplumber."""
+    """Extract raw text from every page of a PDF via pdfplumber.  Returns the
+    empty string if the PDF has no text layer (caller should fall back to
+    render→OCR for that case)."""
     if pdfplumber is None:
         raise RuntimeError('pdfplumber is not installed.')
     parts: list[str] = []
     with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
         for page in pdf.pages:
-            # Try table extraction first — preserves column alignment better
             tables = page.extract_tables() or []
             if tables:
                 for table in tables:
@@ -1081,8 +1218,50 @@ def _pdf_text(file_bytes: bytes) -> str:
     return '\n'.join(parts)
 
 
-def _ocr_image(file_bytes: bytes) -> str:
-    """Run Tesseract OCR on an image and return the extracted text."""
+def _render_pdf_pages(file_bytes: bytes, dpi: int = 200) -> list:
+    """Render every PDF page to a PIL image at the requested DPI.
+
+    Used as a fallback for PDFs without a text layer (e.g. scanned charts) so
+    we can OCR them.  Returns an empty list if pdfplumber isn't installed."""
+    if pdfplumber is None:
+        return []
+    pages: list = []
+    with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+        for page in pdf.pages:
+            try:
+                pi = page.to_image(resolution=dpi)
+                pages.append(pi.original)   # PIL.Image
+            except Exception:
+                continue
+    return pages
+
+
+def _auto_rotate(image):
+    """Detect the orientation of `image` (a PIL Image) using Tesseract OSD
+    and rotate it so text is upright.  No-op on any failure — OSD is finicky
+    on sparse / small / non-Latin content but works well on dense table scans.
+
+    Tesseract OSD reports the rotation NEEDED to make the text upright, so
+    we apply `image.rotate(-rotation)` (PIL rotates counter-clockwise)."""
+    if not _OCR_AVAILABLE:
+        return image
+    try:
+        osd = _pytesseract.image_to_osd(image, config='--psm 0')  # type: ignore[no-untyped-call]
+        rot_m = re.search(r'Rotate:\s*(\d+)', osd)
+        if rot_m:
+            rotation = int(rot_m.group(1))
+            if rotation in (90, 180, 270):
+                return image.rotate(-rotation, expand=True)
+    except Exception:
+        pass
+    return image
+
+
+def _ocr_image(file_bytes_or_image) -> str:
+    """Run Tesseract OCR on an image (bytes or PIL Image) and return text.
+
+    Auto-rotates the image first via Tesseract OSD so we handle rotated phone
+    photos and scanned PDFs transparently."""
     if not _OCR_AVAILABLE:
         raise RuntimeError(
             'Image OCR requires the Tesseract OCR engine. '
@@ -1090,10 +1269,14 @@ def _ocr_image(file_bytes: bytes) -> str:
             'On Ubuntu/Debian: apt-get install -y tesseract-ocr. '
             'Alternatively, convert the chart to PDF or CSV before uploading.'
         )
-    img = _PILImage.open(io.BytesIO(file_bytes))
-    # Convert to greyscale; helps Tesseract read table text
+    if isinstance(file_bytes_or_image, bytes):
+        img = _PILImage.open(io.BytesIO(file_bytes_or_image))
+    else:
+        img = file_bytes_or_image
+    # Auto-detect rotation BEFORE converting to greyscale (OSD works on RGB).
+    img = _auto_rotate(img)
     img = img.convert('L')
-    # Basic sharpening via a high-res resize if the image is small
+    # Upscale small images to help Tesseract.
     w, h = img.size
     if w < 2000:
         img = img.resize((w * 2, h * 2), _PILImage.LANCZOS)
@@ -1101,7 +1284,8 @@ def _ocr_image(file_bytes: bytes) -> str:
 
 
 def _parse_csv_text(text: str) -> tuple[dict, list[str]]:
-    """Parse diagram,un_assoc_mins,assoc_payment_mins CSV from plain text."""
+    """Parse `diagram,un_assoc_mins,assoc_payment_mins[,assoc_calc_mins,build_up_mins]`
+    CSV from plain text.  Backwards-compatible with the 3-column legacy format."""
     chart: dict = {}
     warnings: list[str] = []
     for line in text.splitlines():
@@ -1113,18 +1297,30 @@ def _parse_csv_text(text: str) -> tuple[dict, list[str]]:
         diag = parts[0]
         try:
             un_min  = int(parts[1]) if len(parts) > 1 else 0
-            asc_min = int(parts[2]) if len(parts) > 2 else 0
+            ap_min  = int(parts[2]) if len(parts) > 2 else 0
+            ac_min  = int(parts[3]) if len(parts) > 3 else 0
+            bu_min  = int(parts[4]) if len(parts) > 4 else 0
         except ValueError:
             continue
-        if un_min > 0 or asc_min > 0:
-            chart[diag] = {'unAssocMins': un_min, 'assocPaymentMins': asc_min}
+        if any(v > 0 for v in (un_min, ap_min, ac_min, bu_min)):
+            entry: dict = {'unAssocMins': un_min, 'assocPaymentMins': ap_min}
+            if ac_min > 0:
+                entry['assocCalcMins'] = ac_min
+            if bu_min > 0:
+                entry['buildUpMins'] = bu_min
+            chart[diag] = entry
     return chart, warnings
 
 
 def parse_assoc_chart_file(file_bytes: bytes, filename: str) -> 'ParseAssocChartResponse':
     """Parse an Assoc/Un-assoc Payments Chart from a CSV, PDF, PNG, JPG, etc.
 
-    Returns a ParseAssocChartResponse with the chart dict and any warnings.
+    v3.25 — handles rotated images and image-only PDFs transparently:
+      - PDF without a text layer (scanned image): render each page to an image,
+        auto-rotate via Tesseract OSD, OCR.
+      - Image with arbitrary rotation: auto-rotate before OCR.
+
+    Returns a `ParseAssocChartResponse` with the parsed chart and any warnings.
     """
     from models import ParseAssocChartResponse  # local import to avoid circular
 
@@ -1137,16 +1333,37 @@ def parse_assoc_chart_file(file_bytes: bytes, filename: str) -> 'ParseAssocChart
         chart, warnings = _parse_csv_text(text)
 
     elif ext == 'pdf':
+        # Try the cheap text-extract path first.
         text = _pdf_text(file_bytes)
         chart, warnings = _parse_chart_text(text)
+        # If no diagrams were found, the PDF is likely an image-only scan —
+        # fall back to render→auto-rotate→OCR per page.
+        if not chart:
+            # 300 dpi for OCR fallback — at 200 dpi Tesseract misreads "1" as
+            # "i"/"l" frequently in thin table cells.
+            pages = _render_pdf_pages(file_bytes, dpi=300)
+            if pages:
+                ocr_parts: list[str] = []
+                for img in pages:
+                    try:
+                        ocr_parts.append(_ocr_image(img))
+                    except RuntimeError as e:
+                        # Tesseract missing — surface as a single warning, not per-page.
+                        warnings.append(str(e))
+                        break
+                if ocr_parts:
+                    chart, fb_warnings = _parse_chart_text('\n'.join(ocr_parts))
+                    # Drop the earlier "no diagrams found" since the fallback ran.
+                    warnings = [w for w in warnings if 'No Mt Victoria' not in w]
+                    warnings.extend(fb_warnings)
 
     elif ext in ('png', 'jpg', 'jpeg', 'webp', 'bmp', 'tiff', 'tif'):
-        text = _ocr_image(file_bytes)  # raises if OCR not available
+        text = _ocr_image(file_bytes)  # auto-rotates; raises if OCR not available
         chart, warnings = _parse_chart_text(text)
         if not chart and not any('No Mt Victoria' in w for w in warnings):
             warnings.append(
                 'OCR succeeded but found no diagram data. The image may be '
-                'low-resolution or rotated. Try a higher-quality scan or PDF.'
+                'low-resolution. Try a higher-quality scan or PDF.'
             )
 
     else:
