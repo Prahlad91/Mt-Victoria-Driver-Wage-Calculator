@@ -4,56 +4,48 @@ import { useFortnightContext } from '../context/FortnightContext'
 import AdminSignInModal from './AdminSignInModal'
 
 /**
- * v3.35 — Sydney Trains brand login screen.
+ * v3.36 — Sydney Trains brand login, left/right split layout.
  *
- * Colours from TfNSW Open Data / NSW Digital Design System:
- *   #F6891F  train orange (TfNSW trains mode colour)
- *   #002664  NSW Government brand dark (navy)
- *   #22272B  text dark
- *   #495054  text mid
- *   #CDD3D6  border
- *   #0085B3  focus blue
- *   #B81237  error red
+ * Left panel (55% desktop, 48% tablet):
+ *   Navy hero — T-logo, wordmark, headline, 2×2 feature grid, trust badges,
+ *   disclaimer footer. 3px orange right-border is the visual divider.
  *
- * Layout (top → bottom):
- *   1. 56px navy nav  +  3px orange accent bar
- *   2. Navy hero  →  headline + 4-column feature grid
- *   3. Centered white form card
- *   4. Dark footer (disclaimer)
+ * Right panel (flex-1):
+ *   Light-grey background, form card centred vertically, right-panel footer.
  *
- * Fully responsive via CSS class breakpoints:
- *   ≥1024px  4-column feature grid, roomy hero
- *   600-1023 auto-fit feature grid, standard padding
- *   ≤600px   2-column feature grid, compact nav/hero, card full-width
- *   ≤400px   1-column feature grid, feature desc re-shown
+ * Responsive:
+ *   ≤768px  → flex-direction: column; left panel collapses to compact header
+ *             band (descriptions hidden, orange bottom-border replaces right-border).
+ *   ≤400px  → 1-col feature grid, descriptions restored.
+ *   prefers-reduced-motion → transitions + spinner disabled.
  */
 
-// ── Brand tokens ──────────────────────────────────────────────────────────────
-const NAVY      = '#002664'
-const ORANGE    = '#F6891F'
-const ORG_DARK  = '#d9700e'   // button hover
-const TEXT      = '#22272B'
-const TEXT_MID  = '#495054'
-const BG        = '#F2F2F2'
-const BORDER    = '#CDD3D6'
-const FOCUS     = '#0085B3'
-const ERR       = '#B81237'
-const ERR_BG    = '#F7E7EB'
+// ── Brand tokens (TfNSW Open Data / NSW Digital Design System) ───────────────
+const NAVY    = '#002664'
+const ORANGE  = '#F6891F'
+const ORG_DK  = '#d9700e'
+const TEXT    = '#22272B'
+const TEXT_M  = '#495054'
+const BG_R    = '#F2F2F2'
+const BORDER  = '#CDD3D6'
+const FOCUS   = '#0085B3'
+const ERR     = '#B81237'
+const ERR_BG  = '#F7E7EB'
 
-// ── Feature cards ─────────────────────────────────────────────────────────────
 const FEATURES = [
   { icon: '📋', title: 'EA 2025 Pay Rules',
-    desc: 'All pay codes and allowances verified against real payslips — to the cent.' },
+    desc: 'All pay codes verified against real payslips — to the cent.' },
   { icon: '🕐', title: 'Lift-up & Layback',
     desc: 'Cl. 131 effective-window — ordinary and OT split correctly.' },
   { icon: '📏', title: 'KM Allowance',
     desc: 'Cl. 146.4 — 26-band credit table for intercity services.' },
   { icon: '💳', title: 'Payslip Breakdown',
-    desc: 'Fortnight-by-fortnight breakdown matching your payroll line items.' },
+    desc: 'Per-fortnight breakdown matching your payroll line items.' },
 ]
 
-// ── Sydney Trains "T" logo ────────────────────────────────────────────────────
-// Approximates the official orange-square / white-T mark.
+const TRUST_BADGES = ['EA 2025 Compliant', '🔒 Secure Login', '🏔 Mt Victoria']
+
+// Sydney Trains "T" logo — orange square, white T crossbar + stem
 function TrainsLogo({ size = 36 }: { size?: number }) {
   return (
     <svg
@@ -62,15 +54,12 @@ function TrainsLogo({ size = 36 }: { size?: number }) {
       style={{ display: 'block', flexShrink: 0 }}
     >
       <rect width="36" height="36" rx="4" fill={ORANGE} />
-      {/* cross-bar */}
       <rect x="6"    y="8.5" width="24" height="5.5" rx="1.5" fill="white" />
-      {/* stem */}
       <rect x="13.5" y="8.5" width="9"  height="19"  rx="1.5" fill="white" />
     </svg>
   )
 }
 
-// ── Spinner SVG ───────────────────────────────────────────────────────────────
 function Spinner() {
   return (
     <svg
@@ -85,7 +74,6 @@ function Spinner() {
   )
 }
 
-// ── Main component ────────────────────────────────────────────────────────────
 export default function LoginScreen() {
   const ctx = useFortnightContext()
   const [id, setId]           = useState('')
@@ -122,54 +110,192 @@ export default function LoginScreen() {
 
   return (
     <>
-      {/* ─── Injected CSS ─────────────────────────────────────────────────── */}
+      {/* ─── Injected CSS ──────────────────────────────────────────────────── */}
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800&display=swap');
 
         *, *::before, *::after { box-sizing: border-box; }
 
-        /* Root */
+        /* ── Root: horizontal split ── */
         .ls-root {
           min-height: 100vh;
           display: flex;
-          flex-direction: column;
+          flex-direction: row;          /* left | right */
           font-family: 'Public Sans', 'Helvetica Neue', Arial, sans-serif;
-          background: ${BG};
           color: ${TEXT};
           -webkit-font-smoothing: antialiased;
         }
 
-        /* ── Nav bar ── */
-        .ls-nav {
+        /* ════════════════════════════════════════════════════════════
+           LEFT PANEL — navy hero
+        ════════════════════════════════════════════════════════════ */
+        .ls-left {
+          flex: 0 0 55%;
+          min-height: 100vh;
           background: ${NAVY};
-          height: 56px;
-          padding: 0 28px;
+          display: flex;
+          flex-direction: column;
+          border-right: 3px solid ${ORANGE};   /* orange divider stripe */
+          position: relative;
+          overflow: hidden;
+        }
+
+        /* Timetable-board horizontal line texture */
+        .ls-left::before {
+          content: '';
+          position: absolute;
+          inset: 0;
+          background-image: repeating-linear-gradient(
+            0deg,
+            transparent, transparent 47px,
+            rgba(255,255,255,.025) 47px, rgba(255,255,255,.025) 48px
+          );
+          pointer-events: none;
+        }
+
+        /* Logo / wordmark row */
+        .ls-lhdr {
+          position: relative;
+          z-index: 1;
+          padding: 24px 36px;
           display: flex;
           align-items: center;
-          justify-content: space-between;
+          gap: 13px;
+          border-bottom: 1px solid rgba(255,255,255,.08);
           flex-shrink: 0;
         }
-        .ls-nav-left {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-        }
-        .ls-nav-wordmark { line-height: 1; }
-        .ls-nav-title {
+        .ls-lhdr-text {}
+        .ls-lhdr-title {
           color: #fff;
           font-size: 17px;
           font-weight: 700;
           letter-spacing: -0.01em;
+          line-height: 1;
         }
-        .ls-nav-sub {
+        .ls-lhdr-sub {
           color: rgba(255,255,255,.5);
           font-size: 11px;
-          margin-top: 2px;
+          margin-top: 3px;
           letter-spacing: 0.01em;
         }
-        .ls-nav-badge {
-          background: rgba(246,137,31,.18);
-          border: 1px solid rgba(246,137,31,.4);
+
+        /* Hero body — centred vertically */
+        .ls-lbody {
+          position: relative;
+          z-index: 1;
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+          padding: 48px 40px;
+        }
+
+        .ls-lbody h1 {
+          color: #fff;
+          font-size: clamp(26px, 3vw, 40px);
+          font-weight: 800;
+          letter-spacing: -0.03em;
+          line-height: 1.1;
+          margin: 0 0 10px;
+        }
+        .ls-lbody-sub {
+          color: rgba(255,255,255,.52);
+          font-size: 14px;
+          letter-spacing: 0.01em;
+          margin: 0 0 32px;
+          line-height: 1.4;
+        }
+
+        /* 2×2 feature grid */
+        .ls-features {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 10px;
+          margin-bottom: 30px;
+        }
+        .ls-feat {
+          background: rgba(255,255,255,.07);
+          border: 1px solid rgba(255,255,255,.11);
+          border-radius: 5px;
+          padding: 14px 14px 16px;
+          transition: background .15s, border-color .15s;
+        }
+        .ls-feat:hover {
+          background: rgba(255,255,255,.11);
+          border-color: rgba(246,137,31,.38);
+        }
+        .ls-feat-icon {
+          font-size: 18px;
+          display: block;
+          margin-bottom: 8px;
+          line-height: 1;
+        }
+        .ls-feat-title {
+          color: ${ORANGE};
+          font-size: 10px;
+          font-weight: 700;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          margin-bottom: 5px;
+        }
+        .ls-feat-desc {
+          color: rgba(255,255,255,.65);
+          font-size: 12px;
+          line-height: 1.5;
+        }
+
+        /* Trust badges */
+        .ls-badges {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 7px;
+        }
+        .ls-badge {
+          background: rgba(255,255,255,.07);
+          border: 1px solid rgba(255,255,255,.12);
+          border-radius: 2px;
+          padding: 3px 10px;
+          font-size: 11px;
+          color: rgba(255,255,255,.42);
+          letter-spacing: 0.03em;
+        }
+
+        /* Left panel footer */
+        .ls-lftr {
+          position: relative;
+          z-index: 1;
+          padding: 14px 36px;
+          font-size: 11px;
+          color: rgba(255,255,255,.28);
+          border-top: 1px solid rgba(255,255,255,.07);
+          line-height: 1.65;
+          flex-shrink: 0;
+        }
+
+        /* ════════════════════════════════════════════════════════════
+           RIGHT PANEL — form
+        ════════════════════════════════════════════════════════════ */
+        .ls-right {
+          flex: 1;
+          min-height: 100vh;
+          background: ${BG_R};
+          display: flex;
+          flex-direction: column;
+        }
+
+        /* Thin top bar with EA badge */
+        .ls-rhdr {
+          padding: 12px 24px;
+          display: flex;
+          justify-content: flex-end;
+          align-items: center;
+          background: #fff;
+          border-bottom: 1px solid ${BORDER};
+          flex-shrink: 0;
+        }
+        .ls-ea-badge {
+          background: rgba(246,137,31,.12);
+          border: 1px solid rgba(246,137,31,.38);
           color: ${ORANGE};
           font-size: 10px;
           font-weight: 700;
@@ -179,109 +305,19 @@ export default function LoginScreen() {
           text-transform: uppercase;
         }
 
-        /* Orange accent stripe */
-        .ls-accent {
-          height: 3px;
-          background: ${ORANGE};
-          flex-shrink: 0;
-        }
-
-        /* ── Hero ── */
-        .ls-hero {
-          background: ${NAVY};
-          padding: 52px 28px 44px;
-          text-align: center;
-          position: relative;
-          overflow: hidden;
-          flex-shrink: 0;
-        }
-        /* Subtle horizontal line texture — train-timetable aesthetic */
-        .ls-hero::before {
-          content: '';
-          position: absolute;
-          inset: 0;
-          background-image: repeating-linear-gradient(
-            0deg,
-            transparent,
-            transparent 47px,
-            rgba(255,255,255,.028) 47px,
-            rgba(255,255,255,.028) 48px
-          );
-          pointer-events: none;
-        }
-        .ls-hero-inner {
-          position: relative;
-          z-index: 1;
-          max-width: 840px;
-          margin: 0 auto;
-        }
-        .ls-hero h1 {
-          color: #fff;
-          font-size: clamp(26px, 4.5vw, 44px);
-          font-weight: 800;
-          letter-spacing: -0.03em;
-          line-height: 1.1;
-          margin: 0 0 10px;
-        }
-        .ls-hero-sub {
-          color: rgba(255,255,255,.55);
-          font-size: clamp(13px, 1.8vw, 15px);
-          letter-spacing: 0.01em;
-          margin: 0 0 30px;
-        }
-
-        /* Feature grid */
-        .ls-features {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-          gap: 10px;
-        }
-        .ls-feat {
-          background: rgba(255,255,255,.07);
-          border: 1px solid rgba(255,255,255,.11);
-          border-radius: 5px;
-          padding: 14px 14px 16px;
-          text-align: left;
-          transition: background .15s, border-color .15s;
-          cursor: default;
-        }
-        .ls-feat:hover {
-          background: rgba(255,255,255,.11);
-          border-color: rgba(246,137,31,.35);
-        }
-        .ls-feat-icon {
-          font-size: 19px;
-          display: block;
-          margin-bottom: 8px;
-          line-height: 1;
-        }
-        .ls-feat-title {
-          color: ${ORANGE};
-          font-size: 10.5px;
-          font-weight: 700;
-          letter-spacing: 0.08em;
-          text-transform: uppercase;
-          margin-bottom: 5px;
-        }
-        .ls-feat-desc {
-          color: rgba(255,255,255,.68);
-          font-size: 12.5px;
-          line-height: 1.5;
-        }
-
-        /* ── Form section ── */
-        .ls-form-section {
+        /* Form area — centred */
+        .ls-form-wrap {
           flex: 1;
           display: flex;
-          align-items: flex-start;
+          align-items: center;
           justify-content: center;
-          padding: 36px 16px 52px;
+          padding: 36px 28px;
         }
 
         /* Card */
         .ls-card {
           width: 100%;
-          max-width: 480px;
+          max-width: 420px;
           background: #fff;
           border: 1px solid ${BORDER};
           border-radius: 6px;
@@ -289,7 +325,7 @@ export default function LoginScreen() {
           overflow: hidden;
         }
         .ls-card-head {
-          padding: 22px 28px;
+          padding: 22px 26px;
           border-bottom: 1px solid #ebebeb;
           border-left: 4px solid ${ORANGE};
         }
@@ -302,11 +338,11 @@ export default function LoginScreen() {
         }
         .ls-card-head p {
           margin: 5px 0 0;
-          font-size: 13.5px;
-          color: ${TEXT_MID};
+          font-size: 13px;
+          color: ${TEXT_M};
           line-height: 1.45;
         }
-        .ls-card-body { padding: 24px 28px 28px; }
+        .ls-card-body { padding: 22px 26px 26px; }
 
         /* Label */
         .ls-label {
@@ -317,12 +353,12 @@ export default function LoginScreen() {
           margin-bottom: 7px;
         }
 
-        /* Input — NSW DS style */
+        /* Input — NSW DS rectangular style */
         .ls-input {
           display: block;
           width: 100%;
           padding: 11px 14px;
-          font-size: 21px;
+          font-size: 20px;
           font-family: 'SF Mono', 'Fira Code', 'Fira Mono', Menlo, Consolas, monospace;
           letter-spacing: 0.16em;
           color: ${TEXT};
@@ -332,14 +368,14 @@ export default function LoginScreen() {
           outline: none;
           transition: border-color .15s, box-shadow .15s;
         }
-        .ls-input::placeholder { color: ${BORDER}; letter-spacing: 0.08em; }
+        .ls-input::placeholder { color: #c8c8cc; letter-spacing: 0.08em; }
         .ls-input:focus {
           border-color: ${FOCUS};
           box-shadow: 0 0 0 3px rgba(0,133,179,.2);
         }
         .ls-input:disabled { background: #f7f7f7; opacity: .6; cursor: not-allowed; }
 
-        /* 8-dot progress */
+        /* 8-dot progress indicator */
         .ls-dots {
           display: flex;
           gap: 6px;
@@ -347,7 +383,8 @@ export default function LoginScreen() {
           justify-content: center;
         }
         .ls-dot {
-          width: 7px; height: 7px;
+          width: 7px;
+          height: 7px;
           border-radius: 50%;
           transition: background .12s;
         }
@@ -368,7 +405,7 @@ export default function LoginScreen() {
           gap: 8px;
         }
 
-        /* Primary button — Sydney Trains orange */
+        /* Primary button — train orange */
         .ls-btn {
           display: flex;
           align-items: center;
@@ -390,7 +427,7 @@ export default function LoginScreen() {
           transition: background .15s, transform .1s, box-shadow .15s;
         }
         .ls-btn:hover:not(:disabled) {
-          background: ${ORG_DARK};
+          background: ${ORG_DK};
           transform: translateY(-1px);
           box-shadow: 0 4px 14px rgba(246,137,31,.45);
         }
@@ -403,6 +440,7 @@ export default function LoginScreen() {
           box-shadow: none;
           cursor: not-allowed;
         }
+
         @keyframes ls-spin { to { transform: rotate(360deg); } }
         .ls-spinner { animation: ls-spin .75s linear infinite; }
 
@@ -414,7 +452,7 @@ export default function LoginScreen() {
           border: 1px solid #ebebeb;
           border-radius: 4px;
           font-size: 13px;
-          color: ${TEXT_MID};
+          color: ${TEXT_M};
           line-height: 1.55;
         }
 
@@ -423,7 +461,7 @@ export default function LoginScreen() {
           display: flex;
           align-items: center;
           gap: 10px;
-          margin: 20px 0 16px;
+          margin: 18px 0 14px;
           color: #aeaeb2;
           font-size: 11px;
           font-weight: 600;
@@ -448,7 +486,7 @@ export default function LoginScreen() {
           font-size: 13.5px;
           font-weight: 600;
           font-family: inherit;
-          color: ${TEXT_MID};
+          color: ${TEXT_M};
           cursor: pointer;
           text-align: center;
           transition: border-color .15s, color .15s, background .15s;
@@ -459,84 +497,97 @@ export default function LoginScreen() {
           background: rgba(0,38,100,.04);
         }
 
-        /* ── Footer ── */
-        .ls-footer {
-          background: #22272b;
-          padding: 14px 24px;
+        /* Right panel footer */
+        .ls-rftr {
+          padding: 12px 24px;
           text-align: center;
           font-size: 11px;
-          color: rgba(255,255,255,.38);
+          color: #aeaeb2;
+          border-top: 1px solid ${BORDER};
+          background: #fff;
           flex-shrink: 0;
-          line-height: 1.7;
         }
 
-        /* ═══ RESPONSIVE BREAKPOINTS ═══════════════════════════════════════ */
+        /* ════════════════════════════════════════════════════════════
+           RESPONSIVE BREAKPOINTS
+        ════════════════════════════════════════════════════════════ */
 
-        /* ── ≥1024px: roomy desktop ── */
-        @media (min-width: 1024px) {
-          .ls-hero { padding: 64px 28px 56px; }
-          .ls-features { grid-template-columns: repeat(4, 1fr); }
+        /* Tablet: tighten left panel */
+        @media (max-width: 1100px) {
+          .ls-left  { flex: 0 0 48%; }
+          .ls-lbody { padding: 40px 32px; }
         }
 
-        /* ── ≤768px: tablet ── */
+        /* Mobile: flip to vertical stack */
         @media (max-width: 768px) {
-          .ls-hero { padding: 40px 20px 32px; }
-        }
+          .ls-root  { flex-direction: column; }
 
-        /* ── ≤600px: mobile ── */
-        @media (max-width: 600px) {
-          .ls-nav { height: 52px; padding: 0 16px; }
-          .ls-nav-title { font-size: 15px; }
-          .ls-nav-sub { display: none; }
-          .ls-hero { padding: 28px 16px 24px; }
-          .ls-features { grid-template-columns: 1fr 1fr; gap: 8px; }
-          .ls-feat { padding: 10px 10px 12px; }
-          .ls-feat-desc { display: none; }        /* hide verbose text on small screens */
-          .ls-form-section { padding: 24px 12px 40px; }
-          .ls-card-head { padding: 16px 18px; border-left-width: 3px; }
+          /* Left becomes a compact header band */
+          .ls-left  {
+            flex: 0 0 auto;
+            min-height: auto;
+            border-right: none;
+            border-bottom: 3px solid ${ORANGE};
+          }
+          .ls-lhdr  { padding: 16px 20px; }
+          .ls-lbody {
+            padding: 20px 20px 24px;
+            justify-content: flex-start;
+          }
+          .ls-lbody h1   { font-size: 24px; margin-bottom: 6px; }
+          .ls-lbody-sub  { font-size: 12px; margin-bottom: 16px; }
+          .ls-features   { gap: 8px; margin-bottom: 16px; }
+          .ls-feat       { padding: 10px 10px 12px; }
+          .ls-feat-desc  { display: none; }   /* hide verbose desc on mobile */
+          .ls-badges     { display: none; }
+          .ls-lftr       { display: none; }
+
+          /* Right panel */
+          .ls-right       { min-height: auto; }
+          .ls-rhdr        { display: none; }  /* EA badge on right hidden when stacked */
+          .ls-form-wrap   { padding: 24px 16px 40px; align-items: flex-start; }
+          .ls-card-head   { padding: 16px 18px; }
           .ls-card-head h2 { font-size: 17px; }
-          .ls-card-body { padding: 18px 18px 22px; }
-          .ls-input { font-size: 18px; padding: 10px 12px; }
+          .ls-card-body   { padding: 18px 18px 22px; }
+          .ls-input       { font-size: 18px; padding: 10px 12px; }
         }
 
-        /* ── ≤400px: very small phones (restore 1-col + desc) ── */
+        /* Very small phones: 1-column features, restore descriptions */
         @media (max-width: 400px) {
-          .ls-features { grid-template-columns: 1fr; }
-          .ls-feat-desc { display: block; }
+          .ls-features   { grid-template-columns: 1fr; }
+          .ls-feat-desc  { display: block; }
+          .ls-lhdr-sub   { display: none; }
         }
 
-        /* ── Reduced motion ── */
+        /* Reduced motion */
         @media (prefers-reduced-motion: reduce) {
           .ls-spinner { animation: none; }
           .ls-btn, .ls-admin, .ls-feat { transition: none; }
         }
       `}</style>
 
-      {/* ═══════════════════════════════════════════════════════════════════ */}
+      {/* ══════════════════════════════════════════════════════════════════════ */}
       <div className="ls-root">
 
-        {/* ── 1. Top nav bar ─────────────────────────────────────────────── */}
-        <nav className="ls-nav" role="navigation" aria-label="Sydney Trains">
-          <div className="ls-nav-left">
+        {/* ══ LEFT PANEL — Sydney Trains hero ══════════════════════════════ */}
+        <div className="ls-left">
+
+          {/* Logo / wordmark */}
+          <div className="ls-lhdr">
             <TrainsLogo size={36} />
-            <div className="ls-nav-wordmark">
-              <div className="ls-nav-title">Sydney Trains</div>
-              <div className="ls-nav-sub">Blue Mountains Line · Mt Victoria Depot</div>
+            <div className="ls-lhdr-text">
+              <div className="ls-lhdr-title">Sydney Trains</div>
+              <div className="ls-lhdr-sub">Blue Mountains Line · Mt Victoria Depot</div>
             </div>
           </div>
-          <div className="ls-nav-badge" aria-label="Enterprise Agreement 2025">EA 2025</div>
-        </nav>
 
-        {/* ── Orange accent bar ───────────────────────────────────────────── */}
-        <div className="ls-accent" aria-hidden="true" />
-
-        {/* ── 2. Hero section ────────────────────────────────────────────── */}
-        <section className="ls-hero" aria-labelledby="hero-heading">
-          <div className="ls-hero-inner">
-            <h1 id="hero-heading">Driver Wage Calculator</h1>
-            <p className="ls-hero-sub">
-              Sydney Trains · Blue Mountains Line · Mt Victoria
+          {/* Hero body */}
+          <div className="ls-lbody">
+            <h1>Driver Wage<br />Calculator</h1>
+            <p className="ls-lbody-sub">
+              Sydney Trains · EA 2025 · Mt Victoria
             </p>
+
             <div className="ls-features" role="list" aria-label="App features">
               {FEATURES.map(f => (
                 <article key={f.title} className="ls-feat" role="listitem">
@@ -546,107 +597,121 @@ export default function LoginScreen() {
                 </article>
               ))}
             </div>
-          </div>
-        </section>
 
-        {/* ── 3. Form card ───────────────────────────────────────────────── */}
-        <main className="ls-form-section" role="main">
-          <div className="ls-card">
-
-            {/* Card header */}
-            <div className="ls-card-head">
-              <h2>Sign in to your account</h2>
-              <p>Use your 8-digit employee ID to access the calculator</p>
+            <div className="ls-badges" aria-label="Trust indicators">
+              {TRUST_BADGES.map(b => (
+                <span key={b} className="ls-badge">{b}</span>
+              ))}
             </div>
+          </div>
 
-            {/* Card body */}
-            <div className="ls-card-body">
+          {/* Left panel footer */}
+          <div className="ls-lftr">
+            Not an official Transport for NSW service.<br />
+            For payroll queries, contact People &amp; Culture.
+          </div>
+        </div>
 
-              {/* Employee ID input */}
-              <label htmlFor="employee-id" className="ls-label">
-                Employee ID
-              </label>
-              <input
-                id="employee-id"
-                type="text"
-                inputMode="numeric"
-                autoComplete="off"
-                autoFocus
-                maxLength={8}
-                placeholder="12345678"
-                value={id}
-                onChange={(e) => setId(e.target.value.replace(/\D/g, '').slice(0, 8))}
-                onKeyDown={(e) => { if (e.key === 'Enter') submit() }}
-                disabled={busy}
-                className="ls-input"
-                aria-describedby={error ? 'ls-err' : 'ls-hint'}
-                aria-invalid={error ? 'true' : 'false'}
-              />
+        {/* ══ RIGHT PANEL — sign-in form ═══════════════════════════════════ */}
+        <div className="ls-right">
 
-              {/* 8-dot character progress */}
-              <div className="ls-dots" aria-hidden="true">
-                {Array.from({ length: 8 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className="ls-dot"
-                    style={{ background: i < id.length ? ORANGE : BORDER }}
-                  />
-                ))}
+          {/* Slim top bar */}
+          <div className="ls-rhdr" aria-hidden="true">
+            <div className="ls-ea-badge">EA 2025</div>
+          </div>
+
+          {/* Form centred */}
+          <main className="ls-form-wrap" role="main">
+            <div className="ls-card">
+
+              <div className="ls-card-head">
+                <h2>Sign in to your account</h2>
+                <p>Use your 8-digit employee ID to access the calculator</p>
               </div>
 
-              {/* Inline error */}
-              {error && (
-                <div id="ls-err" className="ls-error" role="alert" aria-live="assertive">
-                  <span aria-hidden="true" style={{ flexShrink: 0, marginTop: 1 }}>⚠</span>
-                  <span>{error}</span>
+              <div className="ls-card-body">
+
+                <label htmlFor="employee-id" className="ls-label">
+                  Employee ID
+                </label>
+                <input
+                  id="employee-id"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  autoFocus
+                  maxLength={8}
+                  placeholder="12345678"
+                  value={id}
+                  onChange={(e) => setId(e.target.value.replace(/\D/g, '').slice(0, 8))}
+                  onKeyDown={(e) => { if (e.key === 'Enter') submit() }}
+                  disabled={busy}
+                  className="ls-input"
+                  aria-describedby={error ? 'ls-err' : 'ls-hint'}
+                  aria-invalid={error ? 'true' : 'false'}
+                />
+
+                {/* 8-dot character progress */}
+                <div className="ls-dots" aria-hidden="true">
+                  {Array.from({ length: 8 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className="ls-dot"
+                      style={{ background: i < id.length ? ORANGE : BORDER }}
+                    />
+                  ))}
                 </div>
-              )}
 
-              {/* Submit */}
-              <button
-                type="button"
-                onClick={submit}
-                disabled={busy || id.length !== 8}
-                className="ls-btn"
-                aria-busy={busy}
-              >
-                {busy ? <><Spinner /> Signing in…</> : 'Sign in →'}
-              </button>
+                {/* Inline error */}
+                {error && (
+                  <div id="ls-err" className="ls-error" role="alert" aria-live="assertive">
+                    <span aria-hidden="true" style={{ flexShrink: 0, marginTop: 1 }}>⚠</span>
+                    <span>{error}</span>
+                  </div>
+                )}
 
-              {/* First-time help */}
-              <div id="ls-hint" className="ls-help">
-                <strong style={{ color: TEXT, fontWeight: 600 }}>Don't have access?</strong>{' '}
-                Ask your depot admin to add your employee ID to the allowlist.
-              </div>
+                {/* Submit */}
+                <button
+                  type="button"
+                  onClick={submit}
+                  disabled={busy || id.length !== 8}
+                  className="ls-btn"
+                  aria-busy={busy}
+                >
+                  {busy ? <><Spinner /> Signing in…</> : 'Sign in →'}
+                </button>
 
-              {/* OR divider */}
-              <div className="ls-or" aria-hidden="true">or</div>
+                {/* Help */}
+                <div id="ls-hint" className="ls-help">
+                  <strong style={{ color: TEXT, fontWeight: 600 }}>Don't have access?</strong>{' '}
+                  Ask your depot admin to add your employee ID to the allowlist.
+                </div>
 
-              {/* Admin sign-in */}
-              <button
-                type="button"
-                onClick={() => setAdminOpen(true)}
-                className="ls-admin"
-                aria-label="Sign in as depot admin"
-              >
-                🔐 Admin sign-in
-              </button>
+                {/* OR */}
+                <div className="ls-or" aria-hidden="true">or</div>
 
-            </div>{/* /card-body */}
-          </div>{/* /card */}
-        </main>
+                {/* Admin */}
+                <button
+                  type="button"
+                  onClick={() => setAdminOpen(true)}
+                  className="ls-admin"
+                  aria-label="Sign in as depot admin"
+                >
+                  🔐 Admin sign-in
+                </button>
 
-        {/* ── 4. Footer ──────────────────────────────────────────────────── */}
-        <footer className="ls-footer" role="contentinfo">
-          Driver Wage Calculator · Mt Victoria Depot · Sydney Trains
-          <br />
-          Not an official Transport for NSW service.
-          For payroll queries, contact People &amp; Culture.
-        </footer>
+              </div>{/* /card-body */}
+            </div>{/* /card */}
+          </main>
 
-      </div>
+          {/* Right footer */}
+          <footer className="ls-rftr" role="contentinfo">
+            Driver Wage Calculator · Mt Victoria Depot · Sydney Trains
+          </footer>
 
-      {/* Admin password modal */}
+        </div>{/* /right */}
+      </div>{/* /root */}
+
       {adminOpen && (
         <AdminSignInModal
           onClose={() => setAdminOpen(false)}
