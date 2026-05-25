@@ -108,6 +108,54 @@ CREATE TABLE IF NOT EXISTS parsed_artifact (
 
 CREATE INDEX IF NOT EXISTS idx_parsed_artifact_lookup
     ON parsed_artifact (kind, sub_kind, active, uploaded_at DESC);
+
+-- v3.31: allowlist of employee IDs that can log in to the driver view.
+-- Each row represents one authorized driver; admin manages via the "Drivers"
+-- admin tab.  No password / PIN field — the 8-digit employee ID is the sole
+-- credential (per the chosen B2C model where sharing is an acceptable risk).
+CREATE TABLE IF NOT EXISTS allowed_employees (
+    id              BIGSERIAL PRIMARY KEY,
+    employee_id     VARCHAR(8) NOT NULL UNIQUE,
+    label           TEXT,
+    created_by      TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    locked_until    TIMESTAMPTZ,
+    failed_attempts INT        NOT NULL DEFAULT 0,
+    last_failed_at  TIMESTAMPTZ,
+    last_login_at   TIMESTAMPTZ,
+    CONSTRAINT chk_employee_id_format CHECK (employee_id ~ '^[0-9]{8}$')
+);
+
+CREATE INDEX IF NOT EXISTS idx_allowed_employees_employee_id
+    ON allowed_employees (employee_id);
+
+-- v3.31: audit log of every login attempt.  Used for IP rate-limit,
+-- per-ID lockout policy, and admin visibility into login patterns.
+-- Rows older than 30 days are opportunistically deleted on login attempts
+-- (1% probability per attempt, dispatched as a background task so the
+-- login response isn't delayed).
+CREATE TABLE IF NOT EXISTS login_audit (
+    id           BIGSERIAL PRIMARY KEY,
+    employee_id  TEXT NOT NULL,
+    ip_address   TEXT,
+    user_agent   TEXT,
+    result       TEXT NOT NULL,
+    attempted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT chk_audit_result CHECK (result IN (
+        'success',
+        'failed_invalid_format',
+        'failed_not_allowlisted',
+        'failed_locked',
+        'failed_rate_limited_ip'
+    ))
+);
+
+CREATE INDEX IF NOT EXISTS idx_login_audit_employee_id_time
+    ON login_audit (employee_id, attempted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_login_audit_ip_time
+    ON login_audit (ip_address, attempted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_login_audit_attempted_at
+    ON login_audit (attempted_at);
 """
 
 
@@ -250,3 +298,235 @@ async def get_latest_artifact(
         "uploaded_at": row["uploaded_at"].isoformat(),
         "payload": json.loads(row["payload"]) if isinstance(row["payload"], str) else row["payload"],
     }
+
+
+# ─── v3.31: Auth allowlist + audit-log CRUD ─────────────────────────────────
+
+import re as _re
+from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+
+EMP_ID_RE = _re.compile(r"^[0-9]{8}$")
+
+# Policy constants — referenced by main.py login endpoint.
+RATE_LIMIT_IP_HOUR = 5      # max failed attempts per IP per hour
+LOCKOUT_FAILS_24H  = 10     # failed attempts on a specific ID within 24h
+LOCKOUT_DURATION_H = 24     # how long the ID stays locked
+AUDIT_RETENTION_DAYS = 30   # rows older than this are eligible for cleanup
+
+
+async def list_allowed_employees() -> list[dict[str, Any]]:
+    """Return all allowlisted drivers + their lockout/login status, newest first.
+    Admin reads this to populate the Drivers tab."""
+    pool = await get_pool()
+    if pool is None:
+        return []
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT employee_id, label, created_by, created_at,
+                   locked_until, failed_attempts, last_failed_at, last_login_at
+              FROM allowed_employees
+             ORDER BY created_at DESC
+        """)
+    return [_row_to_dict(r) for r in rows]
+
+
+async def get_employee(employee_id: str) -> Optional[dict[str, Any]]:
+    """Look up one allowlisted employee, or return None if not allowlisted."""
+    pool = await get_pool()
+    if pool is None:
+        return None
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT employee_id, label, locked_until, failed_attempts,"
+            "       last_failed_at, last_login_at, created_at"
+            "  FROM allowed_employees WHERE employee_id = $1",
+            employee_id,
+        )
+    return _row_to_dict(row) if row else None
+
+
+async def add_allowed_employee(
+    employee_id: str, label: Optional[str], created_by: Optional[str],
+) -> bool:
+    """Add an employee ID to the allowlist.  Returns True if inserted, False
+    if the ID already exists (no error — idempotent at the API layer)."""
+    if not EMP_ID_RE.match(employee_id):
+        raise ValueError("employee_id must be 8 digits")
+    pool = await get_pool()
+    if pool is None:
+        return False
+    async with pool.acquire() as conn:
+        try:
+            await conn.execute(
+                """INSERT INTO allowed_employees (employee_id, label, created_by)
+                   VALUES ($1, $2, $3)""",
+                employee_id, label, created_by,
+            )
+            return True
+        except Exception:
+            return False  # duplicate or constraint violation
+
+
+async def remove_allowed_employee(employee_id: str) -> bool:
+    """Remove an employee from the allowlist.  Returns True if a row was
+    deleted.  Their audit-log history is intentionally preserved."""
+    pool = await get_pool()
+    if pool is None:
+        return False
+    async with pool.acquire() as conn:
+        r = await conn.execute(
+            "DELETE FROM allowed_employees WHERE employee_id = $1",
+            employee_id,
+        )
+        return r.endswith(" 1")
+
+
+async def unlock_employee(employee_id: str) -> bool:
+    """Admin action: clear an employee's lockout + failure counter so they
+    can log in immediately.  Returns True if a row was updated."""
+    pool = await get_pool()
+    if pool is None:
+        return False
+    async with pool.acquire() as conn:
+        r = await conn.execute(
+            """UPDATE allowed_employees
+                  SET locked_until = NULL,
+                      failed_attempts = 0,
+                      last_failed_at = NULL
+                WHERE employee_id = $1""",
+            employee_id,
+        )
+        return r.endswith(" 1")
+
+
+async def mark_login_success(employee_id: str) -> None:
+    """Reset failure counter + update last_login_at on a successful login."""
+    pool = await get_pool()
+    if pool is None:
+        return
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """UPDATE allowed_employees
+                  SET failed_attempts = 0,
+                      last_failed_at = NULL,
+                      locked_until = NULL,
+                      last_login_at = NOW()
+                WHERE employee_id = $1""",
+            employee_id,
+        )
+
+
+async def increment_failed_attempts(employee_id: str) -> dict[str, Any]:
+    """Increment the failed-attempt counter on an allowlisted ID.  If the
+    24-h window crossed `LOCKOUT_FAILS_24H`, set `locked_until` to NOW +
+    `LOCKOUT_DURATION_H` hours.  Returns the updated row.  No-op if the
+    employee_id isn't in the allowlist."""
+    pool = await get_pool()
+    if pool is None:
+        return {}
+    locked_until = _dt.now(_tz.utc) + _td(hours=LOCKOUT_DURATION_H)
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """UPDATE allowed_employees
+                  SET failed_attempts = failed_attempts + 1,
+                      last_failed_at  = NOW(),
+                      locked_until    = CASE
+                          WHEN failed_attempts + 1 >= $2 THEN $3::timestamptz
+                          ELSE locked_until
+                      END
+                WHERE employee_id = $1
+            RETURNING employee_id, failed_attempts, locked_until""",
+            employee_id, LOCKOUT_FAILS_24H, locked_until,
+        )
+    return _row_to_dict(row) if row else {}
+
+
+async def record_login_attempt(
+    employee_id: str, ip: Optional[str], ua: Optional[str], result: str,
+) -> None:
+    """Append a row to the audit log.  Returns None.  Safe to call even
+    when no DB is configured (no-op)."""
+    pool = await get_pool()
+    if pool is None:
+        return
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """INSERT INTO login_audit (employee_id, ip_address, user_agent, result)
+               VALUES ($1, $2, $3, $4)""",
+            employee_id, ip, ua, result,
+        )
+
+
+async def count_recent_ip_failures(ip: Optional[str], hours: int = 1) -> int:
+    """Count failed attempts from this IP within the rolling window.  Used
+    by the login endpoint's rate-limit gate."""
+    if not ip:
+        return 0
+    pool = await get_pool()
+    if pool is None:
+        return 0
+    since = _dt.now(_tz.utc) - _td(hours=hours)
+    async with pool.acquire() as conn:
+        n = await conn.fetchval(
+            """SELECT COUNT(*) FROM login_audit
+                WHERE ip_address = $1
+                  AND attempted_at > $2
+                  AND result LIKE 'failed_%'""",
+            ip, since,
+        )
+    return int(n or 0)
+
+
+async def recent_audit_for_employee(
+    employee_id: str, limit: int = 25,
+) -> list[dict[str, Any]]:
+    """Return the most recent N login attempts for an employee.  Used by the
+    admin Drivers tab to show recent activity."""
+    pool = await get_pool()
+    if pool is None:
+        return []
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT employee_id, ip_address, user_agent, result, attempted_at
+                 FROM login_audit
+                WHERE employee_id = $1
+                ORDER BY attempted_at DESC
+                LIMIT $2""",
+            employee_id, limit,
+        )
+    return [_row_to_dict(r) for r in rows]
+
+
+async def cleanup_old_audit_rows() -> int:
+    """Delete login_audit rows older than AUDIT_RETENTION_DAYS.  Called
+    opportunistically from the login endpoint with low probability so no
+    external scheduler is required.  Returns the number of rows deleted."""
+    pool = await get_pool()
+    if pool is None:
+        return 0
+    async with pool.acquire() as conn:
+        r = await conn.execute(
+            "DELETE FROM login_audit"
+            " WHERE attempted_at < NOW() - ($1::int || ' days')::interval",
+            AUDIT_RETENTION_DAYS,
+        )
+    # asyncpg returns "DELETE n" — parse the count
+    try:
+        return int(r.rsplit(" ", 1)[1])
+    except Exception:
+        return 0
+
+
+def _row_to_dict(row) -> dict[str, Any]:
+    """Convert an asyncpg Record into a plain dict with ISO-formatted
+    timestamps (so it serialises straight to JSON)."""
+    if row is None:
+        return {}
+    out: dict[str, Any] = {}
+    for key in row.keys():
+        v = row[key]
+        if hasattr(v, "isoformat"):
+            out[key] = v.isoformat()
+        else:
+            out[key] = v
+    return out

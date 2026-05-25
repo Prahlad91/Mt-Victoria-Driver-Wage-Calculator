@@ -14,3 +14,6 @@ pytesseract>=0.3.10
 # asyncpg is async-native and pairs well with FastAPI. Falls back to a no-op
 # storage layer when DATABASE_URL is unset (local dev / first-boot).
 asyncpg>=0.29.0
+# v3.31: JWT issuance + verification for driver authentication.
+# PyJWT is the canonical Python library; 2.x has the modern API.
+PyJWT>=2.9.0
