@@ -392,8 +392,11 @@ def get_config():
 # ─── Core calculation ────────────────────────────────────────────────────────
 
 @app.post("/api/calculate", response_model=CalculateResponse)
-def calculate(req: CalculateRequest):
-    """Calculate gross pay for a full fortnight. PRD §FR-03"""
+def calculate(req: CalculateRequest, user: dict = Depends(get_current_user)):
+    """Calculate gross pay for a full fortnight. PRD §FR-03.
+
+    v3.32: requires a valid driver JWT.  user.sub = employee_id (currently
+    unused by the calculator but available for audit logging in the future)."""
     try:
         return compute_fortnight(req)
     except Exception as e:

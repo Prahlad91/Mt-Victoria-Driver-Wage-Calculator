@@ -155,6 +155,57 @@ function setAdminPasswordStorage(password: string | null) {
   } catch { /* ignore */ }
 }
 
+// v3.32 — driver JWT (employee-ID login).  Stored in localStorage so it
+// survives tab close (drivers don't want to re-enter their ID daily).  The
+// JWT carries the employee ID + role + exp, so we don't need a separate
+// "user" record in localStorage.
+
+const LS_AUTH_JWT = 'mvwc_auth_jwt'
+
+interface JwtClaims {
+  sub: string          // employee_id
+  role: string         // 'driver' | 'admin'
+  iat: number          // issued-at (unix seconds)
+  exp: number          // expires-at (unix seconds)
+}
+
+function _decodeJwt(token: string): JwtClaims | null {
+  try {
+    const [, payload] = token.split('.')
+    if (!payload) return null
+    // base64url → base64 → atob
+    const b64 = payload.replace(/-/g, '+').replace(/_/g, '/').padEnd(
+      payload.length + (4 - payload.length % 4) % 4, '=',
+    )
+    return JSON.parse(atob(b64)) as JwtClaims
+  } catch { return null }
+}
+
+function _isExpired(claims: JwtClaims | null): boolean {
+  if (!claims?.exp) return true
+  // 5-second clock-skew slack
+  return claims.exp <= (Date.now() / 1000) - 5
+}
+
+function getAuthJwt(): string | null {
+  try {
+    const t = localStorage.getItem(LS_AUTH_JWT)
+    if (!t) return null
+    if (_isExpired(_decodeJwt(t))) {
+      localStorage.removeItem(LS_AUTH_JWT)
+      return null
+    }
+    return t
+  } catch { return null }
+}
+
+function setAuthJwtStorage(token: string | null) {
+  try {
+    if (token) localStorage.setItem(LS_AUTH_JWT, token)
+    else localStorage.removeItem(LS_AUTH_JWT)
+  } catch { /* ignore */ }
+}
+
 
 function fromLS<T>(k: string, fb: T): T {
   try { const s = localStorage.getItem(k); return s ? JSON.parse(s) : fb } catch { return fb }
@@ -203,6 +254,11 @@ interface Ctx {
   adminPassword: string | null
   setAdminPassword: (pw: string | null) => void
   sessionId: string
+  // v3.32: driver auth (employee ID → JWT in localStorage).
+  authJwt: string | null
+  authUser: { sub: string; role: string; exp: number } | null
+  signIn: (token: string) => void
+  signOut: () => void
   result: CalculateResponse | null; calculating: boolean; calcError: string | null
   loadLine:            (line: number, start: string, phs: string[], psTotal: number | null) => string | null
   fillAllRostered:     () => void
@@ -266,6 +322,26 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
   const setAdminPassword = useCallback((pw: string | null) => {
     setAdminPasswordStorage(pw)
     setAdminPasswordState(pw)
+  }, [])
+
+  // v3.32: driver JWT + decoded claims.  authJwt is the raw token attached
+  // to API requests as Authorization: Bearer; authUser is the decoded
+  // identity for the UI (employee_id, role).  signIn/signOut sync both
+  // React state and localStorage.
+  const [authJwt, setAuthJwtState]   = useState<string | null>(() => getAuthJwt())
+  const [authUser, setAuthUserState] = useState<JwtClaims | null>(() => {
+    const t = getAuthJwt()
+    return t ? _decodeJwt(t) : null
+  })
+  const signIn = useCallback((token: string) => {
+    setAuthJwtStorage(token)
+    setAuthJwtState(token)
+    setAuthUserState(_decodeJwt(token))
+  }, [])
+  const signOut = useCallback(() => {
+    setAuthJwtStorage(null)
+    setAuthJwtState(null)
+    setAuthUserState(null)
   }, [])
   // Session id is generated lazily on first call to getSessionId(); exposed
   // here for any consumer (e.g. SetupTab swinger-validation message) that
@@ -918,8 +994,11 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
       }
     })
     try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      // v3.32: attach Bearer token if signed in.  /api/calculate is JWT-gated.
+      if (authJwt) headers['Authorization'] = `Bearer ${authJwt}`
       const r = await fetch('/api/calculate', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers,
         body: JSON.stringify({
           fortnight_start: fnStart,
           roster_line: rosterLine,
@@ -931,6 +1010,11 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
           is_short_fortnight: isShort,  // v3.11
         }),
       })
+      // v3.32: token expired or invalid → bounce to login.
+      if (r.status === 401) {
+        signOut()
+        throw new Error('Your session has expired.  Please sign in again.')
+      }
       if (!r.ok) { const e = await r.json().catch(() => ({ detail: 'Error' })); throw new Error(e.detail) }
       setResult(await r.json())
       return true
@@ -939,7 +1023,7 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
       setCalcError(msg.includes('fetch') ? 'Cannot reach backend.' : msg)
       return false
     } finally { setCalcing(false) }
-  }, [days, fnStart, rosterLine, publicHolidays, payslipTotal, config, codes, unassocAmt, assocChart])
+  }, [days, fnStart, rosterLine, publicHolidays, payslipTotal, config, codes, unassocAmt, assocChart, authJwt, signOut])
 
   const exportPdf = useCallback(async () => {
     if (!result) return
@@ -969,6 +1053,7 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
       masterRosterUpload, fnRosterUpload, weekdayScheduleUpload, weekendScheduleUpload,
       assocChart, assocChartIsCustom, loadAssocChartCsv, resetAssocChart,
       adminPassword, setAdminPassword, sessionId,
+      authJwt, authUser, signIn, signOut,
       result, calculating, calcError,
       loadLine, fillAllRostered, copyScheduledToActual, setDay, applyManualDiag, markWorkedOnOff,
       resetDay, applyUploadedRoster,

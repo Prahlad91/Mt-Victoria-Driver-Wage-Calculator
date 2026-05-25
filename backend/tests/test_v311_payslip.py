@@ -173,11 +173,27 @@ def test_no_afternoon_penalty_mar31_apr1_apr2(result):
 
 # ─── HTTP integration smoke test ─────────────────────────────────────────────
 
-def test_api_endpoint_returns_correct_total():
-    """POST /api/calculate with canonical payload returns $7,336.55."""
-    resp = client.post("/api/calculate", json=PAYLOAD)
+def test_api_endpoint_returns_correct_total(monkeypatch):
+    """POST /api/calculate with canonical payload returns $7,336.55.
+
+    v3.32: /api/calculate now requires a driver JWT.  Set JWT_SECRET for the
+    test and mint a token for a synthetic employee ID."""
+    monkeypatch.setenv("JWT_SECRET", "test-secret-aaaaaaaabbbbbbbbccccccccdddd")
+    from auth import issue_jwt
+    token = issue_jwt("00000001", role="driver")
+    resp = client.post(
+        "/api/calculate", json=PAYLOAD,
+        headers={"Authorization": f"Bearer {token}"},
+    )
     assert resp.status_code == 200, resp.text
     body = resp.json()
     # Handle both camelCase (FastAPI default) and snake_case
     total = body.get("totalPay") or body.get("total_pay")
     assert total == 7336.55, f"API returned ${total}, expected $7,336.55"
+
+
+def test_api_endpoint_rejects_unauthenticated_request(monkeypatch):
+    """v3.32: /api/calculate without a JWT must return 401."""
+    monkeypatch.setenv("JWT_SECRET", "test-secret-aaaaaaaabbbbbbbbccccccccdddd")
+    resp = client.post("/api/calculate", json=PAYLOAD)
+    assert resp.status_code == 401, resp.text

@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import SetupTab from './components/SetupTab'
 import DailyEntryTab from './components/DailyEntryTab'
 import ResultsTab from './components/ResultsTab'
 import RatesTab from './components/RatesTab'
 import KmTableTab from './components/KmTableTab'
 import AdminSignInModal from './components/AdminSignInModal'
+import LoginScreen from './components/LoginScreen'
 import { useFortnightContext } from './context/FortnightContext'
 
 type Tab = 'setup' | 'daily' | 'results' | 'rates' | 'km'
@@ -19,10 +20,17 @@ const ALL_TABS: { id: Tab; label: string }[] = [
 // focused UI per the PRD §3.29 spec.
 const ADMIN_ONLY_TABS: ReadonlySet<Tab> = new Set(['rates', 'km'])
 
+// v3.32: idle timeout — 30 minutes of no mouse/key/touch activity → sign out.
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000
+
 export default function App() {
   const [active, setActive] = useState<Tab>('setup')
   const [adminModalOpen, setAdminModalOpen] = useState(false)
-  const { result, fnType, fnLoaded, rosterLine, adminPassword, setAdminPassword } = useFortnightContext()
+  const {
+    result, fnType, fnLoaded, rosterLine,
+    adminPassword, setAdminPassword,
+    authJwt, authUser, signOut,
+  } = useFortnightContext()
 
   // v3.29: build the visible-tab list from admin state, and redirect away
   // from hidden tabs when admin signs out so the active state stays valid.
@@ -31,6 +39,33 @@ export default function App() {
   useEffect(() => {
     if (!isAdmin && ADMIN_ONLY_TABS.has(active)) setActive('setup')
   }, [isAdmin, active])
+
+  // v3.32: idle-timeout sign-out.  Only active when a driver JWT is present
+  // (admins remain signed-in for the tab's session regardless of activity).
+  // Listens to mousemove/keydown/touchstart on window and resets a 30-min
+  // timer on each event; fires signOut() if no activity within the window.
+  const idleTimerRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (!authJwt) return
+    const reset = () => {
+      if (idleTimerRef.current !== null) window.clearTimeout(idleTimerRef.current)
+      idleTimerRef.current = window.setTimeout(() => {
+        signOut()
+      }, IDLE_TIMEOUT_MS)
+    }
+    const events: (keyof WindowEventMap)[] = ['mousemove', 'keydown', 'touchstart', 'click']
+    events.forEach(ev => window.addEventListener(ev, reset, { passive: true }))
+    reset()  // start the initial timer
+    return () => {
+      events.forEach(ev => window.removeEventListener(ev, reset))
+      if (idleTimerRef.current !== null) window.clearTimeout(idleTimerRef.current)
+    }
+  }, [authJwt, signOut])
+
+  // v3.32: gate the entire app behind sign-in.  Either driver JWT or admin
+  // password unlocks the UI.  Unauthenticated → LoginScreen only.
+  const isAuthed = !!authJwt || !!adminPassword
+  if (!isAuthed) return <LoginScreen />
 
   return (
     <>
@@ -62,6 +97,26 @@ export default function App() {
             <span className="badge" style={{background:'var(--accent-bg)',color:'var(--accent)',fontSize:11}}>
               EA 2025
             </span>
+            {/* v3.32: driver sign-out pill — shows employee_id + lets driver
+                sign out.  Admin signed in via password sees their own pill below. */}
+            {authJwt && authUser && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirm(`Sign out (${authUser.sub})?`)) signOut()
+                }}
+                className="badge"
+                title="Signed in. Click to sign out."
+                style={{
+                  background: 'var(--surface-2)', color: 'var(--text2)',
+                  fontSize: 11, border: '1px solid var(--border-mid)', cursor: 'pointer',
+                  padding: '2px 8px', borderRadius: 999,
+                  fontFamily: 'var(--font-mono, monospace)',
+                }}
+              >
+                👤 {authUser.sub}
+              </button>
+            )}
             {/* v3.26/v3.28: admin sign-in pill — opens modal to enter ADMIN_PASSWORD */}
             {adminPassword ? (
               <button
