@@ -4,352 +4,566 @@ import { useFortnightContext } from '../context/FortnightContext'
 import AdminSignInModal from './AdminSignInModal'
 
 /**
- * v3.34 — Premium split-panel sign-in screen.
+ * v3.35 — Sydney Trains brand login screen.
  *
- * Left (52%, desktop-only): dark navy hero — logo, headline, feature list,
- *   trust badges, radial-glow background.
- * Right (fluid): clean white form — staggered fade-up entry, large monospace
- *   input, 8-dot progress indicator, primary button with hover glow, error
- *   alert, first-time help card, admin sign-in ghost link.
+ * Colours from TfNSW Open Data / NSW Digital Design System:
+ *   #F6891F  train orange (TfNSW trains mode colour)
+ *   #002664  NSW Government brand dark (navy)
+ *   #22272B  text dark
+ *   #495054  text mid
+ *   #CDD3D6  border
+ *   #0085B3  focus blue
+ *   #B81237  error red
  *
- * Responsive: hero panel hides at ≤780px; form fills the viewport on mobile.
- * prefers-reduced-motion: all keyframe animations disabled.
+ * Layout (top → bottom):
+ *   1. 56px navy nav  +  3px orange accent bar
+ *   2. Navy hero  →  headline + 4-column feature grid
+ *   3. Centered white form card
+ *   4. Dark footer (disclaimer)
+ *
+ * Fully responsive via CSS class breakpoints:
+ *   ≥1024px  4-column feature grid, roomy hero
+ *   600-1023 auto-fit feature grid, standard padding
+ *   ≤600px   2-column feature grid, compact nav/hero, card full-width
+ *   ≤400px   1-column feature grid, feature desc re-shown
  */
 
+// ── Brand tokens ──────────────────────────────────────────────────────────────
+const NAVY      = '#002664'
+const ORANGE    = '#F6891F'
+const ORG_DARK  = '#d9700e'   // button hover
+const TEXT      = '#22272B'
+const TEXT_MID  = '#495054'
+const BG        = '#F2F2F2'
+const BORDER    = '#CDD3D6'
+const FOCUS     = '#0085B3'
+const ERR       = '#B81237'
+const ERR_BG    = '#F7E7EB'
+
+// ── Feature cards ─────────────────────────────────────────────────────────────
 const FEATURES = [
-  'All EA 2025 pay codes — verified to the cent',
-  'Lift-up, layback & buildup  (Cl. 131)',
-  'KM allowance — 26-band table (Cl. 146.4)',
-  'Payslip-format breakdown per fortnight',
+  { icon: '📋', title: 'EA 2025 Pay Rules',
+    desc: 'All pay codes and allowances verified against real payslips — to the cent.' },
+  { icon: '🕐', title: 'Lift-up & Layback',
+    desc: 'Cl. 131 effective-window — ordinary and OT split correctly.' },
+  { icon: '📏', title: 'KM Allowance',
+    desc: 'Cl. 146.4 — 26-band credit table for intercity services.' },
+  { icon: '💳', title: 'Payslip Breakdown',
+    desc: 'Fortnight-by-fortnight breakdown matching your payroll line items.' },
 ]
 
-const TRUST_BADGES = ['EA 2025 Compliant', '🔒 Secure Login', '🏔 Mt Victoria']
+// ── Sydney Trains "T" logo ────────────────────────────────────────────────────
+// Approximates the official orange-square / white-T mark.
+function TrainsLogo({ size = 36 }: { size?: number }) {
+  return (
+    <svg
+      width={size} height={size} viewBox="0 0 36 36"
+      role="img" aria-label="Sydney Trains logo"
+      style={{ display: 'block', flexShrink: 0 }}
+    >
+      <rect width="36" height="36" rx="4" fill={ORANGE} />
+      {/* cross-bar */}
+      <rect x="6"    y="8.5" width="24" height="5.5" rx="1.5" fill="white" />
+      {/* stem */}
+      <rect x="13.5" y="8.5" width="9"  height="19"  rx="1.5" fill="white" />
+    </svg>
+  )
+}
 
+// ── Spinner SVG ───────────────────────────────────────────────────────────────
+function Spinner() {
+  return (
+    <svg
+      className="ls-spinner" width="16" height="16" viewBox="0 0 16 16"
+      aria-hidden="true" style={{ flexShrink: 0 }}
+    >
+      <circle cx="8" cy="8" r="6"
+        fill="none" stroke="rgba(255,255,255,.35)" strokeWidth="2.5" />
+      <path d="M8 2 A6 6 0 0 1 14 8"
+        fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 export default function LoginScreen() {
   const ctx = useFortnightContext()
-  const [id, setId]         = useState('')
-  const [busy, setBusy]     = useState(false)
-  const [error, setError]   = useState<string | null>(null)
+  const [id, setId]           = useState('')
+  const [busy, setBusy]       = useState(false)
+  const [error, setError]     = useState<string | null>(null)
   const [adminOpen, setAdminOpen] = useState(false)
 
   async function submit() {
     const trimmed = id.trim()
-    if (!/^\d{8}$/.test(trimmed)) {
-      setError('Employee ID must be exactly 8 digits.')
-      return
-    }
-    setBusy(true)
-    setError(null)
+    if (!/^\d{8}$/.test(trimmed)) { setError('Employee ID must be exactly 8 digits.'); return }
+    setBusy(true); setError(null)
     try {
       const r = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ employee_id: trimmed }),
       })
-      let data: { token?: string; role?: string; detail?: string } = {}
+      let data: { token?: string; detail?: string } = {}
       try { data = await r.json() } catch { /* ignore */ }
       if (!r.ok) {
-        if (r.status === 429)      setError(data.detail || 'Too many failed attempts. Try again in 1 hour.')
-        else if (r.status === 423) setError(data.detail || 'This account is temporarily locked. Contact your admin.')
-        else if (r.status === 401) setError("This employee ID isn't on the allowed list. Contact your admin.")
-        else if (r.status === 503) setError(data.detail || 'Sign-in is temporarily unavailable. Try again later.')
+        if      (r.status === 429) setError(data.detail || 'Too many attempts. Try again in 1 hour.')
+        else if (r.status === 423) setError(data.detail || 'Account temporarily locked. Contact your admin.')
+        else if (r.status === 401) setError("Employee ID not on the allowlist. Contact your depot admin.")
+        else if (r.status === 503) setError(data.detail || 'Sign-in temporarily unavailable. Try again shortly.')
         else                       setError(data.detail || 'Sign-in failed.')
         return
       }
-      if (!data.token) {
-        setError('Sign-in succeeded but no token was returned. Contact your admin.')
-        return
-      }
+      if (!data.token) { setError('No token returned — contact your admin.'); return }
       ctx.signIn(data.token)
     } catch (e) {
       setError(`Network error: ${(e as Error).message}`)
-    } finally {
-      setBusy(false)
-    }
+    } finally { setBusy(false) }
   }
 
   return (
     <>
-      {/* ── Injected styles (keyframes + hover / focus states) ── */}
+      {/* ─── Injected CSS ─────────────────────────────────────────────────── */}
       <style>{`
-        @keyframes lsFadeUp {
-          from { opacity: 0; transform: translateY(18px); }
-          to   { opacity: 1; transform: translateY(0); }
+        @import url('https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800&display=swap');
+
+        *, *::before, *::after { box-sizing: border-box; }
+
+        /* Root */
+        .ls-root {
+          min-height: 100vh;
+          display: flex;
+          flex-direction: column;
+          font-family: 'Public Sans', 'Helvetica Neue', Arial, sans-serif;
+          background: ${BG};
+          color: ${TEXT};
+          -webkit-font-smoothing: antialiased;
         }
-        @keyframes lsSpin {
-          to { transform: rotate(360deg); }
+
+        /* ── Nav bar ── */
+        .ls-nav {
+          background: ${NAVY};
+          height: 56px;
+          padding: 0 28px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          flex-shrink: 0;
         }
-        .ls-d0 { animation: lsFadeUp .65s .00s ease both; }
-        .ls-d1 { animation: lsFadeUp .65s .07s ease both; }
-        .ls-d2 { animation: lsFadeUp .65s .14s ease both; }
-        .ls-d3 { animation: lsFadeUp .65s .21s ease both; }
-        .ls-d4 { animation: lsFadeUp .65s .28s ease both; }
-        .ls-d5 { animation: lsFadeUp .65s .35s ease both; }
-        .ls-d6 { animation: lsFadeUp .65s .42s ease both; }
-        .ls-d7 { animation: lsFadeUp .65s .49s ease both; }
-        .ls-input:focus {
-          border-color: #0071e3 !important;
-          box-shadow: 0 0 0 3.5px rgba(0,113,227,.18) !important;
+        .ls-nav-left {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+        }
+        .ls-nav-wordmark { line-height: 1; }
+        .ls-nav-title {
+          color: #fff;
+          font-size: 17px;
+          font-weight: 700;
+          letter-spacing: -0.01em;
+        }
+        .ls-nav-sub {
+          color: rgba(255,255,255,.5);
+          font-size: 11px;
+          margin-top: 2px;
+          letter-spacing: 0.01em;
+        }
+        .ls-nav-badge {
+          background: rgba(246,137,31,.18);
+          border: 1px solid rgba(246,137,31,.4);
+          color: ${ORANGE};
+          font-size: 10px;
+          font-weight: 700;
+          padding: 3px 9px;
+          border-radius: 2px;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+        }
+
+        /* Orange accent stripe */
+        .ls-accent {
+          height: 3px;
+          background: ${ORANGE};
+          flex-shrink: 0;
+        }
+
+        /* ── Hero ── */
+        .ls-hero {
+          background: ${NAVY};
+          padding: 52px 28px 44px;
+          text-align: center;
+          position: relative;
+          overflow: hidden;
+          flex-shrink: 0;
+        }
+        /* Subtle horizontal line texture — train-timetable aesthetic */
+        .ls-hero::before {
+          content: '';
+          position: absolute;
+          inset: 0;
+          background-image: repeating-linear-gradient(
+            0deg,
+            transparent,
+            transparent 47px,
+            rgba(255,255,255,.028) 47px,
+            rgba(255,255,255,.028) 48px
+          );
+          pointer-events: none;
+        }
+        .ls-hero-inner {
+          position: relative;
+          z-index: 1;
+          max-width: 840px;
+          margin: 0 auto;
+        }
+        .ls-hero h1 {
+          color: #fff;
+          font-size: clamp(26px, 4.5vw, 44px);
+          font-weight: 800;
+          letter-spacing: -0.03em;
+          line-height: 1.1;
+          margin: 0 0 10px;
+        }
+        .ls-hero-sub {
+          color: rgba(255,255,255,.55);
+          font-size: clamp(13px, 1.8vw, 15px);
+          letter-spacing: 0.01em;
+          margin: 0 0 30px;
+        }
+
+        /* Feature grid */
+        .ls-features {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+          gap: 10px;
+        }
+        .ls-feat {
+          background: rgba(255,255,255,.07);
+          border: 1px solid rgba(255,255,255,.11);
+          border-radius: 5px;
+          padding: 14px 14px 16px;
+          text-align: left;
+          transition: background .15s, border-color .15s;
+          cursor: default;
+        }
+        .ls-feat:hover {
+          background: rgba(255,255,255,.11);
+          border-color: rgba(246,137,31,.35);
+        }
+        .ls-feat-icon {
+          font-size: 19px;
+          display: block;
+          margin-bottom: 8px;
+          line-height: 1;
+        }
+        .ls-feat-title {
+          color: ${ORANGE};
+          font-size: 10.5px;
+          font-weight: 700;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          margin-bottom: 5px;
+        }
+        .ls-feat-desc {
+          color: rgba(255,255,255,.68);
+          font-size: 12.5px;
+          line-height: 1.5;
+        }
+
+        /* ── Form section ── */
+        .ls-form-section {
+          flex: 1;
+          display: flex;
+          align-items: flex-start;
+          justify-content: center;
+          padding: 36px 16px 52px;
+        }
+
+        /* Card */
+        .ls-card {
+          width: 100%;
+          max-width: 480px;
+          background: #fff;
+          border: 1px solid ${BORDER};
+          border-radius: 6px;
+          box-shadow: 0 2px 16px rgba(0,0,0,.09), 0 1px 3px rgba(0,0,0,.05);
+          overflow: hidden;
+        }
+        .ls-card-head {
+          padding: 22px 28px;
+          border-bottom: 1px solid #ebebeb;
+          border-left: 4px solid ${ORANGE};
+        }
+        .ls-card-head h2 {
+          margin: 0;
+          font-size: 19px;
+          font-weight: 700;
+          color: ${TEXT};
+          letter-spacing: -0.015em;
+        }
+        .ls-card-head p {
+          margin: 5px 0 0;
+          font-size: 13.5px;
+          color: ${TEXT_MID};
+          line-height: 1.45;
+        }
+        .ls-card-body { padding: 24px 28px 28px; }
+
+        /* Label */
+        .ls-label {
+          display: block;
+          font-size: 13px;
+          font-weight: 600;
+          color: ${TEXT};
+          margin-bottom: 7px;
+        }
+
+        /* Input — NSW DS style */
+        .ls-input {
+          display: block;
+          width: 100%;
+          padding: 11px 14px;
+          font-size: 21px;
+          font-family: 'SF Mono', 'Fira Code', 'Fira Mono', Menlo, Consolas, monospace;
+          letter-spacing: 0.16em;
+          color: ${TEXT};
+          background: #fff;
+          border: 1.5px solid ${BORDER};
+          border-radius: 4px;
           outline: none;
+          transition: border-color .15s, box-shadow .15s;
         }
-        .ls-submit {
-          transition: background .15s ease, transform .1s ease, box-shadow .15s ease;
+        .ls-input::placeholder { color: ${BORDER}; letter-spacing: 0.08em; }
+        .ls-input:focus {
+          border-color: ${FOCUS};
+          box-shadow: 0 0 0 3px rgba(0,133,179,.2);
         }
-        .ls-submit:hover:not(:disabled) {
-          background: #0077ed !important;
+        .ls-input:disabled { background: #f7f7f7; opacity: .6; cursor: not-allowed; }
+
+        /* 8-dot progress */
+        .ls-dots {
+          display: flex;
+          gap: 6px;
+          margin-top: 9px;
+          justify-content: center;
+        }
+        .ls-dot {
+          width: 7px; height: 7px;
+          border-radius: 50%;
+          transition: background .12s;
+        }
+
+        /* Error */
+        .ls-error {
+          margin-top: 14px;
+          padding: 10px 13px;
+          background: ${ERR_BG};
+          border: 1px solid #f0b8c4;
+          border-left: 3px solid ${ERR};
+          border-radius: 4px;
+          color: ${ERR};
+          font-size: 13px;
+          line-height: 1.45;
+          display: flex;
+          align-items: flex-start;
+          gap: 8px;
+        }
+
+        /* Primary button — Sydney Trains orange */
+        .ls-btn {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          width: 100%;
+          margin-top: 20px;
+          padding: 13px 20px;
+          font-size: 15px;
+          font-weight: 700;
+          font-family: inherit;
+          color: #fff;
+          background: ${ORANGE};
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+          letter-spacing: -0.01em;
+          box-shadow: 0 2px 6px rgba(246,137,31,.35);
+          transition: background .15s, transform .1s, box-shadow .15s;
+        }
+        .ls-btn:hover:not(:disabled) {
+          background: ${ORG_DARK};
           transform: translateY(-1px);
-          box-shadow: 0 6px 22px rgba(0,113,227,.42) !important;
+          box-shadow: 0 4px 14px rgba(246,137,31,.45);
         }
-        .ls-submit:active:not(:disabled) {
-          transform: translateY(0) !important;
-          box-shadow: 0 2px 8px rgba(0,113,227,.3) !important;
+        .ls-btn:active:not(:disabled) {
+          transform: translateY(0);
+          box-shadow: 0 1px 4px rgba(246,137,31,.3);
         }
-        .ls-feat-row {
-          transition: transform .15s ease;
+        .ls-btn:disabled {
+          background: #c8c8c8;
+          box-shadow: none;
+          cursor: not-allowed;
         }
-        .ls-feat-row:hover { transform: translateX(4px); }
-        .ls-admin-link {
-          transition: color .15s, background .15s;
+        @keyframes ls-spin { to { transform: rotate(360deg); } }
+        .ls-spinner { animation: ls-spin .75s linear infinite; }
+
+        /* Help box */
+        .ls-help {
+          margin-top: 18px;
+          padding: 12px 14px;
+          background: #f7f8fa;
+          border: 1px solid #ebebeb;
+          border-radius: 4px;
+          font-size: 13px;
+          color: ${TEXT_MID};
+          line-height: 1.55;
         }
-        .ls-admin-link:hover {
-          color: #0071e3 !important;
-          background: rgba(0,113,227,.06) !important;
+
+        /* OR divider */
+        .ls-or {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          margin: 20px 0 16px;
+          color: #aeaeb2;
+          font-size: 11px;
+          font-weight: 600;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
         }
-        /* Responsive: hide hero on narrow screens */
-        @media (max-width: 780px) {
-          .ls-hero         { display: none !important; }
-          .ls-form-panel   { min-height: 100vh !important; }
-          .ls-mobile-logo  { display: flex !important; }
+        .ls-or::before, .ls-or::after {
+          content: '';
+          flex: 1;
+          height: 1px;
+          background: ${BORDER};
         }
+
+        /* Admin ghost button */
+        .ls-admin {
+          display: block;
+          width: 100%;
+          padding: 10px 14px;
+          background: none;
+          border: 1.5px solid ${BORDER};
+          border-radius: 4px;
+          font-size: 13.5px;
+          font-weight: 600;
+          font-family: inherit;
+          color: ${TEXT_MID};
+          cursor: pointer;
+          text-align: center;
+          transition: border-color .15s, color .15s, background .15s;
+        }
+        .ls-admin:hover {
+          border-color: ${NAVY};
+          color: ${NAVY};
+          background: rgba(0,38,100,.04);
+        }
+
+        /* ── Footer ── */
+        .ls-footer {
+          background: #22272b;
+          padding: 14px 24px;
+          text-align: center;
+          font-size: 11px;
+          color: rgba(255,255,255,.38);
+          flex-shrink: 0;
+          line-height: 1.7;
+        }
+
+        /* ═══ RESPONSIVE BREAKPOINTS ═══════════════════════════════════════ */
+
+        /* ── ≥1024px: roomy desktop ── */
+        @media (min-width: 1024px) {
+          .ls-hero { padding: 64px 28px 56px; }
+          .ls-features { grid-template-columns: repeat(4, 1fr); }
+        }
+
+        /* ── ≤768px: tablet ── */
+        @media (max-width: 768px) {
+          .ls-hero { padding: 40px 20px 32px; }
+        }
+
+        /* ── ≤600px: mobile ── */
+        @media (max-width: 600px) {
+          .ls-nav { height: 52px; padding: 0 16px; }
+          .ls-nav-title { font-size: 15px; }
+          .ls-nav-sub { display: none; }
+          .ls-hero { padding: 28px 16px 24px; }
+          .ls-features { grid-template-columns: 1fr 1fr; gap: 8px; }
+          .ls-feat { padding: 10px 10px 12px; }
+          .ls-feat-desc { display: none; }        /* hide verbose text on small screens */
+          .ls-form-section { padding: 24px 12px 40px; }
+          .ls-card-head { padding: 16px 18px; border-left-width: 3px; }
+          .ls-card-head h2 { font-size: 17px; }
+          .ls-card-body { padding: 18px 18px 22px; }
+          .ls-input { font-size: 18px; padding: 10px 12px; }
+        }
+
+        /* ── ≤400px: very small phones (restore 1-col + desc) ── */
+        @media (max-width: 400px) {
+          .ls-features { grid-template-columns: 1fr; }
+          .ls-feat-desc { display: block; }
+        }
+
+        /* ── Reduced motion ── */
         @media (prefers-reduced-motion: reduce) {
-          .ls-d0,.ls-d1,.ls-d2,.ls-d3,.ls-d4,.ls-d5,.ls-d6,.ls-d7 { animation: none; }
+          .ls-spinner { animation: none; }
+          .ls-btn, .ls-admin, .ls-feat { transition: none; }
         }
       `}</style>
 
-      {/* ═══════════════════════════════════════════════════════════ */}
-      {/*  Outer wrapper                                             */}
-      {/* ═══════════════════════════════════════════════════════════ */}
-      <div style={{ display: 'flex', minHeight: '100vh' }}>
+      {/* ═══════════════════════════════════════════════════════════════════ */}
+      <div className="ls-root">
 
-        {/* ── LEFT: HERO PANEL ──────────────────────────────────── */}
-        <div
-          className="ls-hero"
-          style={{
-            flex: '0 0 52%',
-            position: 'relative',
-            overflow: 'hidden',
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'center',
-            padding: '64px 56px',
-            background: 'linear-gradient(148deg, #060f1e 0%, #091526 45%, #0d1f40 100%)',
-          }}
-        >
-          {/* Background glow orbs */}
-          <div style={{
-            position: 'absolute', inset: 0, pointerEvents: 'none',
-            background: [
-              'radial-gradient(ellipse 72% 52% at 8% 12%,  rgba(0,113,227,.24) 0%, transparent 65%)',
-              'radial-gradient(ellipse 55% 38% at 92% 88%, rgba(0,113,227,.13) 0%, transparent 65%)',
-              'radial-gradient(ellipse 40% 30% at 50% 50%, rgba(0, 80,180,.07) 0%, transparent 60%)',
-            ].join(','),
-          }} />
-          {/* Dot grid texture */}
-          <div style={{
-            position: 'absolute', inset: 0, pointerEvents: 'none', opacity: .035,
-            backgroundImage: 'radial-gradient(circle, rgba(255,255,255,.9) 1px, transparent 1px)',
-            backgroundSize: '26px 26px',
-          }} />
-
-          {/* ─── Hero content ─── */}
-          <div style={{ position: 'relative', zIndex: 1, maxWidth: 400 }}>
-
-            {/* Logo mark */}
-            <div
-              className="ls-d0"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: 58, height: 58,
-                background: 'rgba(0,113,227,.18)',
-                borderRadius: 18,
-                border: '1px solid rgba(0,113,227,.35)',
-                fontSize: 30,
-                marginBottom: 30,
-                backdropFilter: 'blur(10px)',
-              }}
-              aria-hidden="true"
-            >
-              🚂
+        {/* ── 1. Top nav bar ─────────────────────────────────────────────── */}
+        <nav className="ls-nav" role="navigation" aria-label="Sydney Trains">
+          <div className="ls-nav-left">
+            <TrainsLogo size={36} />
+            <div className="ls-nav-wordmark">
+              <div className="ls-nav-title">Sydney Trains</div>
+              <div className="ls-nav-sub">Blue Mountains Line · Mt Victoria Depot</div>
             </div>
+          </div>
+          <div className="ls-nav-badge" aria-label="Enterprise Agreement 2025">EA 2025</div>
+        </nav>
 
-            {/* Headline */}
-            <h1
-              className="ls-d1"
-              style={{
-                margin: 0,
-                fontSize: 38,
-                fontWeight: 700,
-                color: '#fff',
-                lineHeight: 1.12,
-                letterSpacing: '-.03em',
-                fontFamily: '-apple-system,"SF Pro Display",BlinkMacSystemFont,"Segoe UI",sans-serif',
-              }}
-            >
-              Driver Wage<br />Calculator
-            </h1>
+        {/* ── Orange accent bar ───────────────────────────────────────────── */}
+        <div className="ls-accent" aria-hidden="true" />
 
-            {/* Org line */}
-            <p
-              className="ls-d2"
-              style={{
-                margin: '12px 0 0',
-                fontSize: 13.5,
-                color: 'rgba(255,255,255,.48)',
-                letterSpacing: '.01em',
-                fontFamily: '-apple-system,"SF Pro Text",BlinkMacSystemFont,sans-serif',
-              }}
-            >
+        {/* ── 2. Hero section ────────────────────────────────────────────── */}
+        <section className="ls-hero" aria-labelledby="hero-heading">
+          <div className="ls-hero-inner">
+            <h1 id="hero-heading">Driver Wage Calculator</h1>
+            <p className="ls-hero-sub">
               Sydney Trains · Blue Mountains Line · Mt Victoria
             </p>
-
-            {/* Hairline separator */}
-            <div
-              className="ls-d3"
-              style={{
-                margin: '32px 0',
-                height: 1,
-                background: 'linear-gradient(to right, rgba(255,255,255,.14) 0%, transparent 80%)',
-              }}
-            />
-
-            {/* Feature list */}
-            <ul
-              className="ls-d4"
-              style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 14 }}
-              role="list"
-            >
-              {FEATURES.map((feat, i) => (
-                <li key={i} className="ls-feat-row" style={{ display: 'flex', alignItems: 'flex-start', gap: 11 }}>
-                  <span style={{
-                    flex: '0 0 auto',
-                    width: 20, height: 20,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    background: 'rgba(0,113,227,.25)',
-                    border: '1px solid rgba(0,113,227,.4)',
-                    borderRadius: 6,
-                    color: '#7ab8f5',
-                    fontSize: 10,
-                    fontWeight: 800,
-                    lineHeight: 1,
-                  }} aria-hidden="true">✓</span>
-                  <span style={{
-                    fontSize: 13.5,
-                    color: 'rgba(255,255,255,.72)',
-                    lineHeight: 1.5,
-                    fontFamily: '-apple-system,"SF Pro Text",BlinkMacSystemFont,sans-serif',
-                  }}>{feat}</span>
-                </li>
-              ))}
-            </ul>
-
-            {/* Trust badges */}
-            <div
-              className="ls-d5"
-              style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 36 }}
-            >
-              {TRUST_BADGES.map(b => (
-                <span key={b} style={{
-                  display: 'inline-flex', alignItems: 'center',
-                  padding: '4px 11px',
-                  background: 'rgba(255,255,255,.06)',
-                  border: '1px solid rgba(255,255,255,.11)',
-                  borderRadius: 999,
-                  fontSize: 11,
-                  color: 'rgba(255,255,255,.48)',
-                  backdropFilter: 'blur(8px)',
-                  letterSpacing: '.01em',
-                }}>{b}</span>
+            <div className="ls-features" role="list" aria-label="App features">
+              {FEATURES.map(f => (
+                <article key={f.title} className="ls-feat" role="listitem">
+                  <span className="ls-feat-icon" aria-hidden="true">{f.icon}</span>
+                  <div className="ls-feat-title">{f.title}</div>
+                  <div className="ls-feat-desc">{f.desc}</div>
+                </article>
               ))}
             </div>
           </div>
-        </div>
+        </section>
 
-        {/* ── RIGHT: FORM PANEL ─────────────────────────────────── */}
-        <div
-          className="ls-form-panel"
-          style={{
-            flex: '1 1 0',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '40px 24px',
-            background: '#fff',
-            borderLeft: '1px solid rgba(0,0,0,.07)',
-          }}
-        >
-          <div style={{ width: '100%', maxWidth: 360 }}>
+        {/* ── 3. Form card ───────────────────────────────────────────────── */}
+        <main className="ls-form-section" role="main">
+          <div className="ls-card">
 
-            {/* Mobile-only logo (desktop hero replaces this) */}
-            <div
-              className="ls-mobile-logo"
-              style={{
-                display: 'none',  /* shown via media query */
-                alignItems: 'center',
-                gap: 11,
-                marginBottom: 36,
-              }}
-            >
-              <div style={{
-                width: 38, height: 38,
-                background: '#0071e3',
-                borderRadius: 11,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 22,
-                flexShrink: 0,
-              }} aria-hidden="true">🚂</div>
-              <div>
-                <div style={{ fontSize: 15, fontWeight: 600, color: '#1d1d1f', letterSpacing: '-.01em' }}>
-                  Driver Wage Calculator
-                </div>
-                <div style={{ fontSize: 11, color: '#6e6e73', marginTop: 1 }}>
-                  Sydney Trains · EA 2025
-                </div>
-              </div>
+            {/* Card header */}
+            <div className="ls-card-head">
+              <h2>Sign in to your account</h2>
+              <p>Use your 8-digit employee ID to access the calculator</p>
             </div>
 
-            {/* Heading */}
-            <div className="ls-d0" style={{ marginBottom: 30 }}>
-              <h2 style={{
-                margin: 0,
-                fontSize: 27,
-                fontWeight: 700,
-                color: '#1d1d1f',
-                letterSpacing: '-.025em',
-                fontFamily: '-apple-system,"SF Pro Display",BlinkMacSystemFont,sans-serif',
-              }}>
-                Sign in
-              </h2>
-              <p style={{ margin: '7px 0 0', fontSize: 14, color: '#6e6e73', lineHeight: 1.4 }}>
-                Enter your 8-digit employee ID to continue
-              </p>
-            </div>
+            {/* Card body */}
+            <div className="ls-card-body">
 
-            {/* Input group */}
-            <div className="ls-d1">
-              <label
-                htmlFor="employee-id"
-                style={{
-                  display: 'block',
-                  fontSize: 11,
-                  fontWeight: 600,
-                  color: '#1d1d1f',
-                  letterSpacing: '.06em',
-                  textTransform: 'uppercase',
-                  marginBottom: 8,
-                }}
-              >
+              {/* Employee ID input */}
+              <label htmlFor="employee-id" className="ls-label">
                 Employee ID
               </label>
               <input
@@ -365,166 +579,74 @@ export default function LoginScreen() {
                 onKeyDown={(e) => { if (e.key === 'Enter') submit() }}
                 disabled={busy}
                 className="ls-input"
-                style={{
-                  width: '100%',
-                  padding: '13px 16px',
-                  fontSize: 22,
-                  fontFamily: '"SF Mono","Fira Code","Fira Mono",Menlo,Consolas,monospace',
-                  letterSpacing: '.18em',
-                  border: '1.5px solid #d1d1d6',
-                  borderRadius: 12,
-                  background: '#fafafa',
-                  color: '#1d1d1f',
-                  outline: 'none',
-                  transition: 'border-color .15s, box-shadow .15s',
-                  boxSizing: 'border-box',
-                  boxShadow: '0 1px 3px rgba(0,0,0,.05)',
-                }}
+                aria-describedby={error ? 'ls-err' : 'ls-hint'}
+                aria-invalid={error ? 'true' : 'false'}
               />
 
-              {/* 8-dot progress indicator */}
-              <div
-                style={{ display: 'flex', gap: 5, marginTop: 8, justifyContent: 'center' }}
-                aria-hidden="true"
-              >
+              {/* 8-dot character progress */}
+              <div className="ls-dots" aria-hidden="true">
                 {Array.from({ length: 8 }).map((_, i) => (
                   <div
                     key={i}
-                    style={{
-                      width: 7, height: 7,
-                      borderRadius: '50%',
-                      background: i < id.length ? '#0071e3' : '#d1d1d6',
-                      transition: 'background .12s ease',
-                    }}
+                    className="ls-dot"
+                    style={{ background: i < id.length ? ORANGE : BORDER }}
                   />
                 ))}
               </div>
-            </div>
 
-            {/* Error alert */}
-            {error && (
-              <div
-                className="ls-d2"
-                role="alert"
-                style={{
-                  marginTop: 14,
-                  padding: '10px 13px',
-                  fontSize: 13,
-                  color: '#b91c1c',
-                  background: '#fef2f2',
-                  border: '1px solid #fecaca',
-                  borderRadius: 10,
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  gap: 8,
-                  lineHeight: 1.45,
-                }}
+              {/* Inline error */}
+              {error && (
+                <div id="ls-err" className="ls-error" role="alert" aria-live="assertive">
+                  <span aria-hidden="true" style={{ flexShrink: 0, marginTop: 1 }}>⚠</span>
+                  <span>{error}</span>
+                </div>
+              )}
+
+              {/* Submit */}
+              <button
+                type="button"
+                onClick={submit}
+                disabled={busy || id.length !== 8}
+                className="ls-btn"
+                aria-busy={busy}
               >
-                <span style={{ flex: '0 0 auto', marginTop: 1 }} aria-hidden="true">⚠</span>
-                <span>{error}</span>
+                {busy ? <><Spinner /> Signing in…</> : 'Sign in →'}
+              </button>
+
+              {/* First-time help */}
+              <div id="ls-hint" className="ls-help">
+                <strong style={{ color: TEXT, fontWeight: 600 }}>Don't have access?</strong>{' '}
+                Ask your depot admin to add your employee ID to the allowlist.
               </div>
-            )}
 
-            {/* Submit button */}
-            <button
-              type="button"
-              onClick={submit}
-              disabled={busy || id.length !== 8}
-              className="ls-d3 ls-submit"
-              style={{
-                width: '100%',
-                marginTop: 20,
-                padding: '14px 20px',
-                fontSize: 15,
-                fontWeight: 600,
-                color: '#fff',
-                background: (busy || id.length !== 8) ? '#a8c8f0' : '#0071e3',
-                border: 'none',
-                borderRadius: 12,
-                cursor: (busy || id.length !== 8) ? 'not-allowed' : 'pointer',
-                boxShadow: (busy || id.length !== 8) ? 'none' : '0 2px 8px rgba(0,113,227,.28)',
-                fontFamily: '-apple-system,"SF Pro Text",BlinkMacSystemFont,sans-serif',
-                letterSpacing: '-.01em',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 8,
-              }}
-            >
-              {busy ? (
-                <>
-                  <svg
-                    width="16" height="16" viewBox="0 0 16 16"
-                    style={{ animation: 'lsSpin .75s linear infinite', flexShrink: 0 }}
-                    aria-hidden="true"
-                  >
-                    <circle cx="8" cy="8" r="6"
-                      fill="none" stroke="rgba(255,255,255,.3)" strokeWidth="2.5" />
-                    <path d="M8 2 A6 6 0 0 1 14 8"
-                      fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" />
-                  </svg>
-                  Signing in…
-                </>
-              ) : 'Sign in →'}
-            </button>
+              {/* OR divider */}
+              <div className="ls-or" aria-hidden="true">or</div>
 
-            {/* First-time help card */}
-            <div
-              className="ls-d4"
-              style={{
-                marginTop: 20,
-                padding: '13px 15px',
-                background: '#f7f8fa',
-                border: '1px solid #e5e5ea',
-                borderRadius: 12,
-                fontSize: 13,
-                color: '#6e6e73',
-                lineHeight: 1.55,
-              }}
-            >
-              <span style={{ fontWeight: 600, color: '#1d1d1f' }}>First time here?</span>{' '}
-              Ask your depot admin to add your employee ID to the allowlist.
-            </div>
-
-            {/* Divider */}
-            <div
-              className="ls-d5"
-              style={{
-                margin: '22px 0 18px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-              }}
-            >
-              <div style={{ flex: 1, height: 1, background: '#e5e5ea' }} />
-              <span style={{ fontSize: 11, color: '#aeaeb2', letterSpacing: '.04em' }}>OR</span>
-              <div style={{ flex: 1, height: 1, background: '#e5e5ea' }} />
-            </div>
-
-            {/* Admin sign-in */}
-            <div className="ls-d6" style={{ textAlign: 'center' }}>
+              {/* Admin sign-in */}
               <button
                 type="button"
                 onClick={() => setAdminOpen(true)}
-                className="ls-admin-link"
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  padding: '7px 14px',
-                  fontSize: 13,
-                  color: '#6e6e73',
-                  cursor: 'pointer',
-                  borderRadius: 8,
-                  fontFamily: 'inherit',
-                }}
+                className="ls-admin"
+                aria-label="Sign in as depot admin"
               >
                 🔐 Admin sign-in
               </button>
-            </div>
-          </div>
-        </div>
+
+            </div>{/* /card-body */}
+          </div>{/* /card */}
+        </main>
+
+        {/* ── 4. Footer ──────────────────────────────────────────────────── */}
+        <footer className="ls-footer" role="contentinfo">
+          Driver Wage Calculator · Mt Victoria Depot · Sydney Trains
+          <br />
+          Not an official Transport for NSW service.
+          For payroll queries, contact People &amp; Culture.
+        </footer>
+
       </div>
 
+      {/* Admin password modal */}
       {adminOpen && (
         <AdminSignInModal
           onClose={() => setAdminOpen(false)}
