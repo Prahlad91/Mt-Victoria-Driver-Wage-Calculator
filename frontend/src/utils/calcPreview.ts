@@ -360,11 +360,15 @@ function previewLeave(day: DayState, cfg: RateConfig, codes: PayrollCodes): DayR
     };
   }
 
+  // v3.30: Sick leave pays the entire scheduled shift at ordinary rate, with
+  // an 8-hour minimum.  No OT split.  See backend mirror in
+  // calculator.py::_compute_leave + PRD §5.9.
+  const slHrs = Math.max(rHrs, 8);
   const map: Record<string, [number, number, string, string]> = {
-    SL: [rHrs, B, 'Sick leave', 'Cl. 30.4'],
-    CL: [rHrs, B, "Carer's leave", 'Cl. 30.7(b)(ix)'],
-    BL: [rHrs, B, 'Bereavement leave', 'Cl. 30.8(k)(iv)'],
-    JD: [rHrs, B, 'Jury duty', 'Cl. 30.8(g)'],
+    SL: [slHrs, B, 'Sick leave', 'Cl. 30.4'],
+    CL: [rHrs,  B, "Carer's leave", 'Cl. 30.7(b)(ix)'],
+    BL: [rHrs,  B, 'Bereavement leave', 'Cl. 30.8(k)(iv)'],
+    JD: [rHrs,  B, 'Jury duty', 'Cl. 30.8(g)'],
     LWOP: [0, 0, 'Leave without pay', '—'],
     RDO: [0, 0, 'Roster day off (RDO)', '—'],
     PD: [8, B, 'Picnic day', 'Cl. 32.1'],

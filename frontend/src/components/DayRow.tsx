@@ -47,10 +47,14 @@ export default function DayRow({ index: i }: { index: number }) {
 
   const srcInfo   = sourceBadge(day.timeSource, day.diagNum)
 
-  // Summary shown on the collapsed row
+  // Summary shown on the collapsed row.
+  // v3.30: drivers (non-admin) see hours only — the $ amount is hidden in the
+  // Daily Entry tab to keep it focused on data entry; full pay breakdown is
+  // available in the Results tab.  Admin keeps the full hours-→-dollar summary.
+  const isAdmin = !!ctx.adminPassword
   const summary = preview
     ? <span className={`day-summary${preview.total_pay > 0 ? ' has-pay' : ''}`}>
-        {preview.hours.toFixed(1)} h → ${preview.total_pay.toFixed(2)}
+        {preview.hours.toFixed(1)} h{isAdmin && ` → $${preview.total_pay.toFixed(2)}`}
       </span>
     : <span className="day-summary">—</span>
 
@@ -384,8 +388,10 @@ function WorkForm({
             </select>
           </div>
 
-          {/* Live preview */}
-          {preview && <DayPreview preview={preview} />}
+          {/* Live preview — admin only (v3.30).  Drivers see the full breakdown
+              in the Results tab, so the per-day preview table is suppressed
+              here to keep Daily Entry focused on data entry. */}
+          {preview && ctx.adminPassword && <DayPreview preview={preview} />}
         </>
       )}
     </>

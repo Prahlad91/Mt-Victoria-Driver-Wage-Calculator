@@ -500,14 +500,18 @@ def _compute_leave(day: DayState, cfg: RateConfig, codes: PayrollCodes) -> DayRe
             flags=[f"PH not worked: 8 hrs ordinary (Cl. 31.7)."],
         )
     
+    # v3.30: Sick leave pays the entire scheduled shift at ordinary rate, with
+    # a 8-hour minimum.  Shifts ≤ 8h are paid out as 8h; shifts > 8h are paid
+    # for the full scheduled duration.  No OT split applies to sick days.
+    sl_hrs = max(r_hrs, 8.0)
     leave_map = {
-        "SL":   (r_hrs, B, "Sick leave",            "Cl. 30.4"),
-        "CL":   (r_hrs, B, "Carer's leave",         "Cl. 30.7(b)(ix)"),
-        "BL":   (r_hrs, B, "Bereavement leave",     "Cl. 30.8(k)(iv)"),
-        "JD":   (r_hrs, B, "Jury duty",             "Cl. 30.8(g)"),
-        "LWOP": (0,    0, "Leave without pay",     "—"),
-        "RDO":  (0,    0, "Roster day off (RDO)",   "—"),
-        "PD":   (8.0,  B, "Picnic day",             "Cl. 32.1"),
+        "SL":   (sl_hrs, B, "Sick leave",            "Cl. 30.4"),
+        "CL":   (r_hrs,  B, "Carer's leave",         "Cl. 30.7(b)(ix)"),
+        "BL":   (r_hrs,  B, "Bereavement leave",     "Cl. 30.8(k)(iv)"),
+        "JD":   (r_hrs,  B, "Jury duty",             "Cl. 30.8(g)"),
+        "LWOP": (0,     0, "Leave without pay",     "—"),
+        "RDO":  (0,     0, "Roster day off (RDO)",   "—"),
+        "PD":   (8.0,   B, "Picnic day",             "Cl. 32.1"),
     }
     
     if cat in leave_map:
