@@ -6,19 +6,21 @@ import RatesTab from './components/RatesTab'
 import KmTableTab from './components/KmTableTab'
 import AdminSignInModal from './components/AdminSignInModal'
 import LoginScreen from './components/LoginScreen'
+import DriversTab from './components/DriversTab'
 import { useFortnightContext } from './context/FortnightContext'
 
-type Tab = 'setup' | 'daily' | 'results' | 'rates' | 'km'
+type Tab = 'setup' | 'daily' | 'results' | 'rates' | 'km' | 'drivers'
 const ALL_TABS: { id: Tab; label: string }[] = [
   { id: 'setup',   label: 'Setup' },
   { id: 'daily',   label: 'Daily Entry' },
   { id: 'results', label: 'Results' },
+  { id: 'drivers', label: 'Drivers' },     // v3.33 — admin allowlist UI
   { id: 'rates',   label: 'Rates & Codes' },
   { id: 'km',      label: 'KM Table' },
 ]
 // v3.29: tabs that only admins see.  Drivers (non-admin) get a slimmer task-
-// focused UI per the PRD §3.29 spec.
-const ADMIN_ONLY_TABS: ReadonlySet<Tab> = new Set(['rates', 'km'])
+// focused UI per the PRD §3.29 spec.  v3.33: 'drivers' tab added.
+const ADMIN_ONLY_TABS: ReadonlySet<Tab> = new Set(['rates', 'km', 'drivers'])
 
 // v3.32: idle timeout — 30 minutes of no mouse/key/touch activity → sign out.
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000
@@ -188,6 +190,7 @@ export default function App() {
         {active === 'setup'   && <SetupTab   onLoaded={() => setActive('daily')} />}
         {active === 'daily'   && <DailyEntryTab onCalculated={() => setActive('results')} />}
         {active === 'results' && <ResultsTab />}
+        {active === 'drivers' && <DriversTab />}
         {active === 'rates'   && <RatesTab />}
         {active === 'km'      && <KmTableTab />}
       </main>
