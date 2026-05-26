@@ -536,8 +536,13 @@ function AssocChartCard() {
       // v3.37: apply the parsed chart directly (bypasses the CSV roundtrip that
       // previously dropped entries where only assocCalcMins > 0).
       ctx.loadAssocChartDirect(data.chart)
-      if (data.warnings?.length) setFileError(`Parsed with warnings: ${data.warnings.join('; ')}`)
-      else markSaved()
+      if (data.warnings?.length) {
+        // v3.38: DB-not-configured warning starts with ⚠ — show as error (red).
+        // Other parse warnings are informational (amber).
+        const dbWarning = (data.warnings as string[]).find((w: string) => w.startsWith('⚠'))
+        if (dbWarning) setFileError(dbWarning)
+        else setFileError(`Parsed with warnings: ${(data.warnings as string[]).join('; ')}`)
+      } else markSaved()
     } catch (e) {
       setFileError((e as Error).message)
     } finally {

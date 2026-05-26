@@ -605,12 +605,31 @@ async def admin_upload_chart(
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Chart parse failed: {e}")
-    await save_artifact(
+    saved_id = await save_artifact(
         kind="assoc_chart",
         payload=parsed.model_dump(),
         source_file=file.filename or "chart",
     )
-    return parsed
+    # v3.38: If save_artifact returned None the DB is not configured on this
+    # server.  The chart was parsed correctly but is NOT persisted — it will
+    # only exist in the uploading admin's browser localStorage and other
+    # drivers will not see it.  Surface this as an explicit warning so the
+    # admin knows to set DATABASE_URL in the Render environment variables.
+    warnings = list(parsed.warnings)
+    if saved_id is None:
+        warnings.append(
+            "⚠ Chart was parsed successfully but NOT saved to the database "
+            "(DATABASE_URL is not configured on this server). The chart only "
+            "exists in your browser's local storage — other drivers will NOT "
+            "see this update until DATABASE_URL is set on Render and the chart "
+            "is re-uploaded."
+        )
+    from models import ParseAssocChartResponse
+    return ParseAssocChartResponse(
+        source_file=parsed.source_file,
+        chart=parsed.chart,
+        warnings=warnings,
+    )
 
 
 # ─── User-driven fortnight roster (v3.23) ───────────────────────────────────
