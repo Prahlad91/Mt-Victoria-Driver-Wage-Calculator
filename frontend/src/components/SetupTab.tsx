@@ -11,7 +11,7 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
   // Initialise from fortnight-roster fn_start > master-roster fn_start > hardcoded fallback.
   // A useEffect below keeps this in sync when a roster uploads mid-session,
   // but only while the user hasn't manually edited the field.
-  const rosterDate = ctx.fnRosterUpload.result?.fn_start || ctx.masterRosterUpload.result?.fn_start || ''
+  const rosterDate = ctx.masterRosterUpload.result?.fn_start || ctx.fnRosterUpload.result?.fn_start || ''
   const [dateInput, setDate] = useState(() => rosterDate || '2025-08-10')
   const [dateUserEdited, setDateUserEdited] = useState(false)
   const [phs,       setPHs]  = useState<string[]>([])
@@ -24,7 +24,7 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
   // auto-populate the date field — unless the user already manually set it.
   useEffect(() => {
     if (dateUserEdited) return
-    const d = ctx.fnRosterUpload.result?.fn_start || ctx.masterRosterUpload.result?.fn_start
+    const d = ctx.masterRosterUpload.result?.fn_start || ctx.fnRosterUpload.result?.fn_start
     if (d) setDate(d)
   }, [ctx.fnRosterUpload.result?.fn_start, ctx.masterRosterUpload.result?.fn_start, dateUserEdited])
 
