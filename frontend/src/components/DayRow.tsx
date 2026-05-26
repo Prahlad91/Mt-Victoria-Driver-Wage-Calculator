@@ -123,6 +123,40 @@ export default function DayRow({ index: i }: { index: number }) {
   )
 }
 
+// ── 24-hour time input ───────────────────────────────────────────────────────
+// type="time" cannot be forced to 24-hr format when the OS locale is 12-hr
+// (Chrome on macOS ignores lang/step hacks). We use type="text" with an
+// auto-colon formatter so typing "0330" yields "03:30" immediately.
+function TimeInput({
+  value, onChange, style,
+}: {
+  value: string
+  onChange: (v: string) => void
+  style?: React.CSSProperties
+}) {
+  const handle = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value
+    // Strip non-digit non-colon chars
+    let v = raw.replace(/[^0-9:]/g, '')
+    // Auto-insert colon after 2nd digit when user is typing forward
+    const isDeleting = (e.nativeEvent as InputEvent).inputType?.startsWith('delete')
+    if (!isDeleting && v.length === 2 && !v.includes(':')) v = v + ':'
+    if (v.length > 5) v = v.slice(0, 5)
+    onChange(v)
+  }
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      placeholder="HH:MM"
+      maxLength={5}
+      value={value}
+      onChange={handle}
+      style={style}
+    />
+  )
+}
+
 // ── Toggle group helper ──────────────────────────────────────────────────────
 function ToggleGroup({
   label, value, onChange, yesLabel = 'Yes', noLabel = 'No',
@@ -254,13 +288,11 @@ function WorkForm({
               <div className="times-row">
                 <div>
                   <label>Start</label>
-                  <input type="time" lang="en-GB" value={day.rStart || ''}
-                    onChange={e => editScheduledTime('rStart', e.target.value)} />
+                  <TimeInput value={day.rStart || ''} onChange={v => editScheduledTime('rStart', v)} />
                 </div>
                 <div>
                   <label>End</label>
-                  <input type="time" lang="en-GB" value={day.rEnd || ''}
-                    onChange={e => editScheduledTime('rEnd', e.target.value)} />
+                  <TimeInput value={day.rEnd || ''} onChange={v => editScheduledTime('rEnd', v)} />
                 </div>
               </div>
               {day.timeSource === 'fortnight' && (
@@ -299,24 +331,22 @@ function WorkForm({
               <div className="times-row">
                 <div>
                   <label>Start</label>
-                  <input
-                    type="time" lang="en-GB"
+                  <TimeInput
                     value={day.aStart}
-                    onChange={e => ch('aStart', e.target.value)}
+                    onChange={v => ch('aStart', v)}
                     style={day.aStart !== day.rStart && day.rStart
                       ? { borderColor: 'var(--accent)', boxShadow: '0 0 0 3px rgba(0,113,227,0.12)' }
-                      : {}}
+                      : undefined}
                   />
                 </div>
                 <div>
                   <label>End</label>
-                  <input
-                    type="time" lang="en-GB"
+                  <TimeInput
                     value={day.aEnd}
-                    onChange={e => ch('aEnd', e.target.value)}
+                    onChange={v => ch('aEnd', v)}
                     style={day.aEnd !== day.rEnd && day.rEnd
                       ? { borderColor: 'var(--accent)', boxShadow: '0 0 0 3px rgba(0,113,227,0.12)' }
-                      : {}}
+                      : undefined}
                   />
                 </div>
               </div>
