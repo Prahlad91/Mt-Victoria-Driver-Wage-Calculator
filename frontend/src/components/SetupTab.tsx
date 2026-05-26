@@ -579,7 +579,7 @@ function AssocChartCard() {
       <p className="note" style={{marginBottom:8}}>
         The chart provides Un-associated and Associated Payment times per diagram number, used to compute
         the "build-up" hours (code 1454) via: <em>max(0, un-assoc + assoc + dist_credit − shift_length)</em>.
-        Upload a new CSV (or PDF / image) whenever the depot issues an updated chart.
+        Upload the chart as-received from the depot: Excel (.xlsx), CSV, PDF, or image. The column headers are detected automatically.
         Rows highlighted in blue have non-zero values.
       </p>
       <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',marginBottom:12}}>
@@ -599,7 +599,7 @@ function AssocChartCard() {
           </span>
         )}
         <input ref={fileRef} type="file"
-          accept=".csv,.txt,.pdf,.png,.jpg,.jpeg,.webp,.bmp,.tiff,.tif"
+          accept=".csv,.txt,.xlsx,.xls,.pdf,.png,.jpg,.jpeg,.webp,.bmp,.tiff,.tif"
           style={{display:'none'}}
           onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = '' }} />
       </div>

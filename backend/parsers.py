@@ -1058,6 +1058,191 @@ def _mins(t: str) -> int:
         return 0
 
 
+# ── Excel assoc chart helpers (v3.38) ─────────────────────────────────────────
+
+# Diagram pattern re-used for xlsx parsing (same range as _DIAG_RANGE above).
+_DIAG_RE_XLSX = re.compile(r'^3(?:1[5-9]\d|6\d\d)$')
+
+# Column-header patterns in priority order.  First match wins per column.
+# The tuples are (field_name, compiled_regex).
+_XLSX_CHART_COLS: list[tuple[str, "re.Pattern[str]"]] = [
+    ('diagram',    re.compile(r'diag|dgm',                           re.I)),
+    ('un_assoc',   re.compile(r'un[\s_\-]?assoc',                   re.I)),
+    ('build_up',   re.compile(r'build[\s_\-]?up|buildup',           re.I)),
+    ('assoc_calc', re.compile(r'assoc[\s_\-]?calc|calc[\s_\-]?time', re.I)),
+    ('dist_pay',   re.compile(r'dist',                               re.I)),
+    ('assoc_pay',  re.compile(r'assoc[\s_\-]?(pay|pmt|payment)',     re.I)),
+]
+
+
+def _xlsx_val_to_mins(val: object) -> int:
+    """Convert an openpyxl cell value to integer minutes.
+
+    Handles: None, datetime.time/datetime.datetime (from time-formatted cells),
+    float 0–1 (Excel time serial == fraction of 1440 min), plain int/float
+    (treated directly as minutes), and str in "H:MM" or decimal form.
+    """
+    if val is None:
+        return 0
+    try:
+        import datetime as _dt
+        if isinstance(val, _dt.time):
+            return val.hour * 60 + val.minute
+        if isinstance(val, _dt.datetime):
+            return val.hour * 60 + val.minute
+    except Exception:
+        pass
+    if isinstance(val, float):
+        if 0 < val < 1:          # Excel time serial (e.g. 0.0347 ≈ 50 min)
+            return round(val * 1440)
+        return max(0, int(round(val)))
+    if isinstance(val, int):
+        return max(0, val)
+    s = str(val).strip()
+    if not s or s in {'-', '–', '—'}:
+        return 0
+    if ':' in s:
+        parts = s.split(':')
+        try:
+            h = int(parts[0].strip() or '0')
+            m = int(parts[1].strip()) if len(parts) > 1 else 0
+            return max(0, h * 60 + m)
+        except (ValueError, IndexError):
+            pass
+    try:
+        f = float(s)
+        if 0 < f < 1:
+            return round(f * 1440)
+        return max(0, int(round(f)))
+    except ValueError:
+        return 0
+
+
+def _parse_xlsx_sheet(rows: list) -> tuple[dict, list[str]]:
+    """Locate header row and data rows in one worksheet, return chart + warnings.
+
+    Two-pass approach:
+      Pass 1 — find a row that has 'diagram' (or 'dgm'/'diag') AND at least one
+               time-column keyword; build col_map from it.
+      Pass 2 — if no named headers, fall back to positional: first 4-digit 3xxx
+               cell becomes the diagram column; next 4 cols = un_assoc, assoc_pay,
+               assoc_calc, build_up.
+    Returns ({}, []) if no chart-like structure found — caller tries the next sheet.
+    """
+    col_map: dict[str, int] = {}
+    header_idx: int | None = None
+
+    # Pass 1 — named headers
+    for i, row in enumerate(rows):
+        cells = [str(c).strip() if c is not None else '' for c in row]
+        has_diag  = any(_XLSX_CHART_COLS[0][1].search(c) for c in cells)
+        has_other = any(
+            pat.search(c)
+            for _, pat in _XLSX_CHART_COLS[1:]
+            for c in cells
+        )
+        if has_diag and has_other:
+            header_idx = i
+            for j, c in enumerate(cells):
+                for field, pat in _XLSX_CHART_COLS:
+                    if field not in col_map and c and pat.search(c):
+                        col_map[field] = j
+            break
+
+    # Pass 2 — positional fallback
+    if 'diagram' not in col_map:
+        for row in rows:
+            cells = [str(c).strip() if c is not None else '' for c in row]
+            for j, c in enumerate(cells):
+                if _DIAG_RE_XLSX.match(c):
+                    col_map = {'diagram': j}
+                    for k, field in enumerate(
+                        ['un_assoc', 'assoc_pay', 'assoc_calc', 'build_up']
+                    ):
+                        if j + 1 + k < len(cells):
+                            col_map[field] = j + 1 + k
+                    header_idx = None
+                    break
+            if 'diagram' in col_map:
+                break
+
+    if 'diagram' not in col_map:
+        return {}, []  # Not a chart sheet; caller tries next
+
+    diag_col = col_map['diagram']
+    data_rows = rows[(header_idx + 1) if header_idx is not None else 0:]
+
+    def _get(row: tuple, field: str) -> int:
+        idx = col_map.get(field)
+        if idx is None or idx >= len(row):
+            return 0
+        return _xlsx_val_to_mins(row[idx])
+
+    chart: dict = {}
+    rows_found = 0
+    for row in data_rows:
+        if not row or diag_col >= len(row) or row[diag_col] is None:
+            continue
+        diag = str(row[diag_col]).strip()
+        if not _DIAG_RE_XLSX.match(diag):
+            continue
+        rows_found += 1
+        un = _get(row, 'un_assoc')
+        ap = _get(row, 'assoc_pay')
+        ac = _get(row, 'assoc_calc')
+        bu = _get(row, 'build_up')
+        if any(v > 0 for v in (un, ap, ac, bu)):
+            chart[diag] = {
+                'unAssocMins':      un,
+                'assocPaymentMins': ap,
+                'assocCalcMins':    ac,
+                'buildUpMins':      bu,
+            }
+
+    warnings: list[str] = []
+    if rows_found > 0 and len(chart) < 5:
+        warnings.append(
+            f'Only {len(chart)} diagram(s) with non-zero values found '
+            f'(expected ~20+).  Verify column names match: '
+            f'Diagram, Un-Assoc, Assoc Pmt, Assoc Calc, Build Up.'
+        )
+    return chart, warnings
+
+
+def _parse_chart_xlsx(file_bytes: bytes) -> tuple[dict, list[str]]:
+    """Parse an assoc/un-assoc chart from an .xlsx workbook (v3.38).
+
+    Iterates every sheet in the workbook; returns the first sheet that yields
+    a non-empty chart dict.  Delegates per-sheet logic to _parse_xlsx_sheet().
+    """
+    if openpyxl is None:
+        raise RuntimeError(
+            'openpyxl is not installed — cannot parse .xlsx files.  '
+            'Install it with: pip install openpyxl'
+        )
+    import io as _io
+    wb = openpyxl.load_workbook(_io.BytesIO(file_bytes), data_only=True)
+    all_warnings: list[str] = []
+
+    for sheet_name in wb.sheetnames:
+        ws = wb[sheet_name]
+        rows = [tuple(row) for row in ws.iter_rows(values_only=True)]
+        if not rows:
+            continue
+        chart, w = _parse_xlsx_sheet(rows)
+        all_warnings.extend(w)
+        if chart:
+            return chart, all_warnings
+
+    all_warnings.append(
+        'No Mt Victoria diagram data found in any Excel sheet.  '
+        'Expected column headers: Diagram (or DGM/DIAG), Un-Assoc, '
+        'Assoc Pmt (or Assoc Payment), Assoc Calc, Build Up.  '
+        'Download the CSV template for the exact column names if needed.'
+    )
+    return {}, all_warnings
+
+
 def _parse_chart_text(text: str) -> tuple[dict, list[str]]:
     """Parse the assoc chart from OCR-or-text-extracted content into the full
     4-field-per-diagram model (un-assoc, assoc-pay, assoc-calc, build-up).
@@ -1357,6 +1542,12 @@ def parse_assoc_chart_file(file_bytes: bytes, filename: str) -> 'ParseAssocChart
                     warnings = [w for w in warnings if 'No Mt Victoria' not in w]
                     warnings.extend(fb_warnings)
 
+    elif ext in ('xlsx', 'xls'):
+        # v3.38: Excel workbook — column-header-aware parser.
+        # openpyxl only reads .xlsx natively; .xls is an alias that will fail
+        # gracefully with a clear error from openpyxl if it's a legacy format.
+        chart, warnings = _parse_chart_xlsx(file_bytes)
+
     elif ext in ('png', 'jpg', 'jpeg', 'webp', 'bmp', 'tiff', 'tif'):
         text = _ocr_image(file_bytes)  # auto-rotates; raises if OCR not available
         chart, warnings = _parse_chart_text(text)
@@ -1369,7 +1560,8 @@ def parse_assoc_chart_file(file_bytes: bytes, filename: str) -> 'ParseAssocChart
     else:
         raise ValueError(
             f'Unsupported file type ".{ext}". '
-            'Accepted: CSV (.csv), PDF (.pdf), or image (.png, .jpg, .jpeg, .webp, .bmp, .tiff).'
+            'Accepted: CSV (.csv), Excel (.xlsx), PDF (.pdf), or image '
+            '(.png, .jpg, .jpeg, .webp, .bmp, .tiff).'
         )
 
     return ParseAssocChartResponse(

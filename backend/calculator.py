@@ -503,10 +503,12 @@ def _compute_leave(day: DayState, cfg: RateConfig, codes: PayrollCodes) -> DayRe
     # v3.30: Sick leave pays the entire scheduled shift at ordinary rate, with
     # a 8-hour minimum.  Shifts ≤ 8h are paid out as 8h; shifts > 8h are paid
     # for the full scheduled duration.  No OT split applies to sick days.
+    # v3.38: Carer's leave applies the same rule (same EA treatment — no OT,
+    # 8-hour minimum).
     sl_hrs = max(r_hrs, 8.0)
     leave_map = {
         "SL":   (sl_hrs, B, "Sick leave",            "Cl. 30.4"),
-        "CL":   (r_hrs,  B, "Carer's leave",         "Cl. 30.7(b)(ix)"),
+        "CL":   (sl_hrs, B, "Carer's leave",         "Cl. 30.7(b)(ix)"),
         "BL":   (r_hrs,  B, "Bereavement leave",     "Cl. 30.8(k)(iv)"),
         "JD":   (r_hrs,  B, "Jury duty",             "Cl. 30.8(g)"),
         "LWOP": (0,     0, "Leave without pay",     "—"),
