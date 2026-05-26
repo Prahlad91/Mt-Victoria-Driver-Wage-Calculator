@@ -21,6 +21,7 @@ function codeStyle(code: string): React.CSSProperties {
 export default function ResultsTab() {
   const ctx = useFortnightContext()
   const result = ctx.result
+  const isAdmin = !!ctx.adminPassword
   const [exporting, setExporting] = useState<'pdf' | 'csv' | null>(null)
 
   if (!result) return (
@@ -190,7 +191,7 @@ export default function ResultsTab() {
                   <th style={{ paddingLeft: 20 }}>Date</th>
                   <th>Code</th>
                   <th>Description</th>
-                  <th>EA ref</th>
+                  {isAdmin && <th>EA ref</th>}
                   <th>Units</th>
                   <th>Rate</th>
                   <th className="text-right" style={{ paddingRight: 20 }}>Amount</th>
@@ -210,7 +211,7 @@ export default function ResultsTab() {
                         <code style={{ ...codeStyle(c.code) }}>{c.code}</code>
                       </td>
                       <td style={{ fontWeight: 500 }}>{c.name}</td>
-                      <td className="ea-ref">{c.ea}</td>
+                      {isAdmin && <td className="ea-ref">{c.ea}</td>}
                       <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13 }}>{c.hrs}</td>
                       <td className="ea-ref">{c.rate}</td>
                       <td className="text-right" style={{
@@ -226,7 +227,7 @@ export default function ResultsTab() {
                   )
                 })}
                 <tr className="row-total">
-                  <td style={{ paddingLeft: 20 }} colSpan={6}>
+                  <td style={{ paddingLeft: 20 }} colSpan={isAdmin ? 6 : 5}>
                     <strong>Total Gross Earnings</strong>
                   </td>
                   <td className="text-right" style={{
@@ -269,7 +270,8 @@ export default function ResultsTab() {
                   <table>
                     <thead>
                       <tr>
-                        <th>Component</th><th>Code</th><th>EA</th>
+                        <th>Component</th><th>Code</th>
+                        {isAdmin && <th>EA</th>}
                         <th>Units</th><th>Rate</th><th className="text-right">Amount</th>
                       </tr>
                     </thead>
@@ -278,7 +280,7 @@ export default function ResultsTab() {
                         <tr key={j} className={c.cls === 'pen-row' ? 'row-pen' : c.cls === 'km-row' ? 'row-km' : ''}>
                           <td>{c.name}</td>
                           <td><code style={{ ...codeStyle(c.code) }}>{c.code}</code></td>
-                          <td className="ea-ref">{c.ea}</td>
+                          {isAdmin && <td className="ea-ref">{c.ea}</td>}
                           <td style={{ fontFamily: 'var(--font-mono)' }}>{c.hrs}</td>
                           <td className="ea-ref">{c.rate}</td>
                           <td className="text-right" style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
@@ -289,7 +291,7 @@ export default function ResultsTab() {
                     </tbody>
                   </table>
                 )}
-                {dr.flags && dr.flags.length > 0 && (
+                {isAdmin && dr.flags && dr.flags.length > 0 && (
                   <div style={{ marginTop: 6 }}>
                     {dr.flags.map((f: string, j: number) => (
                       <span key={j} className={`flag-chip${f.includes('ALERT') || f.includes('⚠') ? ' err' : ''}`}>
