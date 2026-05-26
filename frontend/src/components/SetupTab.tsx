@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
 import { useFortnightContext } from '../context/FortnightContext'
 import { parseDate } from '../utils/dateUtils'
-import type { SimpleUploadState, AssocChart } from '../types'
+import type { SimpleUploadState, AssocChart, ParsedRosterData, ParsedScheduleData } from '../types'
 
 const DW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
 
@@ -78,7 +78,8 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
         {ctx.adminPassword ? (
           /* ── Admin view: full upload cards for master + schedules ────── */
           <>
-            <div className="g2" style={{marginBottom:10}}>
+            {/* Roster upload cards */}
+            <div className="g2" style={{marginBottom:4}}>
               <UploadCard
                 title="Master Roster (annual, lines 1–22)"
                 hint="Mt_Victoria_Drivers_Master.pdf — upload once a year"
@@ -100,7 +101,16 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
                   : ''}
               />
             </div>
-            <div className="g2" style={{marginTop:0}}>
+            {/* Roster parse previews — full-width, collapsed by default */}
+            {ctx.masterRosterUpload.result && (
+              <RosterPreviewTable data={ctx.masterRosterUpload.result} />
+            )}
+            {ctx.fnRosterUpload.result && (
+              <RosterPreviewTable data={ctx.fnRosterUpload.result} />
+            )}
+
+            {/* Schedule upload cards */}
+            <div className="g2" style={{marginTop:10, marginBottom:4}}>
               <UploadCard
                 title="Weekday Schedule (auto-fills KMs & times)"
                 hint="MTVICDRWD…_weekday.pdf — diagrams 3151–3168"
@@ -122,6 +132,13 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
                   : ''}
               />
             </div>
+            {/* Schedule parse previews */}
+            {ctx.weekdayScheduleUpload.result && (
+              <SchedulePreviewTable data={ctx.weekdayScheduleUpload.result} />
+            )}
+            {ctx.weekendScheduleUpload.result && (
+              <SchedulePreviewTable data={ctx.weekendScheduleUpload.result} />
+            )}
           </>
         ) : (
           /* ── Driver view: read-only info rows for admin-provided files,
@@ -160,6 +177,9 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
                   ? `${Object.keys(ctx.fnRosterUpload.result.lines).length} lines · ${ctx.fnRosterUpload.result.fn_start ?? ''} – ${ctx.fnRosterUpload.result.fn_end ?? ''}`
                   : ''}
               />
+              {ctx.fnRosterUpload.result && (
+                <RosterPreviewTable data={ctx.fnRosterUpload.result} />
+              )}
             </div>
           </>
         )}
@@ -773,6 +793,285 @@ function UploadCard({ title, hint, icon = '📄', state, onFile, successMsg, fil
       {applied && (
         <div style={{paddingTop:6}}>
           <span style={{fontSize:11, padding:'3px 8px', borderRadius:4, background:'var(--green-bg)', color:'var(--green-text)', display:'inline-block'}}>✓ Applied to daily entry</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── RosterPreviewTable (v3.40) ───────────────────────────────────────────────
+// Shows a 14-day matrix of the parsed master or fortnight roster so the admin
+// can visually validate what the parser read against the original PDF.
+//
+// Layout: one row per line, 14 day columns.  Each cell shows:
+//   - Worked day:  diagram code (bold) + "HH:MM–HH:MM" beneath (tiny grey)
+//   - ADO:         amber "ADO"
+//   - OFF:         muted "—"
+//   - Parser gap:  red "?" (empty diag string but r_start was set, or vice versa)
+//
+// Day headers use "Su 22", "Mo 23" … when fn_start is available (fortnight
+// roster), or "D1"–"D14" for the master roster.  The line-number column is CSS
+// sticky so it stays visible during horizontal scroll.  Collapsed by default.
+function RosterPreviewTable({ data }: { data: ParsedRosterData }) {
+  const [open, setOpen] = useState(false)
+
+  const lines = Object.entries(data.lines).sort((a, b) => Number(a[0]) - Number(b[0]))
+  if (lines.length === 0) return null
+
+  const hasCrew = !!data.crew_names && Object.keys(data.crew_names).length > 0
+  const isFortnightType = data.line_type === 'fortnight'
+
+  // Day header labels
+  const dayLabels: string[] = Array.from({ length: 14 }, (_, i) => {
+    if (!data.fn_start) return `D${i + 1}`
+    const d = new Date(data.fn_start + 'T00:00:00')
+    d.setDate(d.getDate() + i)
+    return ['Su','Mo','Tu','We','Th','Fr','Sa'][d.getDay()] + ' ' + d.getDate()
+  })
+
+  const totalDiagrams = lines.reduce((acc, [, days]) =>
+    acc + days.filter(d => d.diag && d.diag !== 'OFF' && d.diag !== 'ADO').length, 0)
+
+  const CELL_W = 64   // px per day column
+  const LINE_W = 42   // px for line-number column
+  const CREW_W = 88   // px for crew-name column
+
+  return (
+    <div style={{ marginTop: 8, marginBottom: 4 }}>
+      <button
+        className="btn-sm"
+        style={{ fontSize: 11, color: 'var(--text2)' }}
+        onClick={() => setOpen(o => !o)}
+      >
+        {open ? '▲ Hide' : '▼ Show'} parsed {isFortnightType ? 'fortnight' : 'master'} roster
+        {' '}— {lines.length} line{lines.length !== 1 ? 's' : ''},
+        {' '}{totalDiagrams} work day{totalDiagrams !== 1 ? 's' : ''}
+        {data.fn_start ? ` · ${data.fn_start}` : ''}
+      </button>
+
+      {open && (
+        <div style={{
+          overflowX: 'auto', marginTop: 8,
+          border: '1px solid var(--border-mid)', borderRadius: 8,
+        }}>
+          <table style={{
+            fontSize: 10, borderCollapse: 'collapse', tableLayout: 'fixed',
+            minWidth: LINE_W + (hasCrew ? CREW_W : 0) + CELL_W * 14,
+          }}>
+            <colgroup>
+              <col style={{ width: LINE_W }} />
+              {hasCrew && <col style={{ width: CREW_W }} />}
+              {dayLabels.map((_, i) => <col key={i} style={{ width: CELL_W }} />)}
+            </colgroup>
+            <thead>
+              <tr style={{ background: 'var(--surface-2)' }}>
+                <th style={{
+                  padding: '4px 6px', textAlign: 'left', fontWeight: 600,
+                  position: 'sticky', left: 0, background: 'var(--surface-2)', zIndex: 2,
+                }}>Line</th>
+                {hasCrew && (
+                  <th style={{ padding: '4px 6px', textAlign: 'left', fontWeight: 600 }}>Crew</th>
+                )}
+                {dayLabels.map((lbl, i) => (
+                  <th key={i} style={{
+                    padding: '4px 3px', textAlign: 'center',
+                    fontWeight: 500, whiteSpace: 'nowrap', fontSize: 9.5,
+                  }}>
+                    {lbl}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {lines.map(([lineNum, days], rowIdx) => {
+                const rowBg = rowIdx % 2 === 0 ? 'var(--surface)' : 'var(--surface-2)'
+                const crew = data.crew_names?.[lineNum]
+                return (
+                  <tr key={lineNum} style={{ borderTop: '1px solid var(--border)' }}>
+                    {/* Sticky line-number cell */}
+                    <td style={{
+                      padding: '4px 6px', fontWeight: 700, verticalAlign: 'top',
+                      position: 'sticky', left: 0, background: rowBg, zIndex: 1,
+                    }}>
+                      {lineNum}
+                    </td>
+
+                    {/* Optional crew name */}
+                    {hasCrew && (
+                      <td style={{
+                        padding: '4px 4px', fontSize: 9, color: 'var(--text2)',
+                        verticalAlign: 'top', maxWidth: CREW_W,
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      }} title={crew}>
+                        {crew ?? ''}
+                      </td>
+                    )}
+
+                    {/* 14 day cells */}
+                    {days.map((day, di) => {
+                      const isOff  = !day.diag || day.diag === 'OFF'
+                      const isAdo  = day.diag === 'ADO'
+                      const isGap  = !isOff && !isAdo && (!day.diag || (!day.r_start && day.r_hrs === 8.0 && day.diag === ''))
+                      const isEmpty = !isOff && !isAdo && day.diag === '' && day.r_start !== null
+                      return (
+                        <td key={di} style={{
+                          padding: '3px 3px', textAlign: 'center', verticalAlign: 'top',
+                          background: isEmpty
+                            ? 'rgba(180,0,0,.08)'
+                            : isAdo
+                            ? 'rgba(232,140,30,.12)'
+                            : undefined,
+                          borderLeft: '1px solid var(--border)',
+                        }}>
+                          {isOff ? (
+                            <span style={{ color: 'var(--text3)' }}>—</span>
+                          ) : isAdo ? (
+                            <span style={{ fontWeight: 700, color: 'var(--amber-text)', fontSize: 9 }}>ADO</span>
+                          ) : isEmpty ? (
+                            // Parser read times but no diagram — flag as a parse gap
+                            <div style={{ lineHeight: 1.3 }}>
+                              <div style={{ fontWeight: 700, color: 'var(--red-text)', fontSize: 10 }}>?</div>
+                              {day.r_start && (
+                                <div style={{ color: 'var(--red-text)', fontSize: 8 }}>
+                                  {day.r_start}–{day.r_end ?? '?'}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <div style={{ lineHeight: 1.3 }}>
+                              <div style={{ fontWeight: 700, color: 'var(--text1)', fontSize: 10 }}>
+                                {day.diag}
+                              </div>
+                              {day.r_start && (
+                                <div style={{ color: 'var(--text3)', fontSize: 8, whiteSpace: 'nowrap' }}>
+                                  {day.r_start}–{day.r_end ?? '?'}{day.cm ? ' 🌙' : ''}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </td>
+                      )
+                    })}
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+
+          {/* Legend */}
+          <div style={{
+            padding: '6px 10px', borderTop: '1px solid var(--border)',
+            fontSize: 10, color: 'var(--text2)', display: 'flex', gap: 16, flexWrap: 'wrap',
+          }}>
+            <span><span style={{ color: 'var(--text3)' }}>—</span> = OFF</span>
+            <span><span style={{ fontWeight: 700, color: 'var(--amber-text)' }}>ADO</span> = Accrued day off</span>
+            <span><span style={{ fontWeight: 700, color: 'var(--red-text)' }}>?</span> = Parser read times but no diagram — check source PDF</span>
+            <span>🌙 = cross-midnight</span>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── SchedulePreviewTable (v3.40) ─────────────────────────────────────────────
+// Shows parsed weekday or weekend schedule diagrams in a compact table.
+// Columns: Diagram | Type | Sign on | Sign off | Hours | KM | CM
+// Collapsed by default.  Sorted by diagram number.
+function SchedulePreviewTable({ data }: { data: ParsedScheduleData }) {
+  const [open, setOpen] = useState(false)
+
+  const diagrams = Object.entries(data.diagrams).sort((a, b) => Number(a[0]) - Number(b[0]))
+  if (diagrams.length === 0) return null
+
+  const label = data.schedule_type === 'weekend' ? 'weekend' : 'weekday'
+
+  return (
+    <div style={{ marginTop: 8, marginBottom: 4 }}>
+      <button
+        className="btn-sm"
+        style={{ fontSize: 11, color: 'var(--text2)' }}
+        onClick={() => setOpen(o => !o)}
+      >
+        {open ? '▲ Hide' : '▼ Show'} parsed {label} schedule — {diagrams.length} diagram{diagrams.length !== 1 ? 's' : ''}
+      </button>
+
+      {open && (
+        <div style={{
+          overflowX: 'auto', marginTop: 8,
+          border: '1px solid var(--border-mid)', borderRadius: 8,
+        }}>
+          <table style={{ fontSize: 11, borderCollapse: 'collapse', width: '100%' }}>
+            <thead>
+              <tr style={{ background: 'var(--surface-2)' }}>
+                <th style={{ padding: '5px 10px', textAlign: 'left' }}>Diagram</th>
+                <th style={{ padding: '5px 8px', textAlign: 'left' }}>Type</th>
+                <th style={{ padding: '5px 10px', textAlign: 'center' }}>Sign on</th>
+                <th style={{ padding: '5px 10px', textAlign: 'center' }}>Sign off</th>
+                <th style={{ padding: '5px 10px', textAlign: 'right' }}>Hours</th>
+                <th style={{ padding: '5px 10px', textAlign: 'right' }}>KM</th>
+                <th style={{ padding: '5px 8px', textAlign: 'center' }}>CM</th>
+              </tr>
+            </thead>
+            <tbody>
+              {diagrams.map(([num, info], i) => {
+                const missingTime = !info.sign_on || !info.sign_off
+                return (
+                  <tr key={num} style={{
+                    borderTop: '1px solid var(--border)',
+                    background: missingTime
+                      ? 'rgba(180,0,0,.06)'
+                      : i % 2 === 0 ? undefined : 'var(--surface-2)',
+                  }}>
+                    <td style={{ padding: '4px 10px', fontWeight: 700 }}>{num}</td>
+                    <td style={{
+                      padding: '4px 8px', color: 'var(--text2)',
+                      textTransform: 'capitalize', fontSize: 10,
+                    }}>
+                      {info.day_type}
+                    </td>
+                    <td style={{
+                      padding: '4px 10px', textAlign: 'center',
+                      fontFamily: 'monospace', fontWeight: 500,
+                      color: info.sign_on ? undefined : 'var(--red-text)',
+                    }}>
+                      {info.sign_on ?? '—'}
+                    </td>
+                    <td style={{
+                      padding: '4px 10px', textAlign: 'center',
+                      fontFamily: 'monospace', fontWeight: 500,
+                      color: info.sign_off ? undefined : 'var(--red-text)',
+                    }}>
+                      {info.sign_off ?? '—'}
+                    </td>
+                    <td style={{ padding: '4px 10px', textAlign: 'right' }}>
+                      {info.r_hrs.toFixed(2)}
+                    </td>
+                    <td style={{ padding: '4px 10px', textAlign: 'right' }}>
+                      {info.km > 0
+                        ? info.km.toFixed(3)
+                        : <span style={{ color: 'var(--text3)' }}>—</span>}
+                    </td>
+                    <td style={{ padding: '4px 8px', textAlign: 'center' }}>
+                      {info.cm
+                        ? <span style={{ color: 'var(--accent)', fontSize: 13 }}>🌙</span>
+                        : <span style={{ color: 'var(--text3)' }}>—</span>}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+
+          {/* Legend for missing-time rows */}
+          {diagrams.some(([, info]) => !info.sign_on || !info.sign_off) && (
+            <div style={{
+              padding: '6px 10px', borderTop: '1px solid var(--border)',
+              fontSize: 10, color: 'var(--red-text)',
+            }}>
+              ⚠ Rows highlighted in red have missing sign-on or sign-off times — the parser could not extract them. These diagrams will use fallback times (08:00–16:00). Check the source PDF.
+            </div>
+          )}
         </div>
       )}
     </div>
