@@ -41,7 +41,7 @@ const DEFAULT_ASSOC_CHART: AssocChart = {
   // Weekday diagrams (effective 19-04-26)
   '3151': { unAssocMins: 0,   assocPaymentMins: 7,  assocCalcMins: 427, buildUpMins: 0   },
   '3153': { unAssocMins: 160, assocPaymentMins: 0,  assocCalcMins: 460, buildUpMins: 0   },
-  '3155': { unAssocMins: 50,  assocPaymentMins: 0,  assocCalcMins: 470, buildUpMins: 0   },
+  '3155': { unAssocMins: 0,   assocPaymentMins: 0,  assocCalcMins: 470, buildUpMins: 0   },
   '3156': { unAssocMins: 20,  assocPaymentMins: 0,  assocCalcMins: 440, buildUpMins: 0   },
   '3158': { unAssocMins: 39,  assocPaymentMins: 0,  assocCalcMins: 459, buildUpMins: 0   },
   '3161': { unAssocMins: 0,   assocPaymentMins: 0,  assocCalcMins: 540, buildUpMins: 51  },
@@ -75,7 +75,9 @@ const DEFAULT_ASSOC_CHART: AssocChart = {
 // v3.24: bumped from 3.15 → 3.24 — DEFAULT_ASSOC_CHART replaced with the
 // 19-04-26 chart values; users with a localStorage copy of the Oct-2025
 // chart need to drop it so they pick up the new built-in defaults.
-const CACHE_SCHEMA_VERSION = '3.24'
+// v3.41: bumped from 3.24 → 3.41 — 3155 unAssocMins corrected to 0 (was 50).
+// Any cached chart in localStorage will be cleared so users get the updated DEFAULT.
+const CACHE_SCHEMA_VERSION = '3.41'
 
 if (typeof window !== 'undefined') {
   try {
