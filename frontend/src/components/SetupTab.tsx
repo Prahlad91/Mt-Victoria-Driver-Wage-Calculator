@@ -432,9 +432,13 @@ function preprocessImageForOCR(file: File): Promise<Blob> {
 
 // ── AssocChartCard ──────────────────────────────────────────────────────────────
 
+// Hardcoded baseline rows for the chart table.  Any diagram from the uploaded
+// chart that is NOT in these lists is appended dynamically at render time so
+// newly-added depot diagrams are never silently swallowed.
 const ALL_WEEKDAY_DIAGS = [
   '3151','3152','3153','3154','3155','3156','3157','3158',
   '3159','3160','3161','3162','3163','3164','3165','3166','3167','3168',
+  '3169','3170','3171',  // v3.38 fix: were missing from the list
 ]
 const ALL_WEEKEND_DIAGS = [
   '3651','3652','3653','3654','3655','3656','3657','3658',
@@ -447,6 +451,18 @@ function AssocChartCard() {
   const [uploading,  setUploading]  = useState(false)
   const [saved,      setSaved]      = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  // Merge hardcoded baseline with any extra diagrams from the loaded chart so
+  // newly-added depot diagrams are never silently hidden (v3.38 fix for 3169/3171).
+  const chartKeys = Object.keys(ctx.assocChart)
+  const weekdayDiags = [...new Set([
+    ...ALL_WEEKDAY_DIAGS,
+    ...chartKeys.filter(d => /^3[1-5]\d\d$/.test(d)),
+  ])].sort()
+  const weekendDiags = [...new Set([
+    ...ALL_WEEKEND_DIAGS,
+    ...chartKeys.filter(d => /^3[6-9]\d\d$/.test(d)),
+  ])].sort()
 
   function markSaved() { setSaved(true); setTimeout(() => setSaved(false), 2500) }
 
@@ -621,10 +637,10 @@ function AssocChartCard() {
               fontWeight:600, background:'var(--blue-bg)', color:'var(--blue-text)',
               padding:'3px 8px', fontSize:10, letterSpacing:'0.05em', textTransform:'uppercase',
             }}>
-              Weekday diagrams (3151–3168)
+              Weekday diagrams (3151–3171+)
             </td>
           </tr>
-          {ALL_WEEKDAY_DIAGS.map(diag => {
+          {weekdayDiags.map(diag => {
             const entry = ctx.assocChart[diag] ?? { unAssocMins: 0, assocPaymentMins: 0 }
             const nonZero = entry.unAssocMins > 0 || entry.assocPaymentMins > 0 || (entry.buildUpMins ?? 0) > 0
             return (
@@ -647,10 +663,10 @@ function AssocChartCard() {
               fontWeight:600, background:'var(--blue-bg)', color:'var(--blue-text)',
               padding:'3px 8px', fontSize:10, letterSpacing:'0.05em', textTransform:'uppercase',
             }}>
-              Weekend diagrams (3651–3664)
+              Weekend diagrams (3651–3664+)
             </td>
           </tr>
-          {ALL_WEEKEND_DIAGS.map(diag => {
+          {weekendDiags.map(diag => {
             const entry = ctx.assocChart[diag] ?? { unAssocMins: 0, assocPaymentMins: 0 }
             const nonZero = entry.unAssocMins > 0 || entry.assocPaymentMins > 0 || (entry.buildUpMins ?? 0) > 0
             return (
