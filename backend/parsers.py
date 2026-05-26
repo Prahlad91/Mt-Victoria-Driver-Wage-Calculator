@@ -248,13 +248,42 @@ def _parse_day_entries(section_text: str) -> list[RosterDayEntry]:
                 h_str, m_str = hrs_str.split(':')
                 r_hrs = round(int(h_str) + int(m_str) / 60, 4)
                 i += 1
+            else:
+                # No W-suffix present: compute scheduled hours from start/end times
+                # rather than defaulting to 8.0 (fixes inline master-roster format
+                # which does not emit H:MMW tokens).
+                s_m = _time_to_mins(r_start)
+                e_m = _time_to_mins(r_end)
+                if cm:
+                    e_m += 24 * 60
+                r_hrs = round(max(0.0, (e_m - s_m) / 60), 4)
+            # Track whether a pending_diag was already set BEFORE we entered this
+            # time range, so we can distinguish two diagram attribution formats:
+            #
+            #   Format A — master roster inline (no pending_diag):
+            #     "02:27 – 10:48  3155  03:20 – 11:41  3156 …"
+            #     The 4-digit token that immediately precedes the NEXT time range
+            #     belongs to the CURRENT entry's diagram.  Consume it.
+            #
+            #   Format B — single-row roster with diagram before its time range:
+            #     "3154  02:27 – 10:48  3155  03:20 – 11:41 …"
+            #     pending_diag was already set by the outer loop.  The 4-digit
+            #     token after the time range belongs to the NEXT entry; leave it
+            #     for the outer loop to pick up as the next pending_diag.
+            had_pending_diag = pending_diag is not None
             diag_parts: list[str] = []
             while i < len(words):
                 tok = words[i]
                 if _FAT_RE.match(tok): i += 1; break
                 if tok.upper() in ('OFF', 'ADO'): break
                 if _TIME_RE.match(tok) and i + 1 < len(words) and words[i + 1] == '-': break
-                if re.match(r'^\d{3,4}$', tok) and i + 1 < len(words) and _TIME_RE.match(words[i + 1]): break
+                if re.match(r'^\d{3,4}$', tok) and i + 1 < len(words) and _TIME_RE.match(words[i + 1]):
+                    if not had_pending_diag:
+                        # Format A: diagram belongs to the current entry — consume it.
+                        diag_parts.append(tok)
+                        i += 1
+                    # else Format B: leave tok for the outer loop (pending_diag path).
+                    break
                 diag_parts.append(tok); i += 1
             diag = pending_diag or ' '.join(diag_parts).strip()
             pending_diag = None
