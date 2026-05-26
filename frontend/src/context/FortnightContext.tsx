@@ -247,6 +247,7 @@ interface Ctx {
   // v3.12: assoc/un-assoc chart
   assocChart: AssocChart; assocChartIsCustom: boolean
   loadAssocChartCsv: (csvText: string) => string | null  // returns error or null
+  loadAssocChartDirect: (chart: AssocChart) => void      // v3.37: direct from server upload
   resetAssocChart: () => void
   // v3.26: admin sign-in (sessionStorage-backed) + per-browser session id.
   // v3.28: renamed adminToken → adminPassword (was a token-named field but
@@ -389,7 +390,7 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
         // Optional cols 4+5: assoc_calc_mins, build_up_mins
         const calcMin  = cols[3] !== undefined ? (parseInt(cols[3], 10) || 0) : undefined
         const buildMin = cols[4] !== undefined ? (parseInt(cols[4], 10) || 0) : undefined
-        if (unMin > 0 || assMin > 0 || (buildMin ?? 0) > 0) {
+        if (unMin > 0 || assMin > 0 || (calcMin ?? 0) > 0 || (buildMin ?? 0) > 0) {
           chart[diag] = {
             unAssocMins: unMin, assocPaymentMins: assMin,
             ...(calcMin  !== undefined ? { assocCalcMins: calcMin  } : {}),
@@ -413,6 +414,15 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
     try { localStorage.removeItem(LS_AC) } catch {}
     setAssocChart(DEFAULT_ASSOC_CHART)
     setAssocChartIsCustom(false)
+  }, [])
+
+  // v3.37: Direct chart setter — used by SetupTab after a successful admin upload
+  // so the parsed server response is applied without a CSV roundtrip (which
+  // previously discarded entries where only assocCalcMins > 0).
+  const loadAssocChartDirect = useCallback((chart: AssocChart) => {
+    toLS(LS_AC, chart)
+    setAssocChart(chart)
+    setAssocChartIsCustom(true)
   }, [])
 
   const findInBothSchedules = useCallback((
@@ -1051,7 +1061,7 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
       setConfig, setCodes, setUnassocAmt, saveConfig, saveCodes,
       rosterUpload, payslipUpload,
       masterRosterUpload, fnRosterUpload, weekdayScheduleUpload, weekendScheduleUpload,
-      assocChart, assocChartIsCustom, loadAssocChartCsv, resetAssocChart,
+      assocChart, assocChartIsCustom, loadAssocChartCsv, loadAssocChartDirect, resetAssocChart,
       adminPassword, setAdminPassword, sessionId,
       authJwt, authUser, signIn, signOut,
       result, calculating, calcError,
