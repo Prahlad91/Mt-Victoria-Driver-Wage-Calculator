@@ -254,14 +254,12 @@ function WorkForm({
               <div className="times-row">
                 <div>
                   <label>Start</label>
-                  <input type="text" inputMode="numeric" placeholder="HH:MM" maxLength={5}
-                    value={day.rStart || ''}
+                  <input type="time" lang="en-GB" value={day.rStart || ''}
                     onChange={e => editScheduledTime('rStart', e.target.value)} />
                 </div>
                 <div>
                   <label>End</label>
-                  <input type="text" inputMode="numeric" placeholder="HH:MM" maxLength={5}
-                    value={day.rEnd || ''}
+                  <input type="time" lang="en-GB" value={day.rEnd || ''}
                     onChange={e => editScheduledTime('rEnd', e.target.value)} />
                 </div>
               </div>
@@ -302,7 +300,7 @@ function WorkForm({
                 <div>
                   <label>Start</label>
                   <input
-                    type="text" inputMode="numeric" placeholder="HH:MM" maxLength={5}
+                    type="time" lang="en-GB"
                     value={day.aStart}
                     onChange={e => ch('aStart', e.target.value)}
                     style={day.aStart !== day.rStart && day.rStart
@@ -313,7 +311,7 @@ function WorkForm({
                 <div>
                   <label>End</label>
                   <input
-                    type="text" inputMode="numeric" placeholder="HH:MM" maxLength={5}
+                    type="time" lang="en-GB"
                     value={day.aEnd}
                     onChange={e => ch('aEnd', e.target.value)}
                     style={day.aEnd !== day.rEnd && day.rEnd
