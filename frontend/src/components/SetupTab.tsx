@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useFortnightContext } from '../context/FortnightContext'
 import { parseDate } from '../utils/dateUtils'
 import type { SimpleUploadState, AssocChart, ParsedRosterData, ParsedScheduleData } from '../types'
@@ -8,12 +8,25 @@ const DW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
 export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
   const ctx = useFortnightContext()
   const [lineInput, setLine] = useState('1')
-  const [dateInput, setDate] = useState('2025-08-10')
+  // Initialise from fortnight-roster fn_start > master-roster fn_start > hardcoded fallback.
+  // A useEffect below keeps this in sync when a roster uploads mid-session,
+  // but only while the user hasn't manually edited the field.
+  const rosterDate = ctx.fnRosterUpload.result?.fn_start || ctx.masterRosterUpload.result?.fn_start || ''
+  const [dateInput, setDate] = useState(() => rosterDate || '2025-08-10')
+  const [dateUserEdited, setDateUserEdited] = useState(false)
   const [phs,       setPHs]  = useState<string[]>([])
   const [phAdd,     setPhAdd] = useState('')
   const [psInput,   setPS]   = useState('')
   const [err, setErr]        = useState('')
   const pRef = useRef<HTMLInputElement>(null)
+
+  // When a roster finishes uploading (or is loaded from cache after mount),
+  // auto-populate the date field — unless the user already manually set it.
+  useEffect(() => {
+    if (dateUserEdited) return
+    const d = ctx.fnRosterUpload.result?.fn_start || ctx.masterRosterUpload.result?.fn_start
+    if (d) setDate(d)
+  }, [ctx.fnRosterUpload.result?.fn_start, ctx.masterRosterUpload.result?.fn_start, dateUserEdited])
 
   function addPH() {
     if (phAdd && !phs.includes(phAdd)) {
@@ -228,7 +241,7 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
           </div>
           <div>
             <label>Fortnight start <span style={{color:'var(--text3)'}}>Sunday</span></label>
-            <input type="date" value={dateInput} onChange={e => setDate(e.target.value)} />
+            <input type="date" value={dateInput} onChange={e => { setDate(e.target.value); setDateUserEdited(true) }} />
           </div>
           <div>
             <label>Public holidays</label>
