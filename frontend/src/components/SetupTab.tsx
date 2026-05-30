@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useFortnightContext } from '../context/FortnightContext'
 import { parseDate } from '../utils/dateUtils'
+import { getPhsForFortnight, NSW_PUBLIC_HOLIDAYS } from '../utils/nswPublicHolidays'
 import type { SimpleUploadState, AssocChart, ParsedRosterData, ParsedScheduleData } from '../types'
 
 const DW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
@@ -14,7 +15,9 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
   const rosterDate = ctx.masterRosterUpload.result?.fn_start || ctx.fnRosterUpload.result?.fn_start || ''
   const [dateInput, setDate] = useState(() => rosterDate || '2025-08-10')
   const [dateUserEdited, setDateUserEdited] = useState(false)
-  const [phs,       setPHs]  = useState<string[]>([])
+  const [phs,       setPHs]  = useState<string[]>(() =>
+    getPhsForFortnight(rosterDate || '2025-08-10').map(p => p.date)
+  )
   const [phAdd,     setPhAdd] = useState('')
   const [psInput,   setPS]   = useState('')
   const [err, setErr]        = useState('')
@@ -27,6 +30,18 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
     const d = ctx.masterRosterUpload.result?.fn_start || ctx.fnRosterUpload.result?.fn_start
     if (d) setDate(d)
   }, [ctx.fnRosterUpload.result?.fn_start, ctx.masterRosterUpload.result?.fn_start, dateUserEdited])
+
+  // Auto-fill public holidays from the NSW list whenever the fortnight date changes.
+  // Any manually-added PHs beyond what the NSW list provides are preserved.
+  useEffect(() => {
+    const autoPhs = getPhsForFortnight(dateInput).map(p => p.date)
+    setPHs(prev => {
+      // Keep manual additions that aren't in the NSW auto-list, merge with auto
+      const autoSet = new Set(autoPhs)
+      const manualExtras = prev.filter(d => !autoSet.has(d))
+      return [...autoPhs, ...manualExtras].sort()
+    })
+  }, [dateInput])
 
   function addPH() {
     if (phAdd && !phs.includes(phAdd)) {
@@ -244,7 +259,7 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
             <input type="date" value={dateInput} onChange={e => { setDate(e.target.value); setDateUserEdited(true) }} />
           </div>
           <div>
-            <label>Public holidays</label>
+            <label>Public holidays <span style={{color:'var(--text3)',fontWeight:400}}>auto-filled from NSW Gov list</span></label>
             <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:8}}>
               <input type="date" value={phAdd} min={dateInput} max={fnEnd}
                 style={{width:180}}
@@ -256,13 +271,16 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
               <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
                 {phs.map(d => {
                   const dd = new Date(d + 'T00:00:00')
-                  const label = `${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dd.getDay()]} ${dd.getDate()} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][dd.getMonth()]} ${dd.getFullYear()}`
+                  const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
+                  const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+                  const dateLabel = `${DOW[dd.getDay()]} ${dd.getDate()} ${MON[dd.getMonth()]}`
+                  const phName = NSW_PUBLIC_HOLIDAYS.find(p => p.date === d)?.name ?? ''
                   return (
                     <span key={d} style={{display:'inline-flex',alignItems:'center',gap:5,
                       fontSize:12,padding:'4px 10px',borderRadius:20,
                       background:'var(--amber-bg)',color:'var(--amber)',
                       fontWeight:500}}>
-                      📆 {label}
+                      📆 {dateLabel}{phName ? ` — ${phName}` : ''}
                       <button style={{all:'unset',cursor:'pointer',color:'inherit',
                         opacity:0.7,fontSize:14,lineHeight:1}}
                         title="Remove" onClick={() => removePH(d)}>×</button>
