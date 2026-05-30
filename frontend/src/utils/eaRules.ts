@@ -71,7 +71,7 @@ export const LEAVE_CATS: Array<{ code: string; label: string; eaRef: string }> =
   { code: 'SL',   label: 'Sick leave',                                       eaRef: 'Cl. 30.4' },
   { code: 'CL',   label: "Carer's leave",                                   eaRef: 'Cl. 30.7(b)(ix)' },
   { code: 'AL',   label: 'Annual leave',                                     eaRef: 'Cl. 30.1/30.2' },
-  { code: 'PHNW', label: 'PH not worked',                                    eaRef: 'Cl. 31.7' },
+  { code: 'PHNW', label: 'PH not worked / time credit',                      eaRef: 'Cl. 31.7' },
   { code: 'PHW',  label: 'PH worked (paid: 150% loading + additional day)',  eaRef: 'Cl. 31.5' },
   { code: 'PHWA', label: 'PH worked and accrued (150% loading only)',        eaRef: 'Cl. 31.5(a)+(b)' },
   { code: 'BL',   label: 'Bereavement/compassionate leave',                  eaRef: 'Cl. 30.8(k)(iv)' },
