@@ -363,14 +363,14 @@ function previewLeave(day: DayState, cfg: RateConfig, codes: PayrollCodes): DayR
   if (cat === 'PHNW') {
     const isWeekend = day.dow === 0 || day.dow === 6;
     const code = isWeekend ? (codes.ph_wke || '1010') : (codes.ph_wkd || '5042');
-    const name = isWeekend ? 'Public Holiday Paid' : 'Public holiday paid';
+    const name = 'PHNW / TC';
     const amt = r2(8 * B);
     return {
       date: day.date, diag: day.diag, day_type: 'leave',
       hours: 0, paid_hrs: 8, total_pay: amt,
       components: [{ name, ea: 'Cl. 31.7', code,
         hrs: '8.00 hrs', rate: `$${B.toFixed(5)}/hr`, amount: amt, cls: '', date: day.date }],
-      flags: [`PH not worked: 8 hrs ordinary (Cl. 31.7).`],
+      flags: [`PHNW / TC: 8 hrs ordinary (Cl. 31.7).`],
     };
   }
 

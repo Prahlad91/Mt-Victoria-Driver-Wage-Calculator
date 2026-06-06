@@ -500,14 +500,14 @@ def _compute_leave(day: DayState, cfg: RateConfig, codes: PayrollCodes) -> DayRe
     if cat == 'PHNW':
         is_weekend_ph = (day.dow == 0 or day.dow == 6)
         code = (codes.ph_wke or '1010') if is_weekend_ph else (codes.ph_wkd or '5042')
-        name = 'Public Holiday Paid' if is_weekend_ph else 'Public holiday paid'
+        name = 'PHNW / TC'
         amt = r2(8.0 * B)
         return DayResult(
             date=day.date, diag=day.diag, day_type='leave',
             hours=0, paid_hrs=8.0, total_pay=amt,
             components=[_comp(code, name, 'Cl. 31.7',
                               '8.00 hrs', f'${B:.5f}/hr', amt, date=day.date)],
-            flags=[f"PH not worked: 8 hrs ordinary (Cl. 31.7)."],
+            flags=[f"PHNW / TC: 8 hrs ordinary (Cl. 31.7)."],
         )
     
     # v3.30: Sick leave pays the entire scheduled shift at ordinary rate, with
