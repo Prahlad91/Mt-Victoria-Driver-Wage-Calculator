@@ -61,6 +61,7 @@ export interface RateConfig {
   ph_wkd: number; ph_wke: number;
   afternoon_rate: number; night_rate: number; early_rate: number;
   add_loading: number; wobod_rate: number; wobod_min: number;
+  exp_over_10h_rate?: number;  // Sch.4B Item 12 / Cl. 143.5 — flat per shift >10h ≤16h
 }
 
 export interface PayrollCodes {
@@ -69,6 +70,7 @@ export interface PayrollCodes {
   night: string; early: string; add_load: string; wobod: string;
   liftup: string; ado: string; unassoc: string;
   km: string;   // 1454 — Assoc Wrk Time (Mileage) per Cl. 157.1(b)
+  exp_over_10h?: string;  // 1496 — Exp More Than 10 Hours
 }
 
 export interface CalculateRequest {

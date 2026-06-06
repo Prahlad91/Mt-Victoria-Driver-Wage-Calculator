@@ -24,6 +24,7 @@ export const DEFAULT_CONFIG: RateConfig = {
   ph_wkd: 1.5, ph_wke: 2.5,
   afternoon_rate: 4.84, night_rate: 5.69, early_rate: 4.84,
   add_loading: 5.69,
+  exp_over_10h_rate: 14.55,  // Sch.4B Item 12 / Cl. 143.5
   wobod_rate: 2.0, wobod_min: 0,
 };
 
@@ -33,6 +34,7 @@ export const DEFAULT_CODES: PayrollCodes = {
   ph_wkd: '5042', ph_wke: '1010',
   afternoon: '1485', night: '1487', early: '1483',
   add_load: '1470',
+  exp_over_10h: '1496',  // Sch.4B Item 12 / Cl. 143.5
   wobod: '1059', liftup: '', ado: '1462', unassoc: '',
   km: '1454',   // Assoc Wrk Time (Mileage) — Cl. 157.1(b) / Cl. 146.4
 };
@@ -292,6 +294,18 @@ export function previewDay(
         amount: r2(cfg.add_loading), cls: 'pen-row', date: day.date,
       });
     }
+  }
+
+  // 1496 Cl. 143.5 / Item 12 Sch.4B — flat $14.55 when actual shift > 10h and ≤ 16h
+  if (actualHrs > 10.0 && actualHrs <= 16.0) {
+    const exp10Rate = cfg.exp_over_10h_rate ?? 14.55;
+    components.push({
+      name: 'Exp More Than 10 Hours',
+      ea: 'Cl. 143.5 / Item 12 Sch.4B',
+      code: codes.exp_over_10h || '1496',
+      hrs: '1.00', rate: `$${exp10Rate.toFixed(5)}`,
+      amount: r2(exp10Rate), cls: 'pen-row', date: day.date,
+    });
   }
 
   // 1454 "Assoc Wrk Time (Mileage)" — depot chart formula:

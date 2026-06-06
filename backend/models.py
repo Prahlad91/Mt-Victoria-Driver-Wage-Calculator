@@ -76,6 +76,7 @@ class RateConfig(CamelModel):
     night_rate: float = 5.69
     early_rate: float = 4.84
     add_loading: float = 5.69
+    exp_over_10h_rate: float = 14.55  # Sch.4B Item 12 / Cl. 143.5 — flat per shift >10h and ≤16h
     wobod_rate: float = 2.0  # legacy, no longer used after Cl. 140.4 rewrite
     wobod_min: int = 0  # v3.11: removed 4-hr min (no EA basis)
 
@@ -93,6 +94,7 @@ class PayrollCodes(CamelModel):
     night: str = '1487'      # Item 7 Sch.4B — Night Shift Drvs/Grds
     early: str = '1483'      # Item 8 Sch.4B — Morning (Early) Shift Drvs/Grds
     add_load: str = '1470'
+    exp_over_10h: str = '1496'  # Sch.4B Item 12 / Cl. 143.5 — Exp More Than 10 Hours
     wobod: str = '1059'
     liftup: str = ''
     ado: str = '1462'

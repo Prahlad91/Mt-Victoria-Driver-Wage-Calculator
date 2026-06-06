@@ -25,6 +25,7 @@ shift_penalties:
   night: 5.69        # Sch.4B Item 7 — per hour
   early: 4.84        # Sch.4B Item 8 — per hour
   add_loading: 5.69  # Sch.4B Item 9 — flat per shift
+  exp_over_10h: 14.55  # Sch.4B Item 12 / Cl. 143.5 — flat per shift >10h and ≤16h
 
 leave_loading:
   annual_leave_shiftworker: 0.20   # Cl. 30.2(a)(ii) — 20%

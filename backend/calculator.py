@@ -468,6 +468,16 @@ def compute_day(day: DayState, cfg: RateConfig, codes: PayrollCodes,
             f"= {total_credit:.2f}h vs sched {sched_hrs:.2f}h → build-up +{build_up:.2f}h."
         )
     
+    # Cl. 143.5 / Item 12 Sch.4B — flat $14.55 when actual shift > 10h and ≤ 16h
+    if 10.0 < actual_hrs <= 16.0:
+        components.append(_comp(
+            codes.exp_over_10h or '1496',
+            'Exp More Than 10 Hours',
+            'Cl. 143.5 / Item 12 Sch.4B',
+            '1.00', f'${cfg.exp_over_10h_rate:.5f}',
+            cfg.exp_over_10h_rate, date=day.date, cls='pen-row',
+        ))
+
     if ot_h > 0:
         flags.append(f"Daily OT: {ot_h:.2f} hrs beyond 8-hr ordinary limit (Cl. 78.3).")
 
@@ -660,6 +670,18 @@ def compute_fortnight(req: CalculateRequest) -> CalculateResponse:
         # Replace empty components with the two WOBOD components
         dr.components = [primary_comp, addl_comp]
         dr.total_pay = r2(primary_comp.amount + addl_comp.amount)
+
+        # Cl. 143.5 / Item 12 Sch.4B — also applies on WOBOD shifts > 10h
+        if 10.0 < wobod_hrs <= 16.0:
+            exp_comp = _comp(
+                codes.exp_over_10h or '1496',
+                'Exp More Than 10 Hours',
+                'Cl. 143.5 / Item 12 Sch.4B',
+                '1.00', f'${cfg.exp_over_10h_rate:.5f}',
+                cfg.exp_over_10h_rate, date=day.date, cls='pen-row',
+            )
+            dr.components.append(exp_comp)
+            dr.total_pay = r2(dr.total_pay + exp_comp.amount)
         # Replace the sentinel flag with a real description
         dr.flags = [f for f in dr.flags if not f.startswith('__WOBOD_PENDING__')]
         dr.flags.append(

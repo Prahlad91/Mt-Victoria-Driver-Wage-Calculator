@@ -116,21 +116,25 @@ class TestOvertime:
 
     def test_3hrs_ot_all_at_tier1(self, cfg, codes):
         """11 hrs: 8 ordinary + 3 OT all at 1.5× (still within the 3-hr tier-1 band).
-        Was incorrectly 2+1 split in v3.18 and earlier (fixed v3.19 per Cl. 78.3)."""
+        Was incorrectly 2+1 split in v3.18 and earlier (fixed v3.19 per Cl. 78.3).
+        11h > 10h so also picks up the Cl. 143.5 flat $14.55 (code 1496)."""
         day = make_day(a_start="06:00", a_end="17:00", dow=1)
         result = compute_day(day, cfg, codes)
-        assert result.total_pay == r2(r2(8 * B) + r2(3 * B * 1.5))
+        assert result.total_pay == r2(r2(8 * B) + r2(3 * B * 1.5) + cfg.exp_over_10h_rate)
         assert any(c.code == "1026" for c in result.components)
+        assert any(c.code == "1496" for c in result.components)
         assert not any(c.code == "1110" for c in result.components)
 
     def test_4hrs_ot_splits_at_3(self, cfg, codes):
         """12 hrs: 8 ordinary + 3 OT tier1 (1.5×) + 1 OT tier2 (2.0×). Code 1110 emitted.
-        Locks in the Cl. 78.3 3-hr boundary so a future regression cannot move it."""
+        Locks in the Cl. 78.3 3-hr boundary so a future regression cannot move it.
+        12h > 10h so also picks up the Cl. 143.5 flat $14.55 (code 1496)."""
         day = make_day(a_start="06:00", a_end="18:00", dow=1)
         result = compute_day(day, cfg, codes)
-        assert result.total_pay == r2(r2(8 * B) + r2(3 * B * 1.5) + r2(1 * B * 2.0))
+        assert result.total_pay == r2(r2(8 * B) + r2(3 * B * 1.5) + r2(1 * B * 2.0) + cfg.exp_over_10h_rate)
         assert any(c.code == "1026" for c in result.components)
         assert any(c.code == "1110" for c in result.components)
+        assert any(c.code == "1496" for c in result.components)
 
 
 # ─── Shift penalties (Sch. 4B / Cl. 134.3) ──────────────────────────────── PRD §5.4
