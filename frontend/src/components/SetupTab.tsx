@@ -6,18 +6,49 @@ import type { SimpleUploadState, AssocChart, ParsedRosterData, ParsedScheduleDat
 
 const DW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
 
+/**
+ * Given the annual roster start date (fn_start from the master roster),
+ * walk 14-day cycles forward until we find the fortnight that contains
+ * today. This converts the annual cycle anchor into the CURRENT fortnight
+ * start date, which is what the user actually wants to enter.
+ */
+function computeCurrentFortnight(annualStart: string): string {
+  const start = new Date(annualStart + 'T00:00:00')
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const daysDiff = Math.floor((today.getTime() - start.getTime()) / 86400000)
+  if (daysDiff < 0) return annualStart  // annual start is still in future — use it directly
+  const idx = Math.floor(daysDiff / 14)
+  const fnStart = new Date(start.getTime() + idx * 14 * 86400000)
+  return fnStart.toISOString().split('T')[0]
+}
+
 export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
   const ctx = useFortnightContext()
   const [lineInput, setLine] = useState('1')
-  // Initialise from fortnight-roster fn_start > master-roster fn_start > hardcoded fallback.
-  // A useEffect below keeps this in sync when a roster uploads mid-session,
-  // but only while the user hasn't manually edited the field.
-  const rosterDate = ctx.masterRosterUpload.result?.fn_start || ctx.fnRosterUpload.result?.fn_start || ''
-  const [dateInput, setDate] = useState(() => rosterDate || '2025-08-10')
+  // Initialise the fortnight start date.
+  // Master roster wins: its fn_start is the ANNUAL cycle anchor, so we
+  // walk 14-day cycles forward to find the fortnight that contains today.
+  // If only a fortnight roster is available, its fn_start is already the
+  // specific fortnight date — use it directly.
+  // Falls back to '' so the field is blank rather than showing a confusing
+  // hard-coded date when no roster has been uploaded yet.
+  const [dateInput, setDate] = useState(() => {
+    const masterFnStart = ctx.masterRosterUpload.result?.fn_start
+    const fnRosterFnStart = ctx.fnRosterUpload.result?.fn_start
+    return masterFnStart
+      ? computeCurrentFortnight(masterFnStart)
+      : (fnRosterFnStart || '')
+  })
   const [dateUserEdited, setDateUserEdited] = useState(false)
-  const [phs,       setPHs]  = useState<string[]>(() =>
-    getPhsForFortnight(rosterDate || '2025-08-10').map(p => p.date)
-  )
+  const [phs,       setPHs]  = useState<string[]>(() => {
+    const masterFnStart = ctx.masterRosterUpload.result?.fn_start
+    const fnRosterFnStart = ctx.fnRosterUpload.result?.fn_start
+    const initDate = masterFnStart
+      ? computeCurrentFortnight(masterFnStart)
+      : (fnRosterFnStart || '')
+    return getPhsForFortnight(initDate).map(p => p.date)
+  })
   const [phAdd,     setPhAdd] = useState('')
   const [psInput,   setPS]   = useState('')
   const [err, setErr]        = useState('')
@@ -25,9 +56,15 @@ export default function SetupTab({ onLoaded }: { onLoaded: () => void }) {
 
   // When a roster finishes uploading (or is loaded from cache after mount),
   // auto-populate the date field — unless the user already manually set it.
+  // Master roster fn_start is the annual cycle anchor → walk to current fortnight.
+  // Fortnight roster fn_start is already the specific fortnight date.
   useEffect(() => {
     if (dateUserEdited) return
-    const d = ctx.masterRosterUpload.result?.fn_start || ctx.fnRosterUpload.result?.fn_start
+    const masterFnStart = ctx.masterRosterUpload.result?.fn_start
+    const fnRosterFnStart = ctx.fnRosterUpload.result?.fn_start
+    const d = masterFnStart
+      ? computeCurrentFortnight(masterFnStart)
+      : fnRosterFnStart
     if (d) setDate(d)
   }, [ctx.fnRosterUpload.result?.fn_start, ctx.masterRosterUpload.result?.fn_start, dateUserEdited])
 
