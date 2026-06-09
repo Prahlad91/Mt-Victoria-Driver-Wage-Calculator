@@ -254,7 +254,7 @@ def compute_day(day: DayState, cfg: RateConfig, codes: PayrollCodes,
             flags=["ADO day — fortnight ±4hr adjustment applied at fortnight level (Cl. 120)."],
         )
     
-    if day.leave_cat and day.leave_cat != "none":
+    if day.leave_cat and day.leave_cat != "none" and day.leave_cat != "PDWP":
         return _compute_leave(day, cfg, codes)
     
     # No actual times → no pay
@@ -455,7 +455,7 @@ def compute_day(day: DayState, cfg: RateConfig, codes: PayrollCodes,
     else:
         build_up = r2_hrs(max(0.0, total_credit - sched_hrs))
     if build_up > 0:
-        b_rate = B * (1.5 if is_sat else (2.0 if is_sun else 1.0))
+        b_rate = B  # Cl. 157.1(b): assoc/un-assoc build-up always at base rate
         components.append(_comp(
             codes.km or '1454',
             f'Assoc Wrk Time (Mileage) — {km:.0f} km: '
@@ -477,6 +477,16 @@ def compute_day(day: DayState, cfg: RateConfig, codes: PayrollCodes,
             '1.00', f'${cfg.exp_over_10h_rate:.5f}',
             cfg.exp_over_10h_rate, date=day.date, cls='pen-row',
         ))
+
+    # PDWP — Picnic Day Worked and Paid: extra 8h ordinary on top of shift pay (Cl. 32.1)
+    # Only added when actual hours > 0 (i.e. the driver actually worked).
+    if day.leave_cat == 'PDWP' and worked_hrs > 0:
+        extra = r2(8.0 * B)
+        components.append(_comp(
+            '', 'Picnic Day — additional 8 hrs', 'Cl. 32.1',
+            '8.00 hrs', f'${B:.5f}/hr', extra, date=day.date,
+        ))
+        flags.append("PDWP: worked shift paid at applicable rates + additional 8-hr ordinary (Cl. 32.1).")
 
     if ot_h > 0:
         flags.append(f"Daily OT: {ot_h:.2f} hrs beyond 8-hr ordinary limit (Cl. 78.3).")
@@ -523,7 +533,6 @@ def _compute_leave(day: DayState, cfg: RateConfig, codes: PayrollCodes) -> DayRe
         "JD":   (r_hrs,  B, "Jury duty",             "Cl. 30.8(g)"),
         "LWOP": (0,     0, "Leave without pay",     "—"),
         "RDO":  (0,     0, "Roster day off (RDO)",   "—"),
-        "PD":   (8.0,   B, "Picnic day",             "Cl. 32.1"),
     }
     
     if cat in leave_map:
@@ -536,17 +545,17 @@ def _compute_leave(day: DayState, cfg: RateConfig, codes: PayrollCodes) -> DayRe
                          components=comps, flags=[f"{cat}: {name} ({ea})."])
     
     if cat == 'AL':
-        base = 8.0 * B
-        loading = base * 0.20
+        base = r2(8.0 * B)
+        loading = r2(7.92 * B * 0.20)   # EA: loading calculated on 7.92 hrs, not 8.00
         return DayResult(
             date=day.date, diag=day.diag, day_type='leave',
             hours=0, paid_hrs=8.0, total_pay=r2(base + loading),
             components=[
                 _comp('', 'Annual leave', 'Cl. 30.1', '8.00 hrs', f'${B:.5f}/hr', base, date=day.date),
                 _comp('', 'Annual leave loading 20%', 'Cl. 30.2(a)(ii)',
-                      '8.00 hrs', '20% loading', loading, date=day.date),
+                      '7.92 hrs', '20% loading', loading, date=day.date),
             ],
-            flags=["AL: 8 hrs + 20% loading (Cl. 30.2(a)(ii))."],
+            flags=["AL: 8 hrs ordinary + 7.92 hrs × 20% loading (Cl. 30.2(a)(ii))."],
         )
     
     if cat == 'PHW':

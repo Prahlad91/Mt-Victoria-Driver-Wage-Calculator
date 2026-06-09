@@ -136,7 +136,7 @@ export function previewDay(
     };
   }
 
-  if (day.leaveCat && day.leaveCat !== 'none') return previewLeave(day, cfg, codes);
+  if (day.leaveCat && day.leaveCat !== 'none' && day.leaveCat !== 'PDWP') return previewLeave(day, cfg, codes);
   if (!day.aStart || !day.aEnd) return null;
 
   const win = resolveWindow(day);
@@ -326,7 +326,7 @@ export function previewDay(
     ? r2Hrs(chartEntry.buildUpMins / 60)
     : r2Hrs(Math.max(0, totalCredit - schedHrs));
   if (buildUp1454 > 0) {
-    const bRate = B * (isSat ? 1.5 : isSun ? 2 : 1);
+    const bRate = B; // Cl. 157.1(b): assoc/un-assoc build-up always at base rate
     components.push({
       name: `Assoc Wrk Time (Mileage) — ${km.toFixed(0)} km: `
           + `un-assoc ${unAssocHrs.toFixed(2)}h + assoc ${assocPayHrs.toFixed(2)}h`
@@ -340,6 +340,17 @@ export function previewDay(
       + ` + dist ${distPay.toFixed(2)}h = ${totalCredit.toFixed(2)}h`
       + ` vs sched ${schedHrs.toFixed(2)}h → build-up +${buildUp1454.toFixed(2)}h.`
     );
+  }
+
+  // PDWP — Picnic Day Worked and Paid: extra 8h ordinary on top of shift pay (Cl. 32.1)
+  if (day.leaveCat === 'PDWP' && workedHrs > 0) {
+    const extra = r2(8 * B);
+    components.push({
+      name: 'Picnic Day — additional 8 hrs', ea: 'Cl. 32.1', code: '',
+      hrs: '8.00 hrs', rate: `$${B.toFixed(5)}/hr`,
+      amount: extra, cls: '', date: day.date,
+    });
+    flags.push('PDWP: worked shift paid at applicable rates + additional 8-hr ordinary (Cl. 32.1).');
   }
 
   if (otH > 0) flags.push(`Daily OT: ${otH.toFixed(2)} hrs.`);
@@ -386,7 +397,6 @@ function previewLeave(day: DayState, cfg: RateConfig, codes: PayrollCodes): DayR
     JD: [rHrs,  B, 'Jury duty', 'Cl. 30.8(g)'],
     LWOP: [0, 0, 'Leave without pay', '—'],
     RDO: [0, 0, 'Roster day off (RDO)', '—'],
-    PD: [8, B, 'Picnic day', 'Cl. 32.1'],
   };
   if (cat in map) {
     const [hrs, rate, name, ea] = map[cat];
@@ -402,17 +412,18 @@ function previewLeave(day: DayState, cfg: RateConfig, codes: PayrollCodes): DayR
     };
   }
   if (cat === 'AL') {
-    const base = 8 * B; const loading = base * 0.2;
+    const base = r2(8 * B);
+    const loading = r2(7.92 * B * 0.20);  // EA: loading on 7.92 hrs, ordinary on 8.00 hrs
     return {
       date: day.date, diag: day.diag, day_type: 'leave',
       hours: 0, paid_hrs: 8, total_pay: r2(base + loading),
       components: [
         { name: 'Annual leave', ea: 'Cl. 30.1', code: '',
-          hrs: '8.00 hrs', rate: `$${B.toFixed(5)}/hr`, amount: r2(base), cls: '', date: day.date },
+          hrs: '8.00 hrs', rate: `$${B.toFixed(5)}/hr`, amount: base, cls: '', date: day.date },
         { name: 'Annual leave loading 20%', ea: 'Cl. 30.2(a)(ii)', code: '',
-          hrs: '8.00 hrs', rate: '20% loading', amount: r2(loading), cls: 'pen-row', date: day.date },
+          hrs: '7.92 hrs', rate: '20% loading', amount: loading, cls: 'pen-row', date: day.date },
       ],
-      flags: ['AL: 8 hrs + 20% loading.'],
+      flags: ['AL: 8 hrs ordinary + 7.92 hrs × 20% loading (Cl. 30.2(a)(ii)).'],
     };
   }
   if (cat === 'PHW') {
