@@ -211,7 +211,8 @@ def _comp(code: str, name: str, ea: str, units: str, rate_str: str,
 # ─── Per-day calculation ──────────────────────────────────────────
 
 def compute_day(day: DayState, cfg: RateConfig, codes: PayrollCodes,
-                unassoc_amt: float = 0.0) -> DayResult:
+                unassoc_amt: float = 0.0,
+                next_ph: bool = False, next_dow: Optional[int] = None) -> DayResult:
     """Compute per-day pay components in payslip format. PRD §5."""
     is_sat = day.dow == 6
     is_sun = day.dow == 0
@@ -291,121 +292,322 @@ def compute_day(day: DayState, cfg: RateConfig, codes: PayrollCodes,
             flags=flags + [f"__WOBOD_PENDING__:{actual_hrs}"],
         )
     
-    # ─── Non-WOBOD ─────────────────────────────────────────────────
-    ord_h = r2_hrs(min(worked_hrs, 8.0))
-    ot_h = r2_hrs(max(0.0, worked_hrs - 8.0))
-    # Cl. 78.3: first 3 hours of daily OT at 1.5×, beyond that at 2.0×.
-    # (Fixed v3.19 — was incorrectly using a 2-hour boundary.)
-    ot1h = r2_hrs(min(ot_h, 3.0))
-    ot2h = r2_hrs(max(0.0, ot_h - 3.0))
-    
-    if is_ph:
-        # PH worked: base at 1× pooled, loading at 0.5× (wkdy) or 1.5× (weekend)
-        loading_pct = 1.5 if (is_sat or is_sun) else 0.5
-        loading_rate = B * loading_pct
-        ph_h = r2_hrs(max(worked_hrs, km_credited or 0))
-        components.append(_comp(
-            codes.base or '1001', 'Ordinary Hours (PH worked, base portion)', 'Sch. 4A',
-            f'{ph_h:.2f} hrs', f'${B:.5f}/hr',
-            ph_h * B, date=day.date, pool=True,
-        ))
-        loading_code = (codes.ph_wke or '1010') if (is_sat or is_sun) else (codes.ph_wkd or '5042')
-        components.append(_comp(
-            loading_code,
-            f'PH worked loading (+{int(loading_pct*100)}%, {"weekend" if (is_sat or is_sun) else "weekday"})',
-            'Cl. 31.5(a)',
-            f'{ph_h:.2f} hrs', f'${loading_rate:.5f}/hr',
-            ph_h * loading_rate, date=day.date,
-        ))
-        flags.append(f"PH worked: loading + additional day pay accrues (Cl. 31.5(b)).")
-    
-    elif is_sun:
-        components.append(_comp(
-            codes.base or '1001', 'Ordinary Hours (Sunday, base portion)', 'Sch. 4A',
-            f'{ord_h:.2f} hrs', f'${B:.5f}/hr',
-            ord_h * B, date=day.date, pool=True,
-        ))
-        components.append(_comp(
-            codes.sun or '', 'Loading @ 100% Sunday', 'Cl. 54.2',
-            f'{ord_h:.2f} hrs', f'${B:.5f}/hr',
-            ord_h * B, date=day.date,
-        ))
-        if ot1h + ot2h > 0:
-            ot_total = r2_hrs(ot1h + ot2h)
-            components.append(_comp(
-                codes.sat_ot or '1027', 'Sched OT 200%', 'Cl. 140.2(d)',
-                f'{ot_total:.2f} hrs', f'${B*2:.5f}/hr (200%)',
-                ot_total * B * 2.0, date=day.date,
-            ))
-    
-    elif is_sat:
-        components.append(_comp(
-            codes.base or '1001', 'Ordinary Hours (Saturday, base portion)', 'Sch. 4A',
-            f'{ord_h:.2f} hrs', f'${B:.5f}/hr',
-            ord_h * B, date=day.date, pool=True,
-        ))
-        sat_loading = B * 0.5
-        components.append(_comp(
-            codes.sat or '1064', 'Loading @ 50% Saturday', 'Cl. 54.1',
-            f'{ord_h:.2f} hrs', f'${sat_loading:.5f}/hr',
-            ord_h * sat_loading, date=day.date,
-        ))
-        if ot1h + ot2h > 0:
-            ot_total = r2_hrs(ot1h + ot2h)
-            components.append(_comp(
-                codes.sat_ot or '1027', 'Sched OT 200%', 'Cl. 140.2(b)',
-                f'{ot_total:.2f} hrs', f'${B*2:.5f}/hr (200%)',
-                ot_total * B * 2.0, date=day.date,
-            ))
-    
+    # ─── Cross-midnight split (v3.53) ──────────────────────────────────────────
+    # When actual shift crosses midnight (cm=True), split the effective window at
+    # midnight: pre-midnight hours at sign-on day rates, post-midnight hours at
+    # next day rates. For PH+OT: loading and OT rate both stack (option d confirmed).
+    _DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+    cm_split = day.cm and win['eff_e'] > 1440 and next_dow is not None
+
+    if cm_split:
+        eff_s, eff_e = win['eff_s'], win['eff_e']
+        pre_mins  = 1440 - eff_s
+        post_mins = eff_e  - 1440
+
+        pre_ord_h = r2_hrs(min(pre_mins / 60, 8.0))
+        pre_ot_h  = r2_hrs(max(0.0, pre_mins / 60 - 8.0))
+        pre_ot1h  = r2_hrs(min(pre_ot_h, 3.0))
+        pre_ot2h  = r2_hrs(max(0.0, pre_ot_h - 3.0))
+
+        post_ord_h = r2_hrs(max(0.0, min(post_mins / 60, 8.0 - pre_ord_h)))
+        post_ot_h  = r2_hrs(max(0.0, post_mins / 60 - post_ord_h))
+        post_ot1h  = r2_hrs(min(post_ot_h, 3.0))
+        post_ot2h  = r2_hrs(max(0.0, post_ot_h - 3.0))
+        ot_h       = r2_hrs(pre_ot_h + post_ot_h)
+
+        next_is_sat = next_dow == 6
+        next_is_sun = next_dow == 0
+
+        # ── Pre-midnight (sign-on day rates) ─────────────────────
+        if is_ph:
+            pre_ph_load = 1.5 if (is_sat or is_sun) else 0.5
+            pre_ph_code = (codes.ph_wke or '1010') if (is_sat or is_sun) else (codes.ph_wkd or '5042')
+            if pre_ord_h > 0:
+                components.append(_comp(codes.base or '1001',
+                    'Ordinary Hours (PH, base)', 'Sch. 4A',
+                    f'{pre_ord_h:.2f} hrs', f'${B:.5f}/hr',
+                    pre_ord_h * B, date=day.date, pool=True))
+                components.append(_comp(pre_ph_code,
+                    f'PH loading +{int(pre_ph_load*100)}%', 'Cl. 31.5(a)',
+                    f'{pre_ord_h:.2f} hrs', f'${B*pre_ph_load:.5f}/hr',
+                    pre_ord_h * B * pre_ph_load, date=day.date))
+            if pre_ot1h > 0:
+                r = cfg.ot1 + pre_ph_load
+                components.append(_comp(codes.ot1 or '1026',
+                    'Sched OT 150% + PH loading (stacked)', 'Cl. 78.3+Cl.31.5(a)',
+                    f'{pre_ot1h:.2f} hrs', f'${B*r:.5f}/hr',
+                    pre_ot1h * B * r, date=day.date))
+            if pre_ot2h > 0:
+                r = cfg.ot2 + pre_ph_load
+                components.append(_comp(codes.ot2 or '1110',
+                    'Sched OT 200% + PH loading (stacked)', 'Cl. 78.3+Cl.31.5(a)',
+                    f'{pre_ot2h:.2f} hrs', f'${B*r:.5f}/hr',
+                    pre_ot2h * B * r, date=day.date))
+        elif is_sun:
+            if pre_ord_h > 0:
+                components.append(_comp(codes.base or '1001',
+                    'Ordinary Hours (Sunday, base)', 'Sch. 4A',
+                    f'{pre_ord_h:.2f} hrs', f'${B:.5f}/hr',
+                    pre_ord_h * B, date=day.date, pool=True))
+                components.append(_comp(codes.sun or '',
+                    'Loading @ 100% Sunday', 'Cl. 54.2',
+                    f'{pre_ord_h:.2f} hrs', f'${B:.5f}/hr',
+                    pre_ord_h * B, date=day.date))
+            if pre_ot1h + pre_ot2h > 0:
+                ot_t = r2_hrs(pre_ot1h + pre_ot2h)
+                components.append(_comp(codes.sat_ot or '1027',
+                    'Sched OT 200%', 'Cl. 140.2(d)',
+                    f'{ot_t:.2f} hrs', f'${B*2:.5f}/hr (200%)',
+                    ot_t * B * 2.0, date=day.date))
+        elif is_sat:
+            if pre_ord_h > 0:
+                components.append(_comp(codes.base or '1001',
+                    'Ordinary Hours (Saturday, base)', 'Sch. 4A',
+                    f'{pre_ord_h:.2f} hrs', f'${B:.5f}/hr',
+                    pre_ord_h * B, date=day.date, pool=True))
+                components.append(_comp(codes.sat or '1064',
+                    'Loading @ 50% Saturday', 'Cl. 54.1',
+                    f'{pre_ord_h:.2f} hrs', f'${B*0.5:.5f}/hr',
+                    pre_ord_h * B * 0.5, date=day.date))
+            if pre_ot1h + pre_ot2h > 0:
+                ot_t = r2_hrs(pre_ot1h + pre_ot2h)
+                components.append(_comp(codes.sat_ot or '1027',
+                    'Sched OT 200%', 'Cl. 140.2(b)',
+                    f'{ot_t:.2f} hrs', f'${B*2:.5f}/hr (200%)',
+                    ot_t * B * 2.0, date=day.date))
+        else:  # weekday sign-on
+            if pre_ord_h > 0:
+                components.append(_comp(codes.base or '1001',
+                    'Ordinary Hours', 'Sch. 4A',
+                    f'{pre_ord_h:.2f} hrs', f'${B:.5f}/hr',
+                    pre_ord_h * B, date=day.date, pool=True))
+            if pre_ot1h > 0:
+                components.append(_comp(codes.ot1 or '1026',
+                    'Sched OT 150%', 'Cl. 140.2(a)',
+                    f'{pre_ot1h:.2f} hrs', f'${B*1.5:.5f}/hr',
+                    pre_ot1h * B * 1.5, date=day.date))
+            if pre_ot2h > 0:
+                components.append(_comp(codes.ot2 or '1110',
+                    'Sched OT 200%', 'Cl. 140.2(a)',
+                    f'{pre_ot2h:.2f} hrs', f'${B*2:.5f}/hr',
+                    pre_ot2h * B * 2.0, date=day.date))
+            sc = _get_shift_class(a_s, a_e)
+            if sc:
+                pen_rate = (cfg.night_rate if sc == 'night' else
+                            cfg.early_rate if sc == 'early' else cfg.afternoon_rate)
+                pen_h = round_hrs_ea(pre_ord_h)
+                pen_code = (codes.night if sc == 'night' else
+                            codes.early if sc == 'early' else codes.afternoon)
+                pen_name = ('Night Shift Dvrs/Grds Hrl' if sc == 'night' else
+                            'Morning Shift Dvrs/Grds H' if sc == 'early' else
+                            'Afternoon Shift Dvrs/Grds')
+                pen_clause = f'Item {7 if sc=="night" else 8 if sc=="early" else 6} Sch.4B'
+                components.append(_comp(pen_code or '', pen_name, pen_clause,
+                    f'{float(pen_h):.2f} hrs', f'${pen_rate:.5f}/hr',
+                    pen_h * pen_rate, date=day.date, cls='pen-row'))
+            if _add_loading_eligible(a_s, day.dow, is_ph):
+                components.append(_comp(codes.add_load or '1470',
+                    'Special Loading Drvs/Grds', 'Cl. 134.4',
+                    '1.00 hrs', f'${cfg.add_loading:.5f}/hr',
+                    cfg.add_loading, date=day.date, cls='pen-row'))
+
+        # ── Post-midnight (next day rates) ─────────────────────────
+        if next_ph:
+            nph_load = 1.5 if (next_is_sat or next_is_sun) else 0.5
+            nph_code = (codes.ph_wke or '1010') if (next_is_sat or next_is_sun) else (codes.ph_wkd or '5042')
+            if post_ord_h > 0:
+                components.append(_comp(codes.base or '1001',
+                    'Ordinary Hours (next-day PH, base)', 'Sch. 4A',
+                    f'{post_ord_h:.2f} hrs', f'${B:.5f}/hr',
+                    post_ord_h * B, date=day.date, pool=True))
+                components.append(_comp(nph_code,
+                    f'PH loading +{int(nph_load*100)}% (next day)', 'Cl. 31.5(a)',
+                    f'{post_ord_h:.2f} hrs', f'${B*nph_load:.5f}/hr',
+                    post_ord_h * B * nph_load, date=day.date))
+            if post_ot1h > 0:
+                r = cfg.ot1 + nph_load
+                components.append(_comp(codes.ot1 or '1026',
+                    'Sched OT 150% + PH loading (stacked)', 'Cl. 78.3+Cl.31.5(a)',
+                    f'{post_ot1h:.2f} hrs', f'${B*r:.5f}/hr',
+                    post_ot1h * B * r, date=day.date))
+            if post_ot2h > 0:
+                r = cfg.ot2 + nph_load
+                components.append(_comp(codes.ot2 or '1110',
+                    'Sched OT 200% + PH loading (stacked)', 'Cl. 78.3+Cl.31.5(a)',
+                    f'{post_ot2h:.2f} hrs', f'${B*r:.5f}/hr',
+                    post_ot2h * B * r, date=day.date))
+        elif next_is_sun:
+            if post_ord_h > 0:
+                components.append(_comp(codes.base or '1001',
+                    'Ordinary Hours (next-day Sun, base)', 'Sch. 4A',
+                    f'{post_ord_h:.2f} hrs', f'${B:.5f}/hr',
+                    post_ord_h * B, date=day.date, pool=True))
+                components.append(_comp(codes.sun or '',
+                    'Loading @ 100% Sunday (next day)', 'Cl. 54.2',
+                    f'{post_ord_h:.2f} hrs', f'${B:.5f}/hr',
+                    post_ord_h * B, date=day.date))
+            if post_ot1h + post_ot2h > 0:
+                ot_t = r2_hrs(post_ot1h + post_ot2h)
+                components.append(_comp(codes.sat_ot or '1027',
+                    'Sched OT 200% (next-day Sun)', 'Cl. 140.2(d)',
+                    f'{ot_t:.2f} hrs', f'${B*2:.5f}/hr (200%)',
+                    ot_t * B * 2.0, date=day.date))
+        elif next_is_sat:
+            if post_ord_h > 0:
+                components.append(_comp(codes.base or '1001',
+                    'Ordinary Hours (next-day Sat, base)', 'Sch. 4A',
+                    f'{post_ord_h:.2f} hrs', f'${B:.5f}/hr',
+                    post_ord_h * B, date=day.date, pool=True))
+                components.append(_comp(codes.sat or '1064',
+                    'Loading @ 50% Saturday (next day)', 'Cl. 54.1',
+                    f'{post_ord_h:.2f} hrs', f'${B*0.5:.5f}/hr',
+                    post_ord_h * B * 0.5, date=day.date))
+            if post_ot1h + post_ot2h > 0:
+                ot_t = r2_hrs(post_ot1h + post_ot2h)
+                components.append(_comp(codes.sat_ot or '1027',
+                    'Sched OT 200% (next-day Sat)', 'Cl. 140.2(b)',
+                    f'{ot_t:.2f} hrs', f'${B*2:.5f}/hr (200%)',
+                    ot_t * B * 2.0, date=day.date))
+        else:  # next day is weekday
+            if post_ord_h > 0:
+                components.append(_comp(codes.base or '1001',
+                    'Ordinary Hours (next-day wkdy)', 'Sch. 4A',
+                    f'{post_ord_h:.2f} hrs', f'${B:.5f}/hr',
+                    post_ord_h * B, date=day.date, pool=True))
+            if post_ot1h > 0:
+                components.append(_comp(codes.ot1 or '1026',
+                    'Sched OT 150% (next day)', 'Cl. 140.2(a)',
+                    f'{post_ot1h:.2f} hrs', f'${B*1.5:.5f}/hr',
+                    post_ot1h * B * 1.5, date=day.date))
+            if post_ot2h > 0:
+                components.append(_comp(codes.ot2 or '1110',
+                    'Sched OT 200% (next day)', 'Cl. 140.2(a)',
+                    f'{post_ot2h:.2f} hrs', f'${B*2:.5f}/hr',
+                    post_ot2h * B * 2.0, date=day.date))
+
+        flags.append(
+            f"Cross-midnight split: {r2_hrs(pre_mins/60):.2f}h pre-midnight "
+            f"({_DOW[day.dow]}{', PH' if is_ph else ''}) "
+            f"+ {r2_hrs(post_mins/60):.2f}h post-midnight "
+            f"({'PH ' if next_ph else ''}{_DOW[next_dow]})."
+        )
+
     else:
-        # Weekday
-        components.append(_comp(
-            codes.base or '1001', 'Ordinary Hours', 'Sch. 4A',
-            f'{ord_h:.2f} hrs', f'${B:.5f}/hr',
-            ord_h * B, date=day.date, pool=True,
-        ))
-        if ot1h > 0:
-            ot1_rate = B * 1.5
+        # ─── Non-WOBOD (no midnight split) ─────────────────────────────────────
+        ord_h = r2_hrs(min(worked_hrs, 8.0))
+        ot_h = r2_hrs(max(0.0, worked_hrs - 8.0))
+        # Cl. 78.3: first 3 hours of daily OT at 1.5×, beyond that at 2.0×.
+        # (Fixed v3.19 — was incorrectly using a 2-hour boundary.)
+        ot1h = r2_hrs(min(ot_h, 3.0))
+        ot2h = r2_hrs(max(0.0, ot_h - 3.0))
+
+        if is_ph:
+            # PH worked: base at 1× pooled, loading at 0.5× (wkdy) or 1.5× (weekend)
+            loading_pct = 1.5 if (is_sat or is_sun) else 0.5
+            loading_rate = B * loading_pct
+            ph_h = r2_hrs(max(worked_hrs, km_credited or 0))
             components.append(_comp(
-                codes.ot1 or '1026', 'Sched OT 150%', 'Cl. 140.2(a)',
-                f'{ot1h:.2f} hrs', f'${ot1_rate:.5f}/hr',
-                ot1h * ot1_rate, date=day.date,
+                codes.base or '1001', 'Ordinary Hours (PH worked, base portion)', 'Sch. 4A',
+                f'{ph_h:.2f} hrs', f'${B:.5f}/hr',
+                ph_h * B, date=day.date, pool=True,
             ))
-        if ot2h > 0:
-            ot2_rate = B * 2.0
+            loading_code = (codes.ph_wke or '1010') if (is_sat or is_sun) else (codes.ph_wkd or '5042')
             components.append(_comp(
-                codes.ot2 or '1110', 'Sched OT 200%', 'Cl. 140.2(a)',
-                f'{ot2h:.2f} hrs', f'${ot2_rate:.5f}/hr',
-                ot2h * ot2_rate, date=day.date,
+                loading_code,
+                f'PH worked loading (+{int(loading_pct*100)}%, {"weekend" if (is_sat or is_sun) else "weekday"})',
+                'Cl. 31.5(a)',
+                f'{ph_h:.2f} hrs', f'${loading_rate:.5f}/hr',
+                ph_h * loading_rate, date=day.date,
             ))
-        # Shift penalty (Cl. 134.1)
-        sc = _get_shift_class(a_s, a_e)
-        if sc:
-            pen_rate = (cfg.night_rate if sc == 'night' else
-                        cfg.early_rate if sc == 'early' else
-                        cfg.afternoon_rate)
-            pen_h = round_hrs_ea(ord_h)
-            pen_code = (codes.night if sc == 'night' else
-                        codes.early if sc == 'early' else
-                        codes.afternoon)
-            pen_name = ('Night Shift Dvrs/Grds Hrl' if sc == 'night' else
-                        'Morning Shift Dvrs/Grds H' if sc == 'early' else
-                        'Afternoon Shift Dvrs/Grds')
-            pen_clause = f'Item {7 if sc=="night" else 8 if sc=="early" else 6} Sch.4B'
+            flags.append(f"PH worked: loading + additional day pay accrues (Cl. 31.5(b)).")
+
+        elif is_sun:
             components.append(_comp(
-                pen_code or '', pen_name, pen_clause,
-                f'{float(pen_h):.2f} hrs', f'${pen_rate:.5f}/hr',
-                pen_h * pen_rate, date=day.date, cls='pen-row',
+                codes.base or '1001', 'Ordinary Hours (Sunday, base portion)', 'Sch. 4A',
+                f'{ord_h:.2f} hrs', f'${B:.5f}/hr',
+                ord_h * B, date=day.date, pool=True,
             ))
-        # Item 9 (Cl. 134.4)
-        if _add_loading_eligible(a_s, day.dow, is_ph):
             components.append(_comp(
-                codes.add_load or '1470',
-                'Special Loading Drvs/Grds', 'Cl. 134.4',
-                '1.00 hrs', f'${cfg.add_loading:.5f}/hr',
-                cfg.add_loading, date=day.date, cls='pen-row',
+                codes.sun or '', 'Loading @ 100% Sunday', 'Cl. 54.2',
+                f'{ord_h:.2f} hrs', f'${B:.5f}/hr',
+                ord_h * B, date=day.date,
             ))
+            if ot1h + ot2h > 0:
+                ot_total = r2_hrs(ot1h + ot2h)
+                components.append(_comp(
+                    codes.sat_ot or '1027', 'Sched OT 200%', 'Cl. 140.2(d)',
+                    f'{ot_total:.2f} hrs', f'${B*2:.5f}/hr (200%)',
+                    ot_total * B * 2.0, date=day.date,
+                ))
+
+        elif is_sat:
+            components.append(_comp(
+                codes.base or '1001', 'Ordinary Hours (Saturday, base portion)', 'Sch. 4A',
+                f'{ord_h:.2f} hrs', f'${B:.5f}/hr',
+                ord_h * B, date=day.date, pool=True,
+            ))
+            sat_loading = B * 0.5
+            components.append(_comp(
+                codes.sat or '1064', 'Loading @ 50% Saturday', 'Cl. 54.1',
+                f'{ord_h:.2f} hrs', f'${sat_loading:.5f}/hr',
+                ord_h * sat_loading, date=day.date,
+            ))
+            if ot1h + ot2h > 0:
+                ot_total = r2_hrs(ot1h + ot2h)
+                components.append(_comp(
+                    codes.sat_ot or '1027', 'Sched OT 200%', 'Cl. 140.2(b)',
+                    f'{ot_total:.2f} hrs', f'${B*2:.5f}/hr (200%)',
+                    ot_total * B * 2.0, date=day.date,
+                ))
+
+        else:
+            # Weekday
+            components.append(_comp(
+                codes.base or '1001', 'Ordinary Hours', 'Sch. 4A',
+                f'{ord_h:.2f} hrs', f'${B:.5f}/hr',
+                ord_h * B, date=day.date, pool=True,
+            ))
+            if ot1h > 0:
+                ot1_rate = B * 1.5
+                components.append(_comp(
+                    codes.ot1 or '1026', 'Sched OT 150%', 'Cl. 140.2(a)',
+                    f'{ot1h:.2f} hrs', f'${ot1_rate:.5f}/hr',
+                    ot1h * ot1_rate, date=day.date,
+                ))
+            if ot2h > 0:
+                ot2_rate = B * 2.0
+                components.append(_comp(
+                    codes.ot2 or '1110', 'Sched OT 200%', 'Cl. 140.2(a)',
+                    f'{ot2h:.2f} hrs', f'${ot2_rate:.5f}/hr',
+                    ot2h * ot2_rate, date=day.date,
+                ))
+            # Shift penalty (Cl. 134.1)
+            sc = _get_shift_class(a_s, a_e)
+            if sc:
+                pen_rate = (cfg.night_rate if sc == 'night' else
+                            cfg.early_rate if sc == 'early' else
+                            cfg.afternoon_rate)
+                pen_h = round_hrs_ea(ord_h)
+                pen_code = (codes.night if sc == 'night' else
+                            codes.early if sc == 'early' else
+                            codes.afternoon)
+                pen_name = ('Night Shift Dvrs/Grds Hrl' if sc == 'night' else
+                            'Morning Shift Dvrs/Grds H' if sc == 'early' else
+                            'Afternoon Shift Dvrs/Grds')
+                pen_clause = f'Item {7 if sc=="night" else 8 if sc=="early" else 6} Sch.4B'
+                components.append(_comp(
+                    pen_code or '', pen_name, pen_clause,
+                    f'{float(pen_h):.2f} hrs', f'${pen_rate:.5f}/hr',
+                    pen_h * pen_rate, date=day.date, cls='pen-row',
+                ))
+            # Item 9 (Cl. 134.4)
+            if _add_loading_eligible(a_s, day.dow, is_ph):
+                components.append(_comp(
+                    codes.add_load or '1470',
+                    'Special Loading Drvs/Grds', 'Cl. 134.4',
+                    '1.00 hrs', f'${cfg.add_loading:.5f}/hr',
+                    cfg.add_loading, date=day.date, cls='pen-row',
+                ))
     
     # 1454 "Assoc Wrk Time (Mileage)" per Cl. 157.1(b) / Cl. 146.4
     # Formula: Build Up = max(0, Un-Assoc + Assoc Payment + Distance Payment − Shift Length)
@@ -599,7 +801,14 @@ def compute_fortnight(req: CalculateRequest) -> CalculateResponse:
         d.is_short_fortnight = is_short
     
     # ─── Pass 1: per-day calc ─────────────────────────────────────────
-    day_results = [compute_day(d, cfg, codes, req.unassoc_amt) for d in days]
+    day_results = []
+    for i, d in enumerate(days):
+        nd = days[i + 1] if i + 1 < len(days) else None
+        day_results.append(
+            compute_day(d, cfg, codes, req.unassoc_amt,
+                        next_ph=nd.ph if nd else False,
+                        next_dow=nd.dow if nd else None)
+        )
     
     # ─── Pass 2: WOBOD components (with weekday counter) ─────────────
     weekday_wobod_count = 0
