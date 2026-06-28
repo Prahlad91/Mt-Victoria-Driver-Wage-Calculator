@@ -357,7 +357,11 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
   weSchedRef.current = weekendScheduleUpload.result
 
   const previews = useMemo(
-    () => days.map(d => previewDay(d, config, codes, unassocAmt, assocChart)),
+    () => days.map((d, i) => previewDay(
+      d, config, codes, unassocAmt, assocChart,
+      days[i + 1]?.ph ?? false,
+      days[i + 1]?.dow ?? null,
+    )),
     [days, config, codes, unassocAmt, assocChart],
   )
   // v3.11: short fortnight detection now considers BOTH diag === 'ADO' AND wasAdo
