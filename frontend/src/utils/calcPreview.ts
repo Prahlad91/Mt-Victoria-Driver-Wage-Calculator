@@ -431,42 +431,47 @@ function previewLeave(day: DayState, cfg: RateConfig, codes: PayrollCodes): DayR
       flags: ['AL: 8 hrs ordinary + 7.92 hrs × 20% loading (Cl. 30.2(a)(ii)).'],
     };
   }
-  if (cat === 'PHW') {
+  if (cat === 'PHW' || cat === 'PHWA') {
     let payHrs = rHrs;
     if (day.aStart && day.aEnd) {
       const aS = toMins(day.aStart); let aE = toMins(day.aEnd);
       if (aS !== null && aE !== null) { if (day.cm || aE <= aS) aE += 1440; payHrs = r2Hrs(toHrs(aE - aS)); }
     }
-    const loading = payHrs * B * 1.5; const addDay = 8 * B;
-    return {
-      date: day.date, diag: day.diag, day_type: 'leave',
-      hours: payHrs, paid_hrs: payHrs, total_pay: r2(loading + addDay),
-      components: [
-        { name: 'PHW — 150% loading', ea: 'Cl. 31.5(a)', code: '',
-          hrs: `${payHrs.toFixed(2)} hrs`, rate: '1.5×', amount: r2(loading), cls: '', date: day.date },
-        { name: 'PHW — additional day', ea: 'Cl. 31.5(b)', code: '',
-          hrs: '8.00 hrs', rate: `$${B.toFixed(5)}/hr`, amount: r2(addDay), cls: '', date: day.date },
-      ],
-      flags: ['PHW: 150% + additional day.'],
-    };
-  }
-  if (cat === 'PHWA') {
-    let payHrs = rHrs;
-    if (day.aStart && day.aEnd) {
-      const aS = toMins(day.aStart); let aE = toMins(day.aEnd);
-      if (aS !== null && aE !== null) { if (day.cm || aE <= aS) aE += 1440; payHrs = r2Hrs(toHrs(aE - aS)); }
+    // 150% loading on first 8h only; OT beyond 8h at Cl. 78.3 rates
+    const ordH = r2Hrs(Math.min(payHrs, 8)); const otH = r2Hrs(Math.max(0, payHrs - 8));
+    const ot1H = r2Hrs(Math.min(otH, 3)); const ot2H = r2Hrs(Math.max(0, otH - 3));
+    const loading = r2(ordH * B * 1.5);
+    const comps: PayComponent[] = [
+      { name: 'PHW — 150% loading', ea: 'Cl. 31.5(a)', code: '',
+        hrs: `${ordH.toFixed(2)} hrs`, rate: '1.5×', amount: loading, cls: '', date: day.date },
+    ];
+    let total = loading;
+    if (ot1H > 0) {
+      const ot1Amt = r2(ot1H * B * (cfg.ot1 ?? 1.5));
+      comps.push({ name: 'Sched OT 150%', ea: 'Cl. 78.3', code: codes.ot1 || '1026',
+        hrs: `${ot1H.toFixed(2)} hrs`, rate: `$${(B * (cfg.ot1 ?? 1.5)).toFixed(5)}/hr`, amount: ot1Amt, cls: '', date: day.date });
+      total = r2(total + ot1Amt);
     }
-    const loading = payHrs * B * 1.5;
+    if (ot2H > 0) {
+      const ot2Amt = r2(ot2H * B * (cfg.ot2 ?? 2.0));
+      comps.push({ name: 'Sched OT 200%', ea: 'Cl. 78.3', code: codes.ot2 || '1110',
+        hrs: `${ot2H.toFixed(2)} hrs`, rate: `$${(B * (cfg.ot2 ?? 2.0)).toFixed(5)}/hr`, amount: ot2Amt, cls: '', date: day.date });
+      total = r2(total + ot2Amt);
+    }
+    if (cat === 'PHW') {
+      const addDay = r2(8 * B);
+      comps.push({ name: 'PHW — additional day', ea: 'Cl. 31.5(b)', code: '',
+        hrs: '8.00 hrs', rate: `$${B.toFixed(5)}/hr`, amount: addDay, cls: '', date: day.date });
+      total = r2(total + addDay);
+    }
+    const otNote = otH > 0 ? ` + ${otH.toFixed(2)}h OT (Cl. 78.3)` : '';
+    const flag = cat === 'PHW'
+      ? `PHW: ${ordH.toFixed(2)}h at 150% loading${otNote} + additional day.`
+      : `PHW (accrued): ${ordH.toFixed(2)}h at 150% loading${otNote}; additional 8-hr day accrues (Cl. 31.5(b)).`;
     return {
       date: day.date, diag: day.diag, day_type: 'leave',
-      hours: payHrs, paid_hrs: payHrs, total_pay: r2(loading),
-      components: [
-        { name: 'PHW — 150% loading', ea: 'Cl. 31.5(a)', code: '',
-          hrs: `${payHrs.toFixed(2)} hrs`, rate: '1.5×', amount: r2(loading), cls: '', date: day.date },
-      ],
-      flags: [
-        'PHW (accrued): 150% loading paid; additional 8-hr day accrues for future use (Cl. 31.5(b)).',
-      ],
+      hours: payHrs, paid_hrs: payHrs, total_pay: total,
+      components: comps, flags: [flag],
     };
   }
   return {

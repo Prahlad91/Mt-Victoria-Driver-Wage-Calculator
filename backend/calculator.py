@@ -534,47 +534,43 @@ def _compute_leave(day: DayState, cfg: RateConfig, codes: PayrollCodes) -> DayRe
             flags=["AL: 8 hrs ordinary + 7.92 hrs × 20% loading (Cl. 30.2(a)(ii))."],
         )
     
-    if cat == 'PHW':
+    if cat in ('PHW', 'PHWA'):
         pay_hrs = r_hrs
         if day.a_start and day.a_end:
             a_s = _to_mins(day.a_start); a_e = _to_mins(day.a_end)
             if a_s is not None and a_e is not None:
                 if day.cm or a_e <= a_s: a_e += 1440
                 pay_hrs = r2_hrs((a_e - a_s) / 60)
-        loading = r2(pay_hrs * B * 1.5)
-        add_day = r2(8.0 * B)
-        return DayResult(
-            date=day.date, diag=day.diag, day_type='leave',
-            hours=pay_hrs, paid_hrs=pay_hrs, total_pay=r2(loading + add_day),
-            components=[
-                _comp('', 'PHW — 150% loading', 'Cl. 31.5(a)',
-                      f'{pay_hrs:.2f} hrs', '1.5× ordinary', loading, date=day.date),
-                _comp('', 'PHW — additional day', 'Cl. 31.5(b)',
-                      '8.00 hrs', f'${B:.5f}/hr', add_day, date=day.date),
-            ],
-            flags=["PHW: 150% loading + additional day (Cl. 31.5)."],
-        )
-
-    if cat == 'PHWA':
-        pay_hrs = r_hrs
-        if day.a_start and day.a_end:
-            a_s = _to_mins(day.a_start); a_e = _to_mins(day.a_end)
-            if a_s is not None and a_e is not None:
-                if day.cm or a_e <= a_s: a_e += 1440
-                pay_hrs = r2_hrs((a_e - a_s) / 60)
-        loading = r2(pay_hrs * B * 1.5)
-        return DayResult(
-            date=day.date, diag=day.diag, day_type='leave',
-            hours=pay_hrs, paid_hrs=pay_hrs, total_pay=r2(loading),
-            components=[
-                _comp('', 'PHW — 150% loading', 'Cl. 31.5(a)',
-                      f'{pay_hrs:.2f} hrs', '1.5× ordinary', loading, date=day.date),
-            ],
-            flags=[
-                "PHW (accrued): 150% loading paid; "
-                "additional 8-hr day accrues for future use (Cl. 31.5(b))."
-            ],
-        )
+        # Split: 150% loading applies to first 8h only; OT beyond 8h at Cl. 78.3 rates
+        ord_h = r2_hrs(min(pay_hrs, 8.0))
+        ot_h  = r2_hrs(max(0.0, pay_hrs - 8.0))
+        ot1_h = r2_hrs(min(ot_h, 3.0))
+        ot2_h = r2_hrs(max(0.0, ot_h - 3.0))
+        loading = r2(ord_h * B * 1.5)
+        components = [_comp('', 'PHW — 150% loading', 'Cl. 31.5(a)',
+                            f'{ord_h:.2f} hrs', '1.5× ordinary', loading, date=day.date)]
+        total = loading
+        if ot1_h > 0:
+            ot1_amt = r2(ot1_h * B * cfg.ot1)
+            components.append(_comp(codes.ot1 or '1026', 'Sched OT 150%', 'Cl. 78.3',
+                                    f'{ot1_h:.2f} hrs', f'${B * cfg.ot1:.5f}/hr', ot1_amt, date=day.date))
+            total = r2(total + ot1_amt)
+        if ot2_h > 0:
+            ot2_amt = r2(ot2_h * B * cfg.ot2)
+            components.append(_comp(codes.ot2 or '1110', 'Sched OT 200%', 'Cl. 78.3',
+                                    f'{ot2_h:.2f} hrs', f'${B * cfg.ot2:.5f}/hr', ot2_amt, date=day.date))
+            total = r2(total + ot2_amt)
+        if cat == 'PHW':
+            add_day = r2(8.0 * B)
+            components.append(_comp('', 'PHW — additional day', 'Cl. 31.5(b)',
+                                    '8.00 hrs', f'${B:.5f}/hr', add_day, date=day.date))
+            total = r2(total + add_day)
+            flag = f"PHW: {ord_h:.2f}h at 150% loading" + (f" + {ot_h:.2f}h OT (Cl. 78.3)" if ot_h > 0 else "") + " + additional day (Cl. 31.5)."
+        else:
+            flag = f"PHW (accrued): {ord_h:.2f}h at 150% loading" + (f" + {ot_h:.2f}h OT (Cl. 78.3)" if ot_h > 0 else "") + "; additional 8-hr day accrues for future use (Cl. 31.5(b))."
+        return DayResult(date=day.date, diag=day.diag, day_type='leave',
+                         hours=pay_hrs, paid_hrs=pay_hrs, total_pay=total,
+                         components=components, flags=[flag])
     
     return DayResult(date=day.date, diag=day.diag, day_type='leave',
                      hours=0, paid_hrs=0, total_pay=0,
