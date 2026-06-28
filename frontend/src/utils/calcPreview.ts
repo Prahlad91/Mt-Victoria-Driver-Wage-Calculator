@@ -68,7 +68,7 @@ function resolveWindow(day: DayState): {
   const rS = toMins(day.rStart);
   let rE = toMins(day.rEnd);
   if (rS === null || rE === null) return base;
-  if (day.cm || rE <= rS) rE += 1440;
+  if (rE <= rS) rE += 1440;  // cm only describes actual times; scheduled cross-midnight is rE < rS
 
   if (!day.claimLiftupLayback) return base;
 

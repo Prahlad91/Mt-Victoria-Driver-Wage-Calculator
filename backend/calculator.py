@@ -150,7 +150,7 @@ def _resolve_window(day: DayState) -> dict:
     r_e = _to_mins(day.r_end)
     if r_s is None or r_e is None:
         return base
-    if day.cm or r_e <= r_s:
+    if r_e <= r_s:  # cm only describes actual times; scheduled cross-midnight is r_e < r_s
         r_e += 1440
 
     if not day.claim_liftup_layback:
