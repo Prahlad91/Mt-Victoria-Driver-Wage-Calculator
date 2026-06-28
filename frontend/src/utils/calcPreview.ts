@@ -77,7 +77,7 @@ function resolveWindow(day: DayState): {
   const overlapRatio = minDuration > 0 ? overlapMins / minDuration : 0;
   base.overlapRatio = overlapRatio;
 
-  const isShiftSwap = overlapRatio < 0.5;
+  const isShiftSwap = overlapRatio < 0.25; // <25% = clear swap; 25-50% = shifted start, allow claim
   const userWantsClaim = day.claimLiftupLayback;
 
   if (userWantsClaim && !isShiftSwap) {
@@ -180,6 +180,31 @@ export function previewDay(
       hrs: `${wh.toFixed(2)} hrs`, rate: `$${addlRate.toFixed(5)}/hr`,
       amount: r2(wh * addlRate), cls: '', date: day.date,
     });
+    // 1454 build-up applies to WOBOD days too — Cl. 157.1(b) / Cl. 146.4
+    const wChartEntry  = assocChart[day.diagNum || ''];
+    const wUnAssocHrs  = wChartEntry ? wChartEntry.unAssocMins   / 60 : 0;
+    const wAssocPayHrs = wChartEntry ? wChartEntry.assocPaymentMins / 60 : 0;
+    const wDistPay     = kmCredited ?? 0;
+    const wTotalCredit = wUnAssocHrs + wAssocPayHrs + wDistPay;
+    const wSchedHrs    = (day.rHrs && day.rHrs > 0) ? day.rHrs : wh;
+    const wBuildUp     = (wChartEntry?.buildUpMins && wChartEntry.buildUpMins > 0)
+      ? r2Hrs(wChartEntry.buildUpMins / 60)
+      : r2Hrs(Math.max(0, wTotalCredit - wSchedHrs));
+    if (wBuildUp > 0) {
+      components.push({
+        name: `Assoc Wrk Time (Mileage) — ${km.toFixed(0)} km: `
+            + `un-assoc ${wUnAssocHrs.toFixed(2)}h + assoc ${wAssocPayHrs.toFixed(2)}h`
+            + ` + dist ${wDistPay.toFixed(2)}h = ${wTotalCredit.toFixed(2)}h`,
+        ea: 'Cl. 157.1(b) / Cl. 146.4', code: codes.km || '1454',
+        hrs: `${wBuildUp.toFixed(2)} hrs`, rate: `$${B.toFixed(5)}/hr`,
+        amount: r2(wBuildUp * B), cls: 'km-row', date: day.date,
+      });
+      flags.push(
+        `1454: un-assoc ${wUnAssocHrs.toFixed(2)}h + assoc ${wAssocPayHrs.toFixed(2)}h`
+        + ` + dist ${wDistPay.toFixed(2)}h = ${wTotalCredit.toFixed(2)}h`
+        + ` vs sched ${wSchedHrs.toFixed(2)}h → build-up +${wBuildUp.toFixed(2)}h.`
+      );
+    }
     const total = r2(components.reduce((s, c) => s + c.amount, 0));
     flags.push(`WOBOD: ${primaryPct}% primary (Cl. 140.4) + 50% loading (Cl. 140.7) = ${primaryPct + 50}% combined.`);
     return {
@@ -427,13 +452,18 @@ function previewLeave(day: DayState, cfg: RateConfig, codes: PayrollCodes): DayR
     };
   }
   if (cat === 'PHW') {
-    const loading = rHrs * B * 1.5; const addDay = 8 * B;
+    let payHrs = rHrs;
+    if (day.aStart && day.aEnd) {
+      const aS = toMins(day.aStart); let aE = toMins(day.aEnd);
+      if (aS !== null && aE !== null) { if (day.cm || aE <= aS) aE += 1440; payHrs = r2Hrs(toHrs(aE - aS)); }
+    }
+    const loading = payHrs * B * 1.5; const addDay = 8 * B;
     return {
       date: day.date, diag: day.diag, day_type: 'leave',
-      hours: rHrs, paid_hrs: rHrs, total_pay: r2(loading + addDay),
+      hours: payHrs, paid_hrs: payHrs, total_pay: r2(loading + addDay),
       components: [
         { name: 'PHW — 150% loading', ea: 'Cl. 31.5(a)', code: '',
-          hrs: `${rHrs.toFixed(2)} hrs`, rate: '1.5×', amount: r2(loading), cls: '', date: day.date },
+          hrs: `${payHrs.toFixed(2)} hrs`, rate: '1.5×', amount: r2(loading), cls: '', date: day.date },
         { name: 'PHW — additional day', ea: 'Cl. 31.5(b)', code: '',
           hrs: '8.00 hrs', rate: `$${B.toFixed(5)}/hr`, amount: r2(addDay), cls: '', date: day.date },
       ],
@@ -441,15 +471,18 @@ function previewLeave(day: DayState, cfg: RateConfig, codes: PayrollCodes): DayR
     };
   }
   if (cat === 'PHWA') {
-    // v3.20: PH worked and accrued — pays 150% loading only.  The additional
-    // 8-hr day under Cl. 31.5(b) is BANKED for a future off-day, not paid.
-    const loading = rHrs * B * 1.5;
+    let payHrs = rHrs;
+    if (day.aStart && day.aEnd) {
+      const aS = toMins(day.aStart); let aE = toMins(day.aEnd);
+      if (aS !== null && aE !== null) { if (day.cm || aE <= aS) aE += 1440; payHrs = r2Hrs(toHrs(aE - aS)); }
+    }
+    const loading = payHrs * B * 1.5;
     return {
       date: day.date, diag: day.diag, day_type: 'leave',
-      hours: rHrs, paid_hrs: rHrs, total_pay: r2(loading),
+      hours: payHrs, paid_hrs: payHrs, total_pay: r2(loading),
       components: [
         { name: 'PHW — 150% loading', ea: 'Cl. 31.5(a)', code: '',
-          hrs: `${rHrs.toFixed(2)} hrs`, rate: '1.5×', amount: r2(loading), cls: '', date: day.date },
+          hrs: `${payHrs.toFixed(2)} hrs`, rate: '1.5×', amount: r2(loading), cls: '', date: day.date },
       ],
       flags: [
         'PHW (accrued): 150% loading paid; additional 8-hr day accrues for future use (Cl. 31.5(b)).',

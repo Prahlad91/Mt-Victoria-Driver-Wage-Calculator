@@ -166,7 +166,7 @@ def _resolve_window(day: DayState) -> dict:
     overlap_ratio = overlap_mins / min_duration if min_duration > 0 else 0
     base['overlap_ratio'] = overlap_ratio
     
-    is_shift_swap = overlap_ratio < 0.5
+    is_shift_swap = overlap_ratio < 0.25  # <25% = clear swap; 25-50% = shifted start, allow claim
     user_wants_claim = day.claim_liftup_layback
     
     if user_wants_claim and not is_shift_swap:
@@ -559,14 +559,20 @@ def _compute_leave(day: DayState, cfg: RateConfig, codes: PayrollCodes) -> DayRe
         )
     
     if cat == 'PHW':
-        loading = r_hrs * B * 1.5
-        add_day = 8.0 * B
+        pay_hrs = r_hrs
+        if day.a_start and day.a_end:
+            a_s = _to_mins(day.a_start); a_e = _to_mins(day.a_end)
+            if a_s is not None and a_e is not None:
+                if day.cm or a_e <= a_s: a_e += 1440
+                pay_hrs = r2_hrs((a_e - a_s) / 60)
+        loading = r2(pay_hrs * B * 1.5)
+        add_day = r2(8.0 * B)
         return DayResult(
             date=day.date, diag=day.diag, day_type='leave',
-            hours=r_hrs, paid_hrs=r_hrs, total_pay=r2(loading + add_day),
+            hours=pay_hrs, paid_hrs=pay_hrs, total_pay=r2(loading + add_day),
             components=[
                 _comp('', 'PHW — 150% loading', 'Cl. 31.5(a)',
-                      f'{r_hrs:.2f} hrs', '1.5× ordinary', loading, date=day.date),
+                      f'{pay_hrs:.2f} hrs', '1.5× ordinary', loading, date=day.date),
                 _comp('', 'PHW — additional day', 'Cl. 31.5(b)',
                       '8.00 hrs', f'${B:.5f}/hr', add_day, date=day.date),
             ],
@@ -574,18 +580,19 @@ def _compute_leave(day: DayState, cfg: RateConfig, codes: PayrollCodes) -> DayRe
         )
 
     if cat == 'PHWA':
-        # PH worked and accrued (v3.20): pays the 150% loading on rostered hours,
-        # but the additional 8-hr ordinary day per Cl. 31.5(b) is BANKED as a
-        # future day off rather than paid this fortnight.  Driver elects this
-        # via the leave-category dropdown when they want time-off instead of
-        # the extra day's pay.  Total pay this fortnight = r_hrs × base × 1.5.
-        loading = r_hrs * B * 1.5
+        pay_hrs = r_hrs
+        if day.a_start and day.a_end:
+            a_s = _to_mins(day.a_start); a_e = _to_mins(day.a_end)
+            if a_s is not None and a_e is not None:
+                if day.cm or a_e <= a_s: a_e += 1440
+                pay_hrs = r2_hrs((a_e - a_s) / 60)
+        loading = r2(pay_hrs * B * 1.5)
         return DayResult(
             date=day.date, diag=day.diag, day_type='leave',
-            hours=r_hrs, paid_hrs=r_hrs, total_pay=r2(loading),
+            hours=pay_hrs, paid_hrs=pay_hrs, total_pay=r2(loading),
             components=[
                 _comp('', 'PHW — 150% loading', 'Cl. 31.5(a)',
-                      f'{r_hrs:.2f} hrs', '1.5× ordinary', loading, date=day.date),
+                      f'{pay_hrs:.2f} hrs', '1.5× ordinary', loading, date=day.date),
             ],
             flags=[
                 "PHW (accrued): 150% loading paid; "
@@ -691,6 +698,32 @@ def compute_fortnight(req: CalculateRequest) -> CalculateResponse:
             )
             dr.components.append(exp_comp)
             dr.total_pay = r2(dr.total_pay + exp_comp.amount)
+        # 1454 Assoc Wrk Time (Mileage) — applies to WOBOD days too (Cl. 157.1(b) / Cl. 146.4)
+        km = day.km or 0.0
+        km_credited_w = get_km_credit(km) if km > 0 else None
+        un_assoc_w  = day.un_assoc_hrs or 0.0
+        assoc_pay_w = day.assoc_payment_hrs or 0.0
+        dist_pay_w  = km_credited_w or 0.0
+        total_credit_w = un_assoc_w + assoc_pay_w + dist_pay_w
+        sched_hrs_w = day.r_hrs if day.r_hrs > 0 else wobod_hrs
+        if day.assoc_build_up_hrs > 0:
+            build_up_w = r2_hrs(day.assoc_build_up_hrs)
+        else:
+            build_up_w = r2_hrs(max(0.0, total_credit_w - sched_hrs_w))
+        if build_up_w > 0:
+            km_comp_w = _comp(
+                codes.km or '1454',
+                f'Assoc Wrk Time (Mileage) — {km:.0f} km: '
+                f'un-assoc {un_assoc_w:.2f}h + assoc {assoc_pay_w:.2f}h + dist {dist_pay_w:.2f}h = {total_credit_w:.2f}h',
+                'Cl. 157.1(b) / Cl. 146.4', f'{build_up_w:.2f} hrs', f'${B:.5f}/hr',
+                build_up_w * B, date=day.date, cls='km-row',
+            )
+            dr.components.append(km_comp_w)
+            dr.total_pay = r2(dr.total_pay + km_comp_w.amount)
+            dr.flags.append(
+                f"1454: un-assoc {un_assoc_w:.2f}h + assoc {assoc_pay_w:.2f}h + dist {dist_pay_w:.2f}h "
+                f"= {total_credit_w:.2f}h vs sched {sched_hrs_w:.2f}h → build-up +{build_up_w:.2f}h."
+            )
         # Replace the sentinel flag with a real description
         dr.flags = [f for f in dr.flags if not f.startswith('__WOBOD_PENDING__')]
         dr.flags.append(
