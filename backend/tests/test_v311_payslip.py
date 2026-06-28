@@ -48,11 +48,11 @@ PAYLOAD = {
         {"date": "2026-03-27", "dow": 5, "diag": "3156",
          "rStart": "02:42", "rEnd": "11:41", "aStart": "04:20", "aEnd": "12:42",
          "km": 127.489, "claimLiftupLayback": True},
-        # Mar 28 Sat — 3652, 12% overlap → auto-suppressed shift swap
-        # Paid on actual 8h only (not effective window 04:43→20:00)
+        # Mar 28 Sat — 3652, shift swap (sched 04:43-12:58, actual 12:00-20:00)
+        # User sets claim=False (completely different time window → not a lift-up)
         {"date": "2026-03-28", "dow": 6, "diag": "3652",
          "rStart": "04:43", "rEnd": "12:58", "aStart": "12:00", "aEnd": "20:00",
-         "km": 254.109, "claimLiftupLayback": True},
+         "km": 254.109, "claimLiftupLayback": False},
         # --- Week 2 ---
         # Mar 29 Sun — WOBOD (Sun 250% + 50% = 300% combined)
         {"date": "2026-03-29", "dow": 0, "diag": "WOBOD",
@@ -144,15 +144,12 @@ def test_weekday_wobod_mar30(result):
     assert loading is not None, "Mar 30 1059 (50% loading) not found"
 
 
-# ─── Mar 28 auto-suppress ────────────────────────────────────────────────────
+# ─── Mar 28 no claim (shift swap) ───────────────────────────────────────────
 
-def test_mar28_auto_suppressed(result):
-    """Mar 28: 12% overlap → auto-suppress; paid on actual 8h, not effective window."""
+def test_mar28_no_claim(result):
+    """Mar 28: shift swap (claim=False) → paid on actual 8h only."""
     mar28 = next(dr for dr in result.days if dr.date == "2026-03-28")
     assert mar28.hours == 8.0, f"Expected 8.0h actual, got {mar28.hours}"
-    assert any(
-        "swap" in f.lower() or "auto" in f.lower() for f in mar28.flags
-    ), f"Expected auto-suppress flag; got: {mar28.flags}"
 
 
 # ─── No afternoon penalty on sign-on 09:13 ───────────────────────────────────

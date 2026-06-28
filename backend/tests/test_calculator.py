@@ -389,17 +389,21 @@ class TestLiftupLayback:
         result = compute_day(day, cfg, codes)
         assert result.hours == 7.5  # actual only, no guarantee
 
-    def test_auto_suppress_shift_swap(self, cfg, codes):
-        """<50% overlap → auto-suppressed; paid on actual 8h only (v3.11 fix)."""
-        day = DayState(
+    def test_claim_toggle_is_sole_control(self, cfg, codes):
+        """Toggle=True always claims lift-up/layback; Toggle=False always uses actual times.
+        Auto-suppress removed in v3.51 — the toggle is the only control."""
+        base_kwargs = dict(
             date="2025-08-11", dow=6, diag="3652",
             r_start="04:43", r_end="12:58",
             a_start="12:00", a_end="20:00",
-            claim_liftup_layback=True,  # user wants claim, but auto-suppress overrides
         )
-        result = compute_day(day, cfg, codes)
-        assert result.hours == 8.0
-        assert any("swap" in f.lower() or "auto" in f.lower() for f in result.flags)
+        # claim=True → effective window 04:43-20:00 = 15.28h (lift-up claimed)
+        claimed = compute_day(DayState(**base_kwargs, claim_liftup_layback=True), cfg, codes)
+        assert claimed.hours > 8.0
+        assert any("lift-up" in f.lower() or "layback" in f.lower() for f in claimed.flags)
+        # claim=False → actual times only = 8.00h
+        not_claimed = compute_day(DayState(**base_kwargs, claim_liftup_layback=False), cfg, codes)
+        assert not_claimed.hours == 8.0
 
 
 # ─── Full fortnight ──────────────────────────────────────────────────────── PRD §FR-03

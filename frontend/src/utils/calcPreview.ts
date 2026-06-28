@@ -47,7 +47,7 @@ function resolveWindow(day: DayState): {
   aS: number; aE: number; effS: number; effE: number;
   workedHrs: number; actualHrs: number;
   liftupHrs: number; laybackHrs: number;
-  claimActive: boolean; autoSuppressed: boolean; overlapRatio: number;
+  claimActive: boolean;
 } | null {
   const aS = toMins(day.aStart);
   let aE = toMins(day.aEnd);
@@ -59,7 +59,7 @@ function resolveWindow(day: DayState): {
     aS, aE, effS: aS, effE: aE,
     workedHrs: actualHrs, actualHrs,
     liftupHrs: 0, laybackHrs: 0,
-    claimActive: false, autoSuppressed: false, overlapRatio: 1.0,
+    claimActive: false,
   };
 
   if (day.wobod) return base;
@@ -70,32 +70,18 @@ function resolveWindow(day: DayState): {
   if (rS === null || rE === null) return base;
   if (day.cm || rE <= rS) rE += 1440;
 
-  const overlapStart = Math.max(aS, rS);
-  const overlapEnd = Math.min(aE, rE);
-  const overlapMins = Math.max(0, overlapEnd - overlapStart);
-  const minDuration = Math.min(rE - rS, aE - aS);
-  const overlapRatio = minDuration > 0 ? overlapMins / minDuration : 0;
-  base.overlapRatio = overlapRatio;
+  if (!day.claimLiftupLayback) return base;
 
-  const isShiftSwap = overlapRatio < 0.25; // <25% = clear swap; 25-50% = shifted start, allow claim
-  const userWantsClaim = day.claimLiftupLayback;
-
-  if (userWantsClaim && !isShiftSwap) {
-    const effS = Math.min(aS, rS);
-    const effE = Math.max(aE, rE);
-    return {
-      ...base,
-      effS, effE,
-      workedHrs: toHrs(effE - effS),
-      liftupHrs: toHrs(Math.max(0, rS - aS)),
-      laybackHrs: toHrs(Math.max(0, aE - rE)),
-      claimActive: true,
-    };
-  }
-  if (userWantsClaim && isShiftSwap) {
-    return { ...base, autoSuppressed: true };
-  }
-  return base;
+  const effS = Math.min(aS, rS);
+  const effE = Math.max(aE, rE);
+  return {
+    ...base,
+    effS, effE,
+    workedHrs: toHrs(effE - effS),
+    liftupHrs: toHrs(Math.max(0, rS - aS)),
+    laybackHrs: toHrs(Math.max(0, aE - rE)),
+    claimActive: true,
+  };
 }
 
 // ─── Shift class (Cl. 134.1) — uses ACTUAL sign-on ──────────────────────
@@ -147,13 +133,7 @@ export function previewDay(
   const actualHrs = r2Hrs(win.actualHrs);
   const workedHrs = r2Hrs(win.workedHrs);
 
-  if (win.autoSuppressed) {
-    flags.push(
-      `⚠ Auto-detected shift swap (only ${(win.overlapRatio * 100).toFixed(0)}% overlap). ` +
-      `Lift-up/layback claim suppressed — paid on actual times. ` +
-      `Override toggle to force claim if intended.`
-    );
-  } else if (win.claimActive) {
+  if (win.claimActive) {
     if (win.liftupHrs > 0) flags.push(`Lift-up: ${win.liftupHrs.toFixed(2)} hrs before scheduled (Cl. 131).`);
     if (win.laybackHrs > 0) flags.push(`Layback: ${win.laybackHrs.toFixed(2)} hrs after scheduled (Cl. 131).`);
   }

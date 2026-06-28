@@ -118,12 +118,11 @@ def get_km_credit(km: float) -> Optional[float]:
 # ─── Window resolution (Cl. 131 — effective window with auto-suppress) ───
 
 def _resolve_window(day: DayState) -> dict:
-    """Resolve the time window per PRD §5.7 with auto-detect non-overlap.
-    
-    Auto-suppress rule: if actual and scheduled overlap < 50% of the shorter
-    shift, the calc treats it as a shift swap and ignores the claim toggle
-    (forces claim=No). User can still override the toggle but a warning
-    flag is emitted.
+    """Resolve the time window per PRD §5.7.
+
+    Lift-up/layback is calculated whenever the user's toggle is on AND
+    actual times extend beyond scheduled (actual_start < sched_start or
+    actual_end > sched_end). No auto-suppress — the toggle is the sole control.
     """
     a_s = _to_mins(day.a_start)
     a_e = _to_mins(day.a_end)
@@ -132,58 +131,41 @@ def _resolve_window(day: DayState) -> dict:
     if day.cm or a_e <= a_s:
         a_e += 1440
     actual_hrs = _to_hrs(a_e - a_s)
-    
+
     base = {
         'valid': True, 'a_s': a_s, 'a_e': a_e,
         'eff_s': a_s, 'eff_e': a_e,
         'worked_hrs': actual_hrs, 'actual_hrs': actual_hrs,
         'liftup_hrs': 0.0, 'layback_hrs': 0.0,
-        'claim_active': False, 'auto_suppressed': False, 'overlap_ratio': 1.0,
+        'claim_active': False,
     }
-    
-    # WOBOD ignores the toggle entirely
+
     if day.wobod:
         return base
-    
-    # No scheduled times → use actual
+
     if not day.r_start or not day.r_end:
         return base
-    
+
     r_s = _to_mins(day.r_start)
     r_e = _to_mins(day.r_end)
     if r_s is None or r_e is None:
         return base
     if day.cm or r_e <= r_s:
         r_e += 1440
-    
-    # Calculate overlap
-    overlap_start = max(a_s, r_s)
-    overlap_end = min(a_e, r_e)
-    overlap_mins = max(0, overlap_end - overlap_start)
-    sched_mins = r_e - r_s
-    actual_mins = a_e - a_s
-    min_duration = min(sched_mins, actual_mins)
-    overlap_ratio = overlap_mins / min_duration if min_duration > 0 else 0
-    base['overlap_ratio'] = overlap_ratio
-    
-    is_shift_swap = overlap_ratio < 0.25  # <25% = clear swap; 25-50% = shifted start, allow claim
-    user_wants_claim = day.claim_liftup_layback
-    
-    if user_wants_claim and not is_shift_swap:
-        eff_s = min(a_s, r_s)
-        eff_e = max(a_e, r_e)
-        return {
-            **base,
-            'eff_s': eff_s, 'eff_e': eff_e,
-            'worked_hrs': _to_hrs(eff_e - eff_s),
-            'liftup_hrs': _to_hrs(max(0, r_s - a_s)),
-            'layback_hrs': _to_hrs(max(0, a_e - r_e)),
-            'claim_active': True,
-        }
-    elif user_wants_claim and is_shift_swap:
-        return {**base, 'auto_suppressed': True}
-    else:
+
+    if not day.claim_liftup_layback:
         return base
+
+    eff_s = min(a_s, r_s)
+    eff_e = max(a_e, r_e)
+    return {
+        **base,
+        'eff_s': eff_s, 'eff_e': eff_e,
+        'worked_hrs': _to_hrs(eff_e - eff_s),
+        'liftup_hrs': _to_hrs(max(0, r_s - a_s)),
+        'layback_hrs': _to_hrs(max(0, a_e - r_e)),
+        'claim_active': True,
+    }
 
 
 # ─── Shift class (Cl. 134.1) — uses ACTUAL sign-on ──────────────────────────
@@ -282,13 +264,7 @@ def compute_day(day: DayState, cfg: RateConfig, codes: PayrollCodes,
     worked_hrs = r2_hrs(win['worked_hrs'])
     
     # Window flags
-    if win['auto_suppressed']:
-        flags.append(
-            f"⚠ Auto-detected shift swap (only {win['overlap_ratio']*100:.0f}% overlap "
-            f"between actual and scheduled). Lift-up/layback claim suppressed — paid on "
-            f"actual times only. Override the toggle to force claim if intended."
-        )
-    elif win['claim_active']:
+    if win['claim_active']:
         if win['liftup_hrs'] > 0:
             flags.append(f"Lift-up: {win['liftup_hrs']:.2f} hrs before scheduled "
                          f"({day.r_start} ← {day.a_start}) — included in effective window (Cl. 131).")
