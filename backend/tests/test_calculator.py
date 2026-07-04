@@ -227,6 +227,16 @@ class TestPublicHoliday:
         result = compute_day(day, cfg, codes)
         assert result.total_pay == r2(8 * B * 3.5)
 
+    def test_ph_weekday_ot_flat_200(self, cfg, codes):
+        """10h weekday PH: OT is flat 200% (code 1027), not Cl. 78.3 tiered.
+        Verified against real payslip (25 Dec 2025 / 26 Dec 2025).
+        Total = 1010(8B) + 1011(8B) + 1027(2B×2) + 1063(8B×0.5)"""
+        day = make_day(a_start="06:00", a_end="16:00", dow=1, ph=True)
+        result = compute_day(day, cfg, codes)
+        ot_comp = next(c for c in result.components if c.code == '1027')
+        assert ot_comp.amount == r2(2 * B * 2.0)  # flat 200%, not stacked
+        assert result.total_pay == r2(8*B + 8*B + 2*B*2.0 + 8*B*0.5)
+
 
 # ─── KM credit pay (Cl. 146.4) ──────────────────────────────────────────── PRD §5.5
 

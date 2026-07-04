@@ -326,22 +326,17 @@ def compute_day(day: DayState, cfg: RateConfig, codes: PayrollCodes,
                     'PH Worked', 'Cl. 31.5',
                     f'{pre_ord_h:.2f} hrs', f'${B:.5f}/hr',
                     pre_ord_h * B, date=day.date))
+            pre_ot_h = r2_hrs(pre_ot1h + pre_ot2h)
+            if pre_ot_h > 0:
+                components.append(_comp(codes.sat_ot or '1027',
+                    'Sched OT 200%', 'Cl. 31.5',
+                    f'{pre_ot_h:.2f} hrs', f'${B*2:.5f}/hr (200%)',
+                    pre_ot_h * B * 2.0, date=day.date))
+            if pre_ord_h > 0:
                 components.append(_comp(codes.ph_loading or '1063',
-                    f'PH Loading +{int(pre_ph_load*100)}%', 'Cl. 31.5(a)',
+                    f'PH Loading @ {int(pre_ph_load*100)}%', 'Cl. 31.5(a)',
                     f'{pre_ord_h:.2f} hrs', f'${B*pre_ph_load:.5f}/hr',
                     pre_ord_h * B * pre_ph_load, date=day.date))
-            if pre_ot1h > 0:
-                r = cfg.ot1 + pre_ph_load
-                components.append(_comp(codes.sat_ot or '1027',
-                    'Sched OT 150% + PH loading (stacked)', 'Cl. 78.3+Cl.31.5(a)',
-                    f'{pre_ot1h:.2f} hrs', f'${B*r:.5f}/hr',
-                    pre_ot1h * B * r, date=day.date))
-            if pre_ot2h > 0:
-                r = cfg.ot2 + pre_ph_load
-                components.append(_comp(codes.sat_ot or '1027',
-                    'Sched OT 200% + PH loading (stacked)', 'Cl. 78.3+Cl.31.5(a)',
-                    f'{pre_ot2h:.2f} hrs', f'${B*r:.5f}/hr',
-                    pre_ot2h * B * r, date=day.date))
         elif is_sun:
             if pre_ord_h > 0:
                 components.append(_comp(codes.base or '1001',
@@ -418,22 +413,17 @@ def compute_day(day: DayState, cfg: RateConfig, codes: PayrollCodes,
                     'PH Worked (next day)', 'Cl. 31.5',
                     f'{post_ord_h:.2f} hrs', f'${B:.5f}/hr',
                     post_ord_h * B, date=day.date))
+            post_ot_h = r2_hrs(post_ot1h + post_ot2h)
+            if post_ot_h > 0:
+                components.append(_comp(codes.sat_ot or '1027',
+                    'Sched OT 200% (next day PH)', 'Cl. 31.5',
+                    f'{post_ot_h:.2f} hrs', f'${B*2:.5f}/hr (200%)',
+                    post_ot_h * B * 2.0, date=day.date))
+            if post_ord_h > 0:
                 components.append(_comp(codes.ph_loading or '1063',
-                    f'PH Loading +{int(nph_load*100)}% (next day)', 'Cl. 31.5(a)',
+                    f'PH Loading @ {int(nph_load*100)}% (next day)', 'Cl. 31.5(a)',
                     f'{post_ord_h:.2f} hrs', f'${B*nph_load:.5f}/hr',
                     post_ord_h * B * nph_load, date=day.date))
-            if post_ot1h > 0:
-                r = cfg.ot1 + nph_load
-                components.append(_comp(codes.sat_ot or '1027',
-                    'Sched OT 150% + PH loading (stacked)', 'Cl. 78.3+Cl.31.5(a)',
-                    f'{post_ot1h:.2f} hrs', f'${B*r:.5f}/hr',
-                    post_ot1h * B * r, date=day.date))
-            if post_ot2h > 0:
-                r = cfg.ot2 + nph_load
-                components.append(_comp(codes.sat_ot or '1027',
-                    'Sched OT 200% + PH loading (stacked)', 'Cl. 78.3+Cl.31.5(a)',
-                    f'{post_ot2h:.2f} hrs', f'${B*r:.5f}/hr',
-                    post_ot2h * B * r, date=day.date))
         elif next_is_sun:
             if post_ord_h > 0:
                 components.append(_comp(codes.base or '1001',
@@ -500,49 +490,40 @@ def compute_day(day: DayState, cfg: RateConfig, codes: PayrollCodes,
         ot2h = r2_hrs(max(0.0, ot_h - 3.0))
 
         if is_ph:
-            # Cl. 31.5(a) loading + Cl. 78.3 OT stack on hours beyond 8h.
             loading_pct = 1.5 if (is_sat or is_sun) else 0.5
             ph_h = r2_hrs(max(worked_hrs, km_credited or 0))
             ph_ord_h = r2_hrs(min(ph_h, 8.0))
             ph_ot_h  = r2_hrs(max(0.0, ph_h - 8.0))
-            ph_ot1h  = r2_hrs(min(ph_ot_h, 3.0))
-            ph_ot2h  = r2_hrs(max(0.0, ph_ot_h - 3.0))
-            # Row 1: PH Worked hours at base rate (code 1011)
+            # Output in payslip ascending-code order: 1010 → 1011 → 1027 → 1063
+            # Row 1: PH Paid — accrued day (1010)
+            components.append(_comp(
+                codes.ph_wke or '1010', 'Public Holiday Paid', 'Cl. 31.5(b)',
+                '8.00 hrs', f'${B:.5f}/hr',
+                r2(8.0 * B), date=day.date,
+            ))
+            # Row 2: PH Worked base hours (1011)
             components.append(_comp(
                 codes.ph_worked or '1011', 'Public Holiday Worked', 'Cl. 31.5',
                 f'{ph_ord_h:.2f} hrs', f'${B:.5f}/hr',
                 ph_ord_h * B, date=day.date,
             ))
-            # Row 2: PH Loading @ 50%/150% on base hours (code 1063)
+            # Row 3: OT at flat 200% (1027) — no loading stack, no Cl. 78.3 tier
+            if ph_ot_h > 0:
+                components.append(_comp(codes.sat_ot or '1027',
+                    'Sched OT 200%', 'Cl. 31.5',
+                    f'{ph_ot_h:.2f} hrs', f'${B*2:.5f}/hr (200%)',
+                    ph_ot_h * B * 2.0, date=day.date))
+            # Row 4: PH Loading @ 50%/150% on base hours only (1063)
             components.append(_comp(
                 codes.ph_loading or '1063',
-                f'PH Loading +{int(loading_pct*100)}%',
+                f'PH Loading @ {int(loading_pct*100)}%',
                 'Cl. 31.5(a)',
                 f'{ph_ord_h:.2f} hrs', f'${B*loading_pct:.5f}/hr',
                 ph_ord_h * B * loading_pct, date=day.date,
             ))
-            # Row 3: PH Paid — accrued day (code 1010, Cl. 31.5(b))
-            components.append(_comp(
-                codes.ph_wke or '1010', 'Public Holiday Paid (accrued day)', 'Cl. 31.5(b)',
-                '8.00 hrs', f'${B:.5f}/hr',
-                r2(8.0 * B), date=day.date,
-            ))
-            # Row 4: OT if applicable — both tiers use code 1027 (code is user-confirmed)
-            if ph_ot1h > 0:
-                r = cfg.ot1 + loading_pct
-                components.append(_comp(codes.sat_ot or '1027',
-                    'Sched OT 150% + PH loading (stacked)', 'Cl. 78.3+Cl.31.5(a)',
-                    f'{ph_ot1h:.2f} hrs', f'${B*r:.5f}/hr',
-                    ph_ot1h * B * r, date=day.date))
-            if ph_ot2h > 0:
-                r = cfg.ot2 + loading_pct
-                components.append(_comp(codes.sat_ot or '1027',
-                    'Sched OT 200% + PH loading (stacked)', 'Cl. 78.3+Cl.31.5(a)',
-                    f'{ph_ot2h:.2f} hrs', f'${B*r:.5f}/hr',
-                    ph_ot2h * B * r, date=day.date))
             if ph_ot_h > 0:
-                flags.append(f"PH OT: {ph_ot_h:.2f} hrs beyond 8h at OT rate + PH loading stacked (Cl. 78.3+Cl.31.5(a)).")
-            flags.append(f"PH worked: loading + accrued day (Cl. 31.5(b)).")
+                flags.append(f"PH OT: {ph_ot_h:.2f} hrs at 200% (Cl. 31.5).")
+            flags.append(f"PH worked: loading on 8h only + accrued day (Cl. 31.5(b)).")
 
         elif is_sun:
             components.append(_comp(
