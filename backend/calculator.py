@@ -502,23 +502,40 @@ def compute_day(day: DayState, cfg: RateConfig, codes: PayrollCodes,
         ot2h = r2_hrs(max(0.0, ot_h - 3.0))
 
         if is_ph:
-            # PH worked: base at 1× pooled, loading at 0.5× (wkdy) or 1.5× (weekend)
+            # Cl. 31.5(a) loading + Cl. 78.3 OT stack on hours beyond 8h.
             loading_pct = 1.5 if (is_sat or is_sun) else 0.5
-            loading_rate = B * loading_pct
-            ph_h = r2_hrs(max(worked_hrs, km_credited or 0))
-            components.append(_comp(
-                codes.base or '1001', 'Ordinary Hours (PH worked, base portion)', 'Sch. 4A',
-                f'{ph_h:.2f} hrs', f'${B:.5f}/hr',
-                ph_h * B, date=day.date, pool=True,
-            ))
             loading_code = (codes.ph_wke or '1010') if (is_sat or is_sun) else (codes.ph_wkd or '5042')
+            ph_h = r2_hrs(max(worked_hrs, km_credited or 0))
+            ph_ord_h = r2_hrs(min(ph_h, 8.0))
+            ph_ot_h  = r2_hrs(max(0.0, ph_h - 8.0))
+            ph_ot1h  = r2_hrs(min(ph_ot_h, 3.0))
+            ph_ot2h  = r2_hrs(max(0.0, ph_ot_h - 3.0))
+            components.append(_comp(
+                codes.base or '1001', 'Ordinary Hours (PH worked, base)', 'Sch. 4A',
+                f'{ph_ord_h:.2f} hrs', f'${B:.5f}/hr',
+                ph_ord_h * B, date=day.date, pool=True,
+            ))
             components.append(_comp(
                 loading_code,
-                f'PH worked loading (+{int(loading_pct*100)}%, {"weekend" if (is_sat or is_sun) else "weekday"})',
+                f'PH loading +{int(loading_pct*100)}% ({"weekend" if (is_sat or is_sun) else "weekday"})',
                 'Cl. 31.5(a)',
-                f'{ph_h:.2f} hrs', f'${loading_rate:.5f}/hr',
-                ph_h * loading_rate, date=day.date,
+                f'{ph_ord_h:.2f} hrs', f'${B*loading_pct:.5f}/hr',
+                ph_ord_h * B * loading_pct, date=day.date,
             ))
+            if ph_ot1h > 0:
+                r = cfg.ot1 + loading_pct
+                components.append(_comp(codes.ot1 or '1026',
+                    f'Sched OT 150% + PH loading (stacked)', 'Cl. 78.3+Cl.31.5(a)',
+                    f'{ph_ot1h:.2f} hrs', f'${B*r:.5f}/hr',
+                    ph_ot1h * B * r, date=day.date))
+            if ph_ot2h > 0:
+                r = cfg.ot2 + loading_pct
+                components.append(_comp(codes.ot2 or '1110',
+                    f'Sched OT 200% + PH loading (stacked)', 'Cl. 78.3+Cl.31.5(a)',
+                    f'{ph_ot2h:.2f} hrs', f'${B*r:.5f}/hr',
+                    ph_ot2h * B * r, date=day.date))
+            if ph_ot_h > 0:
+                flags.append(f"PH OT: {ph_ot_h:.2f} hrs beyond 8h at OT rate + PH loading stacked (Cl. 78.3+Cl.31.5(a)).")
             flags.append(f"PH worked: loading + additional day pay accrues (Cl. 31.5(b)).")
 
         elif is_sun:
@@ -743,33 +760,38 @@ def _compute_leave(day: DayState, cfg: RateConfig, codes: PayrollCodes) -> DayRe
             if a_s is not None and a_e is not None:
                 if day.cm or a_e <= a_s: a_e += 1440
                 pay_hrs = r2_hrs((a_e - a_s) / 60)
-        # Split: 150% loading applies to first 8h only; OT beyond 8h at Cl. 78.3 rates
+        # Cl. 31.5(a) 150% loading on entire shift; Cl. 78.3 OT stacks on hours beyond 8h.
+        phw_load = 1.5
         ord_h = r2_hrs(min(pay_hrs, 8.0))
         ot_h  = r2_hrs(max(0.0, pay_hrs - 8.0))
         ot1_h = r2_hrs(min(ot_h, 3.0))
         ot2_h = r2_hrs(max(0.0, ot_h - 3.0))
-        loading = r2(ord_h * B * 1.5)
+        loading = r2(ord_h * B * phw_load)
         components = [_comp('', 'PHW — 150% loading', 'Cl. 31.5(a)',
                             f'{ord_h:.2f} hrs', '1.5× ordinary', loading, date=day.date)]
         total = loading
         if ot1_h > 0:
-            ot1_amt = r2(ot1_h * B * cfg.ot1)
-            components.append(_comp(codes.ot1 or '1026', 'Sched OT 150%', 'Cl. 78.3',
-                                    f'{ot1_h:.2f} hrs', f'${B * cfg.ot1:.5f}/hr', ot1_amt, date=day.date))
+            r = cfg.ot1 + phw_load  # 1.5 + 1.5 = 3.0×
+            ot1_amt = r2(ot1_h * B * r)
+            components.append(_comp(codes.ot1 or '1026',
+                'Sched OT 150% + PHW loading (stacked)', 'Cl. 78.3+Cl.31.5(a)',
+                f'{ot1_h:.2f} hrs', f'${B * r:.5f}/hr', ot1_amt, date=day.date))
             total = r2(total + ot1_amt)
         if ot2_h > 0:
-            ot2_amt = r2(ot2_h * B * cfg.ot2)
-            components.append(_comp(codes.ot2 or '1110', 'Sched OT 200%', 'Cl. 78.3',
-                                    f'{ot2_h:.2f} hrs', f'${B * cfg.ot2:.5f}/hr', ot2_amt, date=day.date))
+            r = cfg.ot2 + phw_load  # 2.0 + 1.5 = 3.5×
+            ot2_amt = r2(ot2_h * B * r)
+            components.append(_comp(codes.ot2 or '1110',
+                'Sched OT 200% + PHW loading (stacked)', 'Cl. 78.3+Cl.31.5(a)',
+                f'{ot2_h:.2f} hrs', f'${B * r:.5f}/hr', ot2_amt, date=day.date))
             total = r2(total + ot2_amt)
         if cat == 'PHW':
             add_day = r2(8.0 * B)
             components.append(_comp('', 'PHW — additional day', 'Cl. 31.5(b)',
                                     '8.00 hrs', f'${B:.5f}/hr', add_day, date=day.date))
             total = r2(total + add_day)
-            flag = f"PHW: {ord_h:.2f}h at 150% loading" + (f" + {ot_h:.2f}h OT (Cl. 78.3)" if ot_h > 0 else "") + " + additional day (Cl. 31.5)."
+            flag = f"PHW: {ord_h:.2f}h at 150% loading" + (f" + {ot_h:.2f}h OT stacked (Cl. 78.3+Cl.31.5(a))" if ot_h > 0 else "") + " + additional day (Cl. 31.5)."
         else:
-            flag = f"PHW (accrued): {ord_h:.2f}h at 150% loading" + (f" + {ot_h:.2f}h OT (Cl. 78.3)" if ot_h > 0 else "") + "; additional 8-hr day accrues for future use (Cl. 31.5(b))."
+            flag = f"PHW (accrued): {ord_h:.2f}h at 150% loading" + (f" + {ot_h:.2f}h OT stacked (Cl. 78.3+Cl.31.5(a))" if ot_h > 0 else "") + "; additional 8-hr day accrues for future use (Cl. 31.5(b))."
         return DayResult(date=day.date, diag=day.diag, day_type='leave',
                          hours=pay_hrs, paid_hrs=pay_hrs, total_pay=total,
                          components=components, flags=[flag])

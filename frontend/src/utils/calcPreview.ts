@@ -307,20 +307,39 @@ export function previewDay(
 
     if (isPH) {
       const loadingPct = isSat || isSun ? 1.5 : 0.5;
-      const loadingRate = B * loadingPct;
       const phH = r2Hrs(Math.max(workedHrs, kmCredited || 0));
+      const phOrdH = r2Hrs(Math.min(phH, 8));
+      const phOtH  = r2Hrs(Math.max(0, phH - 8));
+      const phOt1H = r2Hrs(Math.min(phOtH, 3));
+      const phOt2H = r2Hrs(Math.max(0, phOtH - 3));
+      const loadingCode = isSat || isSun ? (codes.ph_wke || '1010') : (codes.ph_wkd || '5042');
       components.push({
         name: 'Ordinary Hours (PH worked, base)', ea: 'Sch. 4A', code: codes.base || '1001',
-        hrs: `${phH.toFixed(2)} hrs`, rate: `$${B.toFixed(5)}/hr`,
-        amount: r2(phH * B), cls: '', date: day.date, pool_to_ordinary: true,
+        hrs: `${phOrdH.toFixed(2)} hrs`, rate: `$${B.toFixed(5)}/hr`,
+        amount: r2(phOrdH * B), cls: '', date: day.date, pool_to_ordinary: true,
       });
       components.push({
-        name: `PH worked loading (+${(loadingPct * 100).toFixed(0)}%)`,
-        ea: 'Cl. 31.5(a)',
-        code: isSat || isSun ? (codes.ph_wke || '1010') : (codes.ph_wkd || '5042'),
-        hrs: `${phH.toFixed(2)} hrs`, rate: `$${loadingRate.toFixed(5)}/hr`,
-        amount: r2(phH * loadingRate), cls: '', date: day.date,
+        name: `PH loading +${(loadingPct * 100).toFixed(0)}% (${isSat || isSun ? 'weekend' : 'weekday'})`,
+        ea: 'Cl. 31.5(a)', code: loadingCode,
+        hrs: `${phOrdH.toFixed(2)} hrs`, rate: `$${(B * loadingPct).toFixed(5)}/hr`,
+        amount: r2(phOrdH * B * loadingPct), cls: '', date: day.date,
       });
+      if (phOt1H > 0) {
+        const r = (cfg.ot1 ?? 1.5) + loadingPct;
+        components.push({
+          name: `Sched OT 150% + PH loading (stacked)`, ea: 'Cl. 78.3+Cl.31.5(a)', code: codes.ot1 || '1026',
+          hrs: `${phOt1H.toFixed(2)} hrs`, rate: `$${(B * r).toFixed(5)}/hr`,
+          amount: r2(phOt1H * B * r), cls: '', date: day.date,
+        });
+      }
+      if (phOt2H > 0) {
+        const r = (cfg.ot2 ?? 2.0) + loadingPct;
+        components.push({
+          name: `Sched OT 200% + PH loading (stacked)`, ea: 'Cl. 78.3+Cl.31.5(a)', code: codes.ot2 || '1110',
+          hrs: `${phOt2H.toFixed(2)} hrs`, rate: `$${(B * r).toFixed(5)}/hr`,
+          amount: r2(phOt2H * B * r), cls: '', date: day.date,
+        });
+      }
     } else if (isSun) {
       components.push({
         name: 'Ordinary Hours (Sunday, base)', ea: 'Sch. 4A', code: codes.base || '1001',
@@ -551,15 +570,17 @@ function previewLeave(day: DayState, cfg: RateConfig, codes: PayrollCodes): DayR
     ];
     let total = loading;
     if (ot1H > 0) {
-      const ot1Amt = r2(ot1H * B * (cfg.ot1 ?? 1.5));
-      comps.push({ name: 'Sched OT 150%', ea: 'Cl. 78.3', code: codes.ot1 || '1026',
-        hrs: `${ot1H.toFixed(2)} hrs`, rate: `$${(B * (cfg.ot1 ?? 1.5)).toFixed(5)}/hr`, amount: ot1Amt, cls: '', date: day.date });
+      const r = (cfg.ot1 ?? 1.5) + 1.5;
+      const ot1Amt = r2(ot1H * B * r);
+      comps.push({ name: 'Sched OT 150% + PHW loading (stacked)', ea: 'Cl. 78.3+Cl.31.5(a)', code: codes.ot1 || '1026',
+        hrs: `${ot1H.toFixed(2)} hrs`, rate: `$${(B * r).toFixed(5)}/hr`, amount: ot1Amt, cls: '', date: day.date });
       total = r2(total + ot1Amt);
     }
     if (ot2H > 0) {
-      const ot2Amt = r2(ot2H * B * (cfg.ot2 ?? 2.0));
-      comps.push({ name: 'Sched OT 200%', ea: 'Cl. 78.3', code: codes.ot2 || '1110',
-        hrs: `${ot2H.toFixed(2)} hrs`, rate: `$${(B * (cfg.ot2 ?? 2.0)).toFixed(5)}/hr`, amount: ot2Amt, cls: '', date: day.date });
+      const r = (cfg.ot2 ?? 2.0) + 1.5;
+      const ot2Amt = r2(ot2H * B * r);
+      comps.push({ name: 'Sched OT 200% + PHW loading (stacked)', ea: 'Cl. 78.3+Cl.31.5(a)', code: codes.ot2 || '1110',
+        hrs: `${ot2H.toFixed(2)} hrs`, rate: `$${(B * r).toFixed(5)}/hr`, amount: ot2Amt, cls: '', date: day.date });
       total = r2(total + ot2Amt);
     }
     if (cat === 'PHW') {
@@ -568,7 +589,7 @@ function previewLeave(day: DayState, cfg: RateConfig, codes: PayrollCodes): DayR
         hrs: '8.00 hrs', rate: `$${B.toFixed(5)}/hr`, amount: addDay, cls: '', date: day.date });
       total = r2(total + addDay);
     }
-    const otNote = otH > 0 ? ` + ${otH.toFixed(2)}h OT (Cl. 78.3)` : '';
+    const otNote = otH > 0 ? ` + ${otH.toFixed(2)}h OT stacked (Cl. 78.3+Cl.31.5(a))` : '';
     const flag = cat === 'PHW'
       ? `PHW: ${ordH.toFixed(2)}h at 150% loading${otNote} + additional day.`
       : `PHW (accrued): ${ordH.toFixed(2)}h at 150% loading${otNote}; additional 8-hr day accrues (Cl. 31.5(b)).`;
