@@ -66,7 +66,9 @@ export interface RateConfig {
 
 export interface PayrollCodes {
   base: string; ot1: string; ot2: string; sat: string; sun: string;
-  sat_ot: string; ph_wkd: string; ph_wke: string; afternoon: string;
+  sat_ot: string; ph_wkd: string; ph_wke: string;
+  ph_worked: string; ph_loading: string;
+  afternoon: string;
   night: string; early: string; add_load: string; wobod: string;
   liftup: string; ado: string; unassoc: string;
   km: string;   // 1454 — Assoc Wrk Time (Mileage) per Cl. 157.1(b)

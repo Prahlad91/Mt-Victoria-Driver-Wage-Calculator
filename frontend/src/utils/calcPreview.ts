@@ -31,7 +31,7 @@ export const DEFAULT_CONFIG: RateConfig = {
 export const DEFAULT_CODES: PayrollCodes = {
   base: '1001', ot1: '1026', ot2: '1110',
   sat: '1064', sun: '1076', sat_ot: '1027',
-  ph_wkd: '5042', ph_wke: '1010',
+  ph_wkd: '5042', ph_wke: '1010', ph_worked: '1011', ph_loading: '1063',
   afternoon: '1485', night: '1487', early: '1483',
   add_load: '1470',
   exp_over_10h: '1496',  // Sch.4B Item 12 / Cl. 143.5
@@ -312,22 +312,30 @@ export function previewDay(
       const phOtH  = r2Hrs(Math.max(0, phH - 8));
       const phOt1H = r2Hrs(Math.min(phOtH, 3));
       const phOt2H = r2Hrs(Math.max(0, phOtH - 3));
-      const loadingCode = isSat || isSun ? (codes.ph_wke || '1010') : (codes.ph_wkd || '5042');
+      // Row 1: PH Worked (1011)
       components.push({
-        name: 'Ordinary Hours (PH worked, base)', ea: 'Sch. 4A', code: codes.base || '1001',
+        name: 'Public Holiday Worked', ea: 'Cl. 31.5', code: codes.ph_worked || '1011',
         hrs: `${phOrdH.toFixed(2)} hrs`, rate: `$${B.toFixed(5)}/hr`,
-        amount: r2(phOrdH * B), cls: '', date: day.date, pool_to_ordinary: true,
+        amount: r2(phOrdH * B), cls: '', date: day.date,
       });
+      // Row 2: PH Loading (1063)
       components.push({
-        name: `PH loading +${(loadingPct * 100).toFixed(0)}% (${isSat || isSun ? 'weekend' : 'weekday'})`,
-        ea: 'Cl. 31.5(a)', code: loadingCode,
+        name: `PH Loading +${(loadingPct * 100).toFixed(0)}%`,
+        ea: 'Cl. 31.5(a)', code: codes.ph_loading || '1063',
         hrs: `${phOrdH.toFixed(2)} hrs`, rate: `$${(B * loadingPct).toFixed(5)}/hr`,
         amount: r2(phOrdH * B * loadingPct), cls: '', date: day.date,
       });
+      // Row 3: PH Paid — accrued day (1010)
+      components.push({
+        name: 'Public Holiday Paid (accrued day)', ea: 'Cl. 31.5(b)', code: codes.ph_wke || '1010',
+        hrs: '8.00 hrs', rate: `$${B.toFixed(5)}/hr`,
+        amount: r2(8 * B), cls: '', date: day.date,
+      });
+      // Row 4: OT stacked (1027)
       if (phOt1H > 0) {
         const r = (cfg.ot1 ?? 1.5) + loadingPct;
         components.push({
-          name: `Sched OT 150% + PH loading (stacked)`, ea: 'Cl. 78.3+Cl.31.5(a)', code: codes.ot1 || '1026',
+          name: 'Sched OT 150% + PH loading (stacked)', ea: 'Cl. 78.3+Cl.31.5(a)', code: codes.sat_ot || '1027',
           hrs: `${phOt1H.toFixed(2)} hrs`, rate: `$${(B * r).toFixed(5)}/hr`,
           amount: r2(phOt1H * B * r), cls: '', date: day.date,
         });
@@ -335,7 +343,7 @@ export function previewDay(
       if (phOt2H > 0) {
         const r = (cfg.ot2 ?? 2.0) + loadingPct;
         components.push({
-          name: `Sched OT 200% + PH loading (stacked)`, ea: 'Cl. 78.3+Cl.31.5(a)', code: codes.ot2 || '1110',
+          name: 'Sched OT 200% + PH loading (stacked)', ea: 'Cl. 78.3+Cl.31.5(a)', code: codes.sat_ot || '1027',
           hrs: `${phOt2H.toFixed(2)} hrs`, rate: `$${(B * r).toFixed(5)}/hr`,
           amount: r2(phOt2H * B * r), cls: '', date: day.date,
         });

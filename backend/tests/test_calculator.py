@@ -216,14 +216,16 @@ class TestWeekendRates:
 
 class TestPublicHoliday:
     def test_ph_weekday_rate(self, cfg, codes):
+        # 1011 (8h base) + 1063 (8h × 50%) + 1010 (8h accrued day) = 8B × 2.5
         day = make_day(a_start="06:00", a_end="14:00", dow=1, ph=True)
         result = compute_day(day, cfg, codes)
-        assert result.total_pay == r2(8 * B * 1.5)
+        assert result.total_pay == r2(8 * B * 2.5)
 
     def test_ph_weekend_rate(self, cfg, codes):
+        # 1011 (8h base) + 1063 (8h × 150%) + 1010 (8h accrued day) = 8B × 3.5
         day = make_day(a_start="06:00", a_end="14:00", dow=6, ph=True)
         result = compute_day(day, cfg, codes)
-        assert result.total_pay == r2(8 * B * 2.5)
+        assert result.total_pay == r2(8 * B * 3.5)
 
 
 # ─── KM credit pay (Cl. 146.4) ──────────────────────────────────────────── PRD §5.5
