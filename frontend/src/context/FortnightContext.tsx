@@ -340,6 +340,7 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
     setAuthJwtStorage(token)
     setAuthJwtState(token)
     setAuthUserState(_decodeJwt(token))
+    setCalcError(null)   // clear any stale "session expired" banner from before sign-out
   }, [])
   const signOut = useCallback(() => {
     setAuthJwtStorage(null)
