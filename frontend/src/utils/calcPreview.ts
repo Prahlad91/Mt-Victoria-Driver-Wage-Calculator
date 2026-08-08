@@ -91,7 +91,7 @@ function getShiftClass(aS: number): 'night' | 'early' | 'afternoon' | null {
   const s = aS % 1440;
   if (s >= 1080 || s < 240) return 'night';
   if (s >= 240 && s <= 330) return 'early';
-  if (s >= 600 && s < 1080) return 'afternoon';
+  if (s > 600 && s < 1080) return 'afternoon';
   return null;
 }
 
@@ -300,7 +300,14 @@ export function previewDay(
       }
       if (postOt1h + postOt2h > 0) { const ot = r2Hrs(postOt1h + postOt2h); components.push({ name: 'Sched OT 200% (next-day Sat)', ea: 'Cl. 140.2(b)', code: codes.sat_ot || '1027', hrs: `${ot.toFixed(2)} hrs`, rate: `$${(B*2).toFixed(5)}/hr (200%)`, amount: r2(ot * B * 2), cls: '', date: day.date }); }
     } else {
-      if (postOrdH > 0) { components.push({ name: 'Ordinary Hours (next-day wkdy)', ea: 'Sch. 4A', code: codes.base || '1001', hrs: `${postOrdH.toFixed(2)} hrs`, rate: `$${B.toFixed(5)}/hr`, amount: r2(postOrdH * B), cls: '', date: day.date, pool_to_ordinary: true }); }
+      if (postOrdH > 0) {
+        components.push({ name: 'Ordinary Hours (next-day wkdy)', ea: 'Sch. 4A', code: codes.base || '1001', hrs: `${postOrdH.toFixed(2)} hrs`, rate: `$${B.toFixed(5)}/hr`, amount: r2(postOrdH * B), cls: '', date: day.date, pool_to_ordinary: true });
+        // Post-midnight hours start at 00:00 → night window (18:00–03:59) → night penalty
+        const penH = roundHrsEA(postOrdH);
+        if (penH > 0) {
+          components.push({ name: 'Night Shift Dvrs/Grds Hrl (next day)', ea: 'Item 7 Sch.4B', code: codes.night || '1487', hrs: `${penH.toFixed(2)} hrs`, rate: `$${cfg.night_rate.toFixed(5)}/hr`, amount: r2(penH * cfg.night_rate), cls: 'pen-row', date: day.date });
+        }
+      }
       if (postOt1h > 0) { components.push({ name: 'Sched OT 150% (next day)', ea: 'Cl. 140.2(a)', code: codes.ot1 || '1026', hrs: `${postOt1h.toFixed(2)} hrs`, rate: `$${(B*1.5).toFixed(5)}/hr`, amount: r2(postOt1h * B * 1.5), cls: '', date: day.date }); }
       if (postOt2h > 0) { components.push({ name: 'Sched OT 200% (next day)', ea: 'Cl. 140.2(a)', code: codes.ot2 || '1110', hrs: `${postOt2h.toFixed(2)} hrs`, rate: `$${(B*2).toFixed(5)}/hr`, amount: r2(postOt2h * B * 2), cls: '', date: day.date }); }
     }

@@ -185,7 +185,7 @@ def _get_shift_class(a_s: int, a_e: int) -> Optional[str]:
         return 'night'
     if 240 <= s_min <= 330:  # 04:00–05:30
         return 'early'
-    if 600 <= s_min < 1080:  # 10:00–17:59 (ordinary ends after 18:00)
+    if 600 < s_min < 1080:  # after 10:00–17:59 (ordinary ends after 18:00)
         return 'afternoon'
     return None
 
@@ -470,6 +470,13 @@ def compute_day(day: DayState, cfg: RateConfig, codes: PayrollCodes,
                     'Ordinary Hours (next-day wkdy)', 'Sch. 4A',
                     f'{post_ord_h:.2f} hrs', f'${B:.5f}/hr',
                     post_ord_h * B, date=day.date, pool=True))
+                # Post-midnight hours start at 00:00 → night window (18:00–03:59) → night penalty
+                pen_h = round_hrs_ea(post_ord_h)
+                if pen_h > 0:
+                    components.append(_comp(codes.night or '',
+                        'Night Shift Dvrs/Grds Hrl (next day)', 'Item 7 Sch.4B',
+                        f'{float(pen_h):.2f} hrs', f'${cfg.night_rate:.5f}/hr',
+                        pen_h * cfg.night_rate, date=day.date, cls='pen-row'))
             if post_ot1h > 0:
                 components.append(_comp(codes.ot1 or '1026',
                     'Sched OT 150% (next day)', 'Cl. 140.2(a)',
