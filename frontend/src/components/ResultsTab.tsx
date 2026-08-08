@@ -276,7 +276,7 @@ export default function ResultsTab() {
                       </tr>
                     </thead>
                     <tbody>
-                      {dr.components.map((c: PayComponent, j: number) => (
+                      {[...dr.components].sort((a, b) => (a.code || '').localeCompare(b.code || '', undefined, { numeric: true })).map((c: PayComponent, j: number) => (
                         <tr key={j} className={c.cls === 'pen-row' ? 'row-pen' : c.cls === 'km-row' ? 'row-km' : ''}>
                           <td>{c.name}</td>
                           <td><code style={{ ...codeStyle(c.code) }}>{c.code}</code></td>
