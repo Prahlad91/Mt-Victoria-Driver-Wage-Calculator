@@ -198,7 +198,15 @@ export default function ResultsTab() {
                 </tr>
               </thead>
               <tbody>
-                {fnComps.map((c: PayComponent, idx: number) => {
+                {[...fnComps]
+                  .sort((a, b) => {
+                    // Fortnight-level rows (no date) last
+                    if (!a.date && b.date) return 1
+                    if (a.date && !b.date) return -1
+                    if (a.date !== b.date) return (a.date || '').localeCompare(b.date || '')
+                    return (a.code || '').localeCompare(b.code || '', undefined, { numeric: true })
+                  })
+                  .map((c: PayComponent, idx: number) => {
                   const dateLabel = c.date
                     ? fmtDateShort(parseDate(c.date))
                     : <em style={{ color: 'var(--text3)' }}>fortnight</em>
