@@ -217,6 +217,10 @@ export function previewDay(
     const postOt2h = r2Hrs(Math.max(0, postOtH - 3));
     otH = r2Hrs(preOtH + postOtH);
 
+    // Loading hours use actual sign-on/off only (exclude liftup/layback window)
+    const preLoadH  = r2Hrs(Math.min((1440 - win.aS) / 60, 8));
+    const postLoadH = r2Hrs(Math.max(0, Math.min((win.aE - 1440) / 60, 8 - preLoadH)));
+
     const nextIsSat = nextDow === 6;
     const nextIsSun = nextDow === 0;
 
@@ -228,22 +232,28 @@ export function previewDay(
         components.push({ name: 'Ordinary Hours (PH, base)', ea: 'Sch. 4A', code: codes.base || '1001',
           hrs: `${preOrdH.toFixed(2)} hrs`, rate: `$${B.toFixed(5)}/hr`,
           amount: r2(preOrdH * B), cls: '', date: day.date, pool_to_ordinary: true });
+      }
+      if (preLoadH > 0) {
         components.push({ name: `PH loading +${(phl*100).toFixed(0)}%`, ea: 'Cl. 31.5(a)', code: phc,
-          hrs: `${preOrdH.toFixed(2)} hrs`, rate: `$${(B*phl).toFixed(5)}/hr`,
-          amount: r2(preOrdH * B * phl), cls: '', date: day.date });
+          hrs: `${preLoadH.toFixed(2)} hrs`, rate: `$${(B*phl).toFixed(5)}/hr`,
+          amount: r2(preLoadH * B * phl), cls: '', date: day.date });
       }
       if (preOt1h > 0) { const r = (cfg.ot1 ?? 1.5) + phl; components.push({ name: 'Sched OT 150% + PH loading (stacked)', ea: 'Cl. 78.3+Cl.31.5(a)', code: codes.ot1 || '1026', hrs: `${preOt1h.toFixed(2)} hrs`, rate: `$${(B*r).toFixed(5)}/hr`, amount: r2(preOt1h * B * r), cls: '', date: day.date }); }
       if (preOt2h > 0) { const r = (cfg.ot2 ?? 2.0) + phl; components.push({ name: 'Sched OT 200% + PH loading (stacked)', ea: 'Cl. 78.3+Cl.31.5(a)', code: codes.ot2 || '1110', hrs: `${preOt2h.toFixed(2)} hrs`, rate: `$${(B*r).toFixed(5)}/hr`, amount: r2(preOt2h * B * r), cls: '', date: day.date }); }
     } else if (isSun) {
       if (preOrdH > 0) {
         components.push({ name: 'Ordinary Hours (Sunday, base)', ea: 'Sch. 4A', code: codes.base || '1001', hrs: `${preOrdH.toFixed(2)} hrs`, rate: `$${B.toFixed(5)}/hr`, amount: r2(preOrdH * B), cls: '', date: day.date, pool_to_ordinary: true });
-        components.push({ name: 'Loading @ 100% Sunday', ea: 'Cl. 54.2', code: codes.sun || '', hrs: `${preOrdH.toFixed(2)} hrs`, rate: `$${B.toFixed(5)}/hr`, amount: r2(preOrdH * B), cls: '', date: day.date });
+      }
+      if (preLoadH > 0) {
+        components.push({ name: 'Loading @ 100% Sunday', ea: 'Cl. 54.2', code: codes.sun || '', hrs: `${preLoadH.toFixed(2)} hrs`, rate: `$${B.toFixed(5)}/hr`, amount: r2(preLoadH * B), cls: '', date: day.date });
       }
       if (preOt1h + preOt2h > 0) { const ot = r2Hrs(preOt1h + preOt2h); components.push({ name: 'Sched OT 200%', ea: 'Cl. 140.2(d)', code: codes.sat_ot || '1027', hrs: `${ot.toFixed(2)} hrs`, rate: `$${(B*2).toFixed(5)}/hr (200%)`, amount: r2(ot * B * 2), cls: '', date: day.date }); }
     } else if (isSat) {
       if (preOrdH > 0) {
         components.push({ name: 'Ordinary Hours (Saturday, base)', ea: 'Sch. 4A', code: codes.base || '1001', hrs: `${preOrdH.toFixed(2)} hrs`, rate: `$${B.toFixed(5)}/hr`, amount: r2(preOrdH * B), cls: '', date: day.date, pool_to_ordinary: true });
-        components.push({ name: 'Loading @ 50% Saturday', ea: 'Cl. 54.1', code: codes.sat || '1064', hrs: `${preOrdH.toFixed(2)} hrs`, rate: `$${(B*0.5).toFixed(5)}/hr`, amount: r2(preOrdH * B * 0.5), cls: '', date: day.date });
+      }
+      if (preLoadH > 0) {
+        components.push({ name: 'Loading @ 50% Saturday', ea: 'Cl. 54.1', code: codes.sat || '1064', hrs: `${preLoadH.toFixed(2)} hrs`, rate: `$${(B*0.5).toFixed(5)}/hr`, amount: r2(preLoadH * B * 0.5), cls: '', date: day.date });
       }
       if (preOt1h + preOt2h > 0) { const ot = r2Hrs(preOt1h + preOt2h); components.push({ name: 'Sched OT 200%', ea: 'Cl. 140.2(b)', code: codes.sat_ot || '1027', hrs: `${ot.toFixed(2)} hrs`, rate: `$${(B*2).toFixed(5)}/hr (200%)`, amount: r2(ot * B * 2), cls: '', date: day.date }); }
     } else {
@@ -267,20 +277,26 @@ export function previewDay(
       const npc = nextIsSat || nextIsSun ? (codes.ph_wke || '1010') : (codes.ph_wkd || '5042');
       if (postOrdH > 0) {
         components.push({ name: 'Ordinary Hours (next-day PH, base)', ea: 'Sch. 4A', code: codes.base || '1001', hrs: `${postOrdH.toFixed(2)} hrs`, rate: `$${B.toFixed(5)}/hr`, amount: r2(postOrdH * B), cls: '', date: day.date, pool_to_ordinary: true });
-        components.push({ name: `PH loading +${(npl*100).toFixed(0)}% (next day)`, ea: 'Cl. 31.5(a)', code: npc, hrs: `${postOrdH.toFixed(2)} hrs`, rate: `$${(B*npl).toFixed(5)}/hr`, amount: r2(postOrdH * B * npl), cls: '', date: day.date });
+      }
+      if (postLoadH > 0) {
+        components.push({ name: `PH loading +${(npl*100).toFixed(0)}% (next day)`, ea: 'Cl. 31.5(a)', code: npc, hrs: `${postLoadH.toFixed(2)} hrs`, rate: `$${(B*npl).toFixed(5)}/hr`, amount: r2(postLoadH * B * npl), cls: '', date: day.date });
       }
       if (postOt1h > 0) { const r = (cfg.ot1 ?? 1.5) + npl; components.push({ name: 'Sched OT 150% + PH loading (stacked)', ea: 'Cl. 78.3+Cl.31.5(a)', code: codes.ot1 || '1026', hrs: `${postOt1h.toFixed(2)} hrs`, rate: `$${(B*r).toFixed(5)}/hr`, amount: r2(postOt1h * B * r), cls: '', date: day.date }); }
       if (postOt2h > 0) { const r = (cfg.ot2 ?? 2.0) + npl; components.push({ name: 'Sched OT 200% + PH loading (stacked)', ea: 'Cl. 78.3+Cl.31.5(a)', code: codes.ot2 || '1110', hrs: `${postOt2h.toFixed(2)} hrs`, rate: `$${(B*r).toFixed(5)}/hr`, amount: r2(postOt2h * B * r), cls: '', date: day.date }); }
     } else if (nextIsSun) {
       if (postOrdH > 0) {
         components.push({ name: 'Ordinary Hours (next-day Sun, base)', ea: 'Sch. 4A', code: codes.base || '1001', hrs: `${postOrdH.toFixed(2)} hrs`, rate: `$${B.toFixed(5)}/hr`, amount: r2(postOrdH * B), cls: '', date: day.date, pool_to_ordinary: true });
-        components.push({ name: 'Loading @ 100% Sunday (next day)', ea: 'Cl. 54.2', code: codes.sun || '', hrs: `${postOrdH.toFixed(2)} hrs`, rate: `$${B.toFixed(5)}/hr`, amount: r2(postOrdH * B), cls: '', date: day.date });
+      }
+      if (postLoadH > 0) {
+        components.push({ name: 'Loading @ 100% Sunday (next day)', ea: 'Cl. 54.2', code: codes.sun || '', hrs: `${postLoadH.toFixed(2)} hrs`, rate: `$${B.toFixed(5)}/hr`, amount: r2(postLoadH * B), cls: '', date: day.date });
       }
       if (postOt1h + postOt2h > 0) { const ot = r2Hrs(postOt1h + postOt2h); components.push({ name: 'Sched OT 200% (next-day Sun)', ea: 'Cl. 140.2(d)', code: codes.sat_ot || '1027', hrs: `${ot.toFixed(2)} hrs`, rate: `$${(B*2).toFixed(5)}/hr (200%)`, amount: r2(ot * B * 2), cls: '', date: day.date }); }
     } else if (nextIsSat) {
       if (postOrdH > 0) {
         components.push({ name: 'Ordinary Hours (next-day Sat, base)', ea: 'Sch. 4A', code: codes.base || '1001', hrs: `${postOrdH.toFixed(2)} hrs`, rate: `$${B.toFixed(5)}/hr`, amount: r2(postOrdH * B), cls: '', date: day.date, pool_to_ordinary: true });
-        components.push({ name: 'Loading @ 50% Saturday (next day)', ea: 'Cl. 54.1', code: codes.sat || '1064', hrs: `${postOrdH.toFixed(2)} hrs`, rate: `$${(B*0.5).toFixed(5)}/hr`, amount: r2(postOrdH * B * 0.5), cls: '', date: day.date });
+      }
+      if (postLoadH > 0) {
+        components.push({ name: 'Loading @ 50% Saturday (next day)', ea: 'Cl. 54.1', code: codes.sat || '1064', hrs: `${postLoadH.toFixed(2)} hrs`, rate: `$${(B*0.5).toFixed(5)}/hr`, amount: r2(postLoadH * B * 0.5), cls: '', date: day.date });
       }
       if (postOt1h + postOt2h > 0) { const ot = r2Hrs(postOt1h + postOt2h); components.push({ name: 'Sched OT 200% (next-day Sat)', ea: 'Cl. 140.2(b)', code: codes.sat_ot || '1027', hrs: `${ot.toFixed(2)} hrs`, rate: `$${(B*2).toFixed(5)}/hr (200%)`, amount: r2(ot * B * 2), cls: '', date: day.date }); }
     } else {
@@ -298,7 +314,8 @@ export function previewDay(
 
   } else {
     // ─── Non-WOBOD (no midnight split) ─────────────────────────────────────
-    const ordH = r2Hrs(Math.min(workedHrs, 8));
+    const ordH  = r2Hrs(Math.min(workedHrs, 8));
+    const loadH = r2Hrs(Math.min(actualHrs, 8));  // loading on actual sign-on/off only
     otH = r2Hrs(Math.max(0, workedHrs - 8));
     // Cl. 78.3: first 3 hours of daily OT at 1.5×, beyond that at 2.0×.
     // (Fixed v3.19 — was incorrectly using a 2-hour boundary.)
@@ -310,6 +327,9 @@ export function previewDay(
       const phH = r2Hrs(Math.max(workedHrs, kmCredited || 0));
       const phOrdH = r2Hrs(Math.min(phH, 8));
       const phOtH  = r2Hrs(Math.max(0, phH - 8));
+      // Loading on actual hours only (exclude liftup/layback window)
+      const phLoadH     = r2Hrs(Math.max(actualHrs, kmCredited || 0));
+      const phLoadOrdH  = r2Hrs(Math.min(phLoadH, 8));
       // Output in payslip ascending-code order: 1010 → 1011 → 1027 → 1063
       // Row 1: PH Paid — accrued day (1010)
       components.push({
@@ -331,12 +351,12 @@ export function previewDay(
           amount: r2(phOtH * B * 2), cls: '', date: day.date,
         });
       }
-      // Row 4: PH Loading @ 50%/150% on base 8h only (1063)
+      // Row 4: PH Loading on actual base hours only (1063)
       components.push({
         name: `PH Loading @ ${(loadingPct * 100).toFixed(0)}%`,
         ea: 'Cl. 31.5(a)', code: codes.ph_loading || '1063',
-        hrs: `${phOrdH.toFixed(2)} hrs`, rate: `$${(B * loadingPct).toFixed(5)}/hr`,
-        amount: r2(phOrdH * B * loadingPct), cls: '', date: day.date,
+        hrs: `${phLoadOrdH.toFixed(2)} hrs`, rate: `$${(B * loadingPct).toFixed(5)}/hr`,
+        amount: r2(phLoadOrdH * B * loadingPct), cls: '', date: day.date,
       });
     } else if (isSun) {
       components.push({
@@ -344,11 +364,13 @@ export function previewDay(
         hrs: `${ordH.toFixed(2)} hrs`, rate: `$${B.toFixed(5)}/hr`,
         amount: r2(ordH * B), cls: '', date: day.date, pool_to_ordinary: true,
       });
-      components.push({
-        name: 'Loading @ 100% Sunday', ea: 'Cl. 54.2', code: codes.sun || '',
-        hrs: `${ordH.toFixed(2)} hrs`, rate: `$${B.toFixed(5)}/hr`,
-        amount: r2(ordH * B), cls: '', date: day.date,
-      });
+      if (loadH > 0) {
+        components.push({
+          name: 'Loading @ 100% Sunday', ea: 'Cl. 54.2', code: codes.sun || '',
+          hrs: `${loadH.toFixed(2)} hrs`, rate: `$${B.toFixed(5)}/hr`,
+          amount: r2(loadH * B), cls: '', date: day.date,
+        });
+      }
       if (ot1h + ot2h > 0) {
         const ot = r2Hrs(ot1h + ot2h);
         components.push({
@@ -363,12 +385,14 @@ export function previewDay(
         hrs: `${ordH.toFixed(2)} hrs`, rate: `$${B.toFixed(5)}/hr`,
         amount: r2(ordH * B), cls: '', date: day.date, pool_to_ordinary: true,
       });
-      const satLoading = B * 0.5;
-      components.push({
-        name: 'Loading @ 50% Saturday', ea: 'Cl. 54.1', code: codes.sat || '1064',
-        hrs: `${ordH.toFixed(2)} hrs`, rate: `$${satLoading.toFixed(5)}/hr`,
-        amount: r2(ordH * satLoading), cls: '', date: day.date,
-      });
+      if (loadH > 0) {
+        const satLoading = B * 0.5;
+        components.push({
+          name: 'Loading @ 50% Saturday', ea: 'Cl. 54.1', code: codes.sat || '1064',
+          hrs: `${loadH.toFixed(2)} hrs`, rate: `$${satLoading.toFixed(5)}/hr`,
+          amount: r2(loadH * satLoading), cls: '', date: day.date,
+        });
+      }
       if (ot1h + ot2h > 0) {
         const ot = r2Hrs(ot1h + ot2h);
         components.push({
@@ -568,16 +592,16 @@ function previewLeave(day: DayState, cfg: RateConfig, codes: PayrollCodes): DayR
     ];
     let total = loading;
     if (ot1H > 0) {
-      const r = (cfg.ot1 ?? 1.5) + 1.5;
+      const r = (cfg.ot1 ?? 1.5) + 0.5;  // 1.5 + 0.5 = 2.0×
       const ot1Amt = r2(ot1H * B * r);
-      comps.push({ name: 'Sched OT 150% + PHW loading (stacked)', ea: 'Cl. 78.3+Cl.31.5(a)', code: codes.ot1 || '1026',
+      comps.push({ name: 'Sched OT 200% + PHW loading', ea: 'Cl. 78.3+Cl.31.5(a)', code: codes.ot1 || '1026',
         hrs: `${ot1H.toFixed(2)} hrs`, rate: `$${(B * r).toFixed(5)}/hr`, amount: ot1Amt, cls: '', date: day.date });
       total = r2(total + ot1Amt);
     }
     if (ot2H > 0) {
-      const r = (cfg.ot2 ?? 2.0) + 1.5;
+      const r = (cfg.ot2 ?? 2.0) + 0.5;  // 2.0 + 0.5 = 2.5×
       const ot2Amt = r2(ot2H * B * r);
-      comps.push({ name: 'Sched OT 200% + PHW loading (stacked)', ea: 'Cl. 78.3+Cl.31.5(a)', code: codes.ot2 || '1110',
+      comps.push({ name: 'Sched OT 250% + PHW loading', ea: 'Cl. 78.3+Cl.31.5(a)', code: codes.ot2 || '1110',
         hrs: `${ot2H.toFixed(2)} hrs`, rate: `$${(B * r).toFixed(5)}/hr`, amount: ot2Amt, cls: '', date: day.date });
       total = r2(total + ot2Amt);
     }

@@ -24,7 +24,7 @@ from parsers import (
 )
 from exporters import render_pdf, render_csv
 from db import (
-    save_artifact, get_latest_artifact, close_pool,
+    save_artifact, get_latest_artifact, get_pool, close_pool,
     # v3.31 auth
     EMP_ID_RE, RATE_LIMIT_IP_HOUR,
     list_allowed_employees, get_employee, add_allowed_employee,
@@ -42,8 +42,8 @@ from pydantic import BaseModel, Field
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    """FastAPI lifespan — ensures the asyncpg pool is closed on shutdown.
-    Pool is created lazily on first use; nothing to do on startup."""
+    """FastAPI lifespan — warm the DB pool at startup so the first login is fast."""
+    await get_pool()  # no-op if DATABASE_URL unset
     try:
         yield
     finally:
