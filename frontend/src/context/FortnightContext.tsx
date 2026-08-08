@@ -610,8 +610,11 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
       newDays = rosterEntries.map((entry, i) => {
         const date = dates[i]; const d = parseDate(date); const dow = d.getDay()
 
-        // PH days become PHNW regardless of what the roster says
-        if (phs.includes(date)) {
+        // PH days rostered OFF/ADO/leave → PHNW. Rostered with a shift diagram → worked PH.
+        const isPhDay = phs.includes(date)
+        const isOffLike = entry.diag === 'OFF' || entry.diag === 'ADO'
+          || ['PHNW','PHW','PHWA','PDWP','SL','CL','AL','BL','JD','RDO','LWOP'].includes(entry.diag)
+        if (isPhDay && isOffLike) {
           return {
             date, dow, ph: true,
             diag: 'PHNW', diagNum: null,
@@ -667,7 +670,7 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
         }
 
         return {
-          date, dow, ph: false,
+          date, dow, ph: isPhDay,
           diag: entry.diag, diagNum,
           rStart, rEnd, cm, rHrs,
           aStart: rStart || '', aEnd: rEnd || '',
@@ -689,8 +692,11 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
         const diag = String(diagBuilt)
         const date = dates[i]; const d = parseDate(date); const dow = d.getDay()
 
-        // PH days become PHNW regardless of what the roster says
-        if (phs.includes(date)) {
+        // PH days rostered OFF/ADO/leave → PHNW. Rostered with a shift diagram → worked PH.
+        const isPhDay = phs.includes(date)
+        const isOffLike = diag === 'OFF' || diag === 'ADO'
+          || ['PHNW','PHW','PHWA','PDWP','SL','CL','AL','BL','JD','RDO','LWOP'].includes(diag)
+        if (isPhDay && isOffLike) {
           return {
             date, dow, ph: true,
             diag: 'PHNW', diagNum: null,
@@ -740,7 +746,7 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
         }
 
         return {
-          date, dow, ph: false,
+          date, dow, ph: isPhDay,
           diag, diagNum,
           rStart, rEnd, cm, rHrs,
           aStart: rStart || '', aEnd: rEnd || '',
