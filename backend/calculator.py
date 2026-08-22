@@ -190,10 +190,12 @@ def _get_shift_class(a_s: int, a_e: int) -> Optional[str]:
     return None
 
 
-def _add_loading_eligible(a_s: int, dow: int, is_ph: bool) -> bool:
-    """Cl. 134.4 Item 9: weekday Mon-Fri, sign-on 01:01-03:59, NOT PH."""
+def _add_loading_eligible(a_s: int, a_e: int, dow: int, is_ph: bool) -> bool:
+    """Cl. 134.4 Item 9: weekday Mon-Fri, sign-on OR sign-off in 01:01–03:59, NOT PH."""
     s_min = a_s % 1440
-    return (not is_ph) and (1 <= dow <= 5) and (61 <= s_min <= 239)
+    e_min = a_e % 1440
+    in_win = lambda m: 61 <= m <= 239
+    return (not is_ph) and (1 <= dow <= 5) and (in_win(s_min) or in_win(e_min))
 
 
 # ─── Component constructor ──────────────────────────────────────────
@@ -395,7 +397,9 @@ def compute_day(day: DayState, cfg: RateConfig, codes: PayrollCodes,
             if sc:
                 pen_rate = (cfg.night_rate if sc == 'night' else
                             cfg.early_rate if sc == 'early' else cfg.afternoon_rate)
-                pen_h = round_hrs_ea(pre_ord_h)
+                # Penalty on actual pre-midnight ordinary hours (not effective window)
+                actual_pre_ord_h = r2_hrs(min((1440 - a_s) / 60, 8.0))
+                pen_h = round_hrs_ea(actual_pre_ord_h)
                 pen_code = (codes.night if sc == 'night' else
                             codes.early if sc == 'early' else codes.afternoon)
                 pen_name = ('Night Shift Dvrs/Grds Hrl' if sc == 'night' else
@@ -405,7 +409,7 @@ def compute_day(day: DayState, cfg: RateConfig, codes: PayrollCodes,
                 components.append(_comp(pen_code or '', pen_name, pen_clause,
                     f'{float(pen_h):.2f} hrs', f'${pen_rate:.5f}/hr',
                     pen_h * pen_rate, date=day.date, cls='pen-row'))
-            if _add_loading_eligible(a_s, day.dow, is_ph):
+            if _add_loading_eligible(a_s, a_e, day.dow, is_ph):
                 components.append(_comp(codes.add_load or '1470',
                     'Special Loading Drvs/Grds', 'Cl. 134.4',
                     '1.00 hrs', f'${cfg.add_loading:.5f}/hr',
@@ -606,13 +610,15 @@ def compute_day(day: DayState, cfg: RateConfig, codes: PayrollCodes,
                     f'{ot2h:.2f} hrs', f'${ot2_rate:.5f}/hr',
                     ot2h * ot2_rate, date=day.date,
                 ))
-            # Shift penalty (Cl. 134.1)
+            # Shift penalty (Cl. 134.1) — on actual ordinary hours, not effective window
             sc = _get_shift_class(a_s, a_e)
             if sc:
                 pen_rate = (cfg.night_rate if sc == 'night' else
                             cfg.early_rate if sc == 'early' else
                             cfg.afternoon_rate)
-                pen_h = round_hrs_ea(ord_h)
+                # Use actual hours (not LU/LB effective window) for penalty base
+                actual_ord_h = r2_hrs(min(actual_hrs, 8.0))
+                pen_h = round_hrs_ea(actual_ord_h)
                 pen_code = (codes.night if sc == 'night' else
                             codes.early if sc == 'early' else
                             codes.afternoon)
@@ -626,7 +632,7 @@ def compute_day(day: DayState, cfg: RateConfig, codes: PayrollCodes,
                     pen_h * pen_rate, date=day.date, cls='pen-row',
                 ))
             # Item 9 (Cl. 134.4)
-            if _add_loading_eligible(a_s, day.dow, is_ph):
+            if _add_loading_eligible(a_s, a_e, day.dow, is_ph):
                 components.append(_comp(
                     codes.add_load or '1470',
                     'Special Loading Drvs/Grds', 'Cl. 134.4',

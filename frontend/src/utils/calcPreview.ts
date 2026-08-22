@@ -95,9 +95,11 @@ function getShiftClass(aS: number): 'night' | 'early' | 'afternoon' | null {
   return null;
 }
 
-function addLoadingEligible(aS: number, dow: number, isPh: boolean): boolean {
+function addLoadingEligible(aS: number, aE: number, dow: number, isPh: boolean): boolean {
   const s = aS % 1440;
-  return !isPh && dow >= 1 && dow <= 5 && s >= 61 && s <= 239;
+  const e = aE % 1440;
+  const inWin = (m: number) => m >= 61 && m <= 239;
+  return !isPh && dow >= 1 && dow <= 5 && (inWin(s) || inWin(e));
 }
 
 // ─── Per-day preview ──────────────────────────────────────────────
@@ -263,12 +265,14 @@ export function previewDay(
       const sc = getShiftClass(win.aS);
       if (sc) {
         const penRate = sc === 'night' ? cfg.night_rate : sc === 'early' ? cfg.early_rate : cfg.afternoon_rate;
-        const penH = roundHrsEA(preOrdH);
+        // Penalty on actual pre-midnight ordinary hours (not effective window)
+        const actualPreOrdH = r2Hrs(Math.min((1440 - win.aS) / 60, 8));
+        const penH = roundHrsEA(actualPreOrdH);
         const penCode = sc === 'night' ? (codes.night || '1487') : sc === 'early' ? (codes.early || '1483') : (codes.afternoon || '1485');
         const penName = sc === 'night' ? 'Night Shift Dvrs/Grds Hrl' : sc === 'early' ? 'Morning Shift Dvrs/Grds H' : 'Afternoon Shift Dvrs/Grds';
         components.push({ name: penName, ea: `Item ${sc === 'night' ? 7 : sc === 'early' ? 8 : 6} Sch.4B`, code: penCode, hrs: `${penH.toFixed(2)} hrs`, rate: `$${penRate.toFixed(5)}/hr`, amount: r2(penH * penRate), cls: 'pen-row', date: day.date });
       }
-      if (addLoadingEligible(win.aS, day.dow, isPH)) { components.push({ name: 'Special Loading Drvs/Grds', ea: 'Cl. 134.4', code: codes.add_load || '1470', hrs: '1.00 hrs', rate: `$${cfg.add_loading.toFixed(5)}/hr`, amount: r2(cfg.add_loading), cls: 'pen-row', date: day.date }); }
+      if (addLoadingEligible(win.aS, win.aE, day.dow, isPH)) { components.push({ name: 'Special Loading Drvs/Grds', ea: 'Cl. 134.4', code: codes.add_load || '1470', hrs: '1.00 hrs', rate: `$${cfg.add_loading.toFixed(5)}/hr`, amount: r2(cfg.add_loading), cls: 'pen-row', date: day.date }); }
     }
 
     // ── Post-midnight (next day rates) ─────────────────────────────
@@ -433,7 +437,9 @@ export function previewDay(
       const sc = getShiftClass(win.aS);
       if (sc) {
         const penRate = sc === 'night' ? cfg.night_rate : sc === 'early' ? cfg.early_rate : cfg.afternoon_rate;
-        const penH = roundHrsEA(ordH);
+        // Use actual hours (not LU/LB effective window) for penalty base
+        const actualOrdH = r2Hrs(Math.min(actualHrs, 8));
+        const penH = roundHrsEA(actualOrdH);
         const penCode = sc === 'night' ? (codes.night || '1487') : sc === 'early' ? (codes.early || '1483') : (codes.afternoon || '1485');
         const penName = sc === 'night' ? 'Night Shift Dvrs/Grds Hrl' : sc === 'early' ? 'Morning Shift Dvrs/Grds H' : 'Afternoon Shift Dvrs/Grds';
         const penClause = `Item ${sc === 'night' ? 7 : sc === 'early' ? 8 : 6} Sch.4B`;
@@ -443,7 +449,7 @@ export function previewDay(
           amount: r2(penH * penRate), cls: 'pen-row', date: day.date,
         });
       }
-      if (addLoadingEligible(win.aS, day.dow, isPH)) {
+      if (addLoadingEligible(win.aS, win.aE, day.dow, isPH)) {
         components.push({
           name: 'Special Loading Drvs/Grds', ea: 'Cl. 134.4', code: codes.add_load || '1470',
           hrs: '1.00 hrs', rate: `$${cfg.add_loading.toFixed(5)}/hr`,

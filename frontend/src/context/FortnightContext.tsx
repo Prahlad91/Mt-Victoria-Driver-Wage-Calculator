@@ -872,7 +872,7 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
         aStart: '', aEnd: '',
         timeSource: 'manual',
         claimLiftupLayback: day.claimLiftupLayback ?? true,
-        wobod: false, km: 0,
+        wobod: !!day.ph, km: 0,  // auto-WOBOD when driver marks worked on a holiday
         wasAdo,  // v3.11
       }
       return n
