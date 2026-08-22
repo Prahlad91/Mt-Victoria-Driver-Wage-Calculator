@@ -374,8 +374,27 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
 
   const setConfig  = useCallback((p: Partial<RateConfig>)  => setConfigState(prev => ({ ...prev, ...p })), [])
   const setCodes   = useCallback((p: Partial<PayrollCodes>) => setCodesState(prev => ({ ...prev, ...p })), [])
-  const saveConfig = useCallback(() => { toLS(LS_CFG, config); toLS(LS_UNASSOC, unassocAmt) }, [config, unassocAmt])
-  const saveCodes  = useCallback(() => toLS(LS_CODES, codes), [codes])
+  const saveConfig = useCallback(() => {
+    toLS(LS_CFG, config)
+    toLS(LS_UNASSOC, unassocAmt)
+    if (adminPassword) {
+      fetch('/api/admin/rates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Admin-Password': adminPassword },
+        body: JSON.stringify({ config, codes, unassocAmt }),
+      }).catch(() => undefined)
+    }
+  }, [config, codes, unassocAmt, adminPassword])
+  const saveCodes  = useCallback(() => {
+    toLS(LS_CODES, codes)
+    if (adminPassword) {
+      fetch('/api/admin/rates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Admin-Password': adminPassword },
+        body: JSON.stringify({ config, codes, unassocAmt }),
+      }).catch(() => undefined)
+    }
+  }, [config, codes, unassocAmt, adminPassword])
 
   /** Parse a CSV upload for the assoc/unassoc chart.
    *  Columns: diagram, un_assoc_mins, assoc_payment_mins[, assoc_calc_mins, build_up_mins]
@@ -493,11 +512,12 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
 
     ;(async () => {
       // Admin-published (public reads, no auth required)
-      const [master, weekday, weekend, chart] = await Promise.all([
+      const [master, weekday, weekend, chart, rates] = await Promise.all([
         tryFetch<ParsedRosterData>('/api/roster/current'),
         tryFetch<ParsedScheduleData>('/api/schedule/current?type=weekday'),
         tryFetch<ParsedScheduleData>('/api/schedule/current?type=weekend'),
         tryFetch<{ chart: Record<string, AssocChart[string]> }>('/api/chart/current'),
+        tryFetch<{ config: RateConfig; codes: PayrollCodes; unassocAmt: number }>('/api/rates/current'),
       ])
       if (cancelled) return
       if (master) {
@@ -516,6 +536,18 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
         toLS(LS_AC, chart.chart)
         setAssocChart(chart.chart as AssocChart)
         setAssocChartIsCustom(true)
+      }
+      if (rates?.config) {
+        setConfigState(prev => ({ ...prev, ...rates.config }))
+        toLS(LS_CFG, rates.config)
+      }
+      if (rates?.codes) {
+        setCodesState(prev => ({ ...prev, ...rates.codes }))
+        toLS(LS_CODES, rates.codes)
+      }
+      if (rates?.unassocAmt !== undefined) {
+        setUnassocAmt(rates.unassocAmt)
+        toLS(LS_UNASSOC, rates.unassocAmt)
       }
       // User fortnight roster (scoped to this browser's session id)
       const fn = await tryFetch<ParsedRosterData>('/api/fortnight-roster/current', { 'X-Session-Id': sid })

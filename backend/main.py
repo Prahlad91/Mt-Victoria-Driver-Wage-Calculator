@@ -25,6 +25,7 @@ from parsers import (
 from exporters import render_pdf, render_csv
 from db import (
     save_artifact, get_latest_artifact, get_pool, close_pool,
+    save_global_config, get_global_config,
     # v3.31 auth
     EMP_ID_RE, RATE_LIMIT_IP_HOUR,
     list_allowed_employees, get_employee, add_allowed_employee,
@@ -630,6 +631,35 @@ async def admin_upload_chart(
         chart=parsed.chart,
         warnings=warnings,
     )
+
+
+# ─── Admin rates persistence (v3.64) ────────────────────────────────────────
+
+class RatesPayload(BaseModel):
+    config: dict = Field(default_factory=dict)
+    codes: dict = Field(default_factory=dict)
+    unassocAmt: float = 0.0
+
+
+@app.get("/api/rates/current")
+async def get_rates_current():
+    """Return admin-saved rates. 404 if none saved yet (fall back to frontend defaults)."""
+    data = await get_global_config("rates")
+    if data is None:
+        raise HTTPException(status_code=404, detail="No rates saved")
+    return data
+
+
+@app.post("/api/admin/rates")
+async def save_rates(
+    body: RatesPayload,
+    x_admin_password: Optional[str] = Header(None, alias="X-Admin-Password"),
+    x_admin_token:    Optional[str] = Header(None, alias="X-Admin-Token"),
+):
+    """Admin: persist rate config + payroll codes to DB."""
+    _require_admin(x_admin_password, x_admin_token)
+    await save_global_config("rates", body.model_dump())
+    return {"ok": True}
 
 
 # ─── User-driven fortnight roster (v3.23) ───────────────────────────────────

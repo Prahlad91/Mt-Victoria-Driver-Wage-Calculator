@@ -66,7 +66,11 @@ export default function RatesTab() {
           <hr />
           <button onClick={handleSaveCfg}>Save rates</button>
           {cfgSaved&&<span className="saved-msg">Saved ✓</span>}
-          <p className="note" style={{marginTop:8}}>Rates are saved to localStorage and persist across browser sessions.</p>
+          <p className="note" style={{marginTop:8}}>
+            {ctx.adminPassword
+              ? 'Rates saved to server database — all users will load these rates on next visit.'
+              : 'Rates saved to localStorage only. Log in as admin to persist globally.'}
+          </p>
         </div>
       </div>
 

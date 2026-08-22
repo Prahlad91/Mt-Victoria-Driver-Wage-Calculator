@@ -106,6 +106,12 @@ CREATE TABLE IF NOT EXISTS parsed_artifact (
     ))
 );
 
+CREATE TABLE IF NOT EXISTS global_config (
+    key        TEXT        PRIMARY KEY,
+    value      JSONB       NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE INDEX IF NOT EXISTS idx_parsed_artifact_lookup
     ON parsed_artifact (kind, sub_kind, active, uploaded_at DESC);
 
@@ -298,6 +304,34 @@ async def get_latest_artifact(
         "uploaded_at": row["uploaded_at"].isoformat(),
         "payload": json.loads(row["payload"]) if isinstance(row["payload"], str) else row["payload"],
     }
+
+
+# ─── Global config (rates etc.) ─────────────────────────────────────────────
+
+async def save_global_config(key: str, value: dict) -> None:
+    """Upsert a JSON blob under `key` in global_config. No-op if no DB."""
+    pool = await get_pool()
+    if pool is None:
+        return
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO global_config (key, value) VALUES ($1, $2::jsonb) "
+            "ON CONFLICT (key) DO UPDATE SET value = $2::jsonb, updated_at = NOW()",
+            key, json.dumps(value),
+        )
+
+
+async def get_global_config(key: str) -> Optional[dict]:
+    """Return the JSON blob for `key`, or None if not found / no DB."""
+    pool = await get_pool()
+    if pool is None:
+        return None
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT value FROM global_config WHERE key = $1", key)
+        if row is None:
+            return None
+        v = row["value"]
+        return json.loads(v) if isinstance(v, str) else v
 
 
 # ─── v3.31: Auth allowlist + audit-log CRUD ─────────────────────────────────
