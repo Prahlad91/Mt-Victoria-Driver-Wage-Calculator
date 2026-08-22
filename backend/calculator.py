@@ -412,7 +412,7 @@ def compute_day(day: DayState, cfg: RateConfig, codes: PayrollCodes,
             if _add_loading_eligible(a_s, a_e, day.dow, is_ph):
                 components.append(_comp(codes.add_load or '1470',
                     'Special Loading Drvs/Grds', 'Cl. 134.4',
-                    '1.00 hrs', f'${cfg.add_loading:.5f}/hr',
+                    '1 shift', f'${cfg.add_loading:.5f} flat',
                     cfg.add_loading, date=day.date, cls='pen-row'))
 
         # ── Post-midnight (next day rates) ─────────────────────────

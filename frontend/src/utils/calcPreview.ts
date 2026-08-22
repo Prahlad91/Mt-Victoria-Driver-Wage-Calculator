@@ -272,7 +272,7 @@ export function previewDay(
         const penName = sc === 'night' ? 'Night Shift Dvrs/Grds Hrl' : sc === 'early' ? 'Morning Shift Dvrs/Grds H' : 'Afternoon Shift Dvrs/Grds';
         components.push({ name: penName, ea: `Item ${sc === 'night' ? 7 : sc === 'early' ? 8 : 6} Sch.4B`, code: penCode, hrs: `${penH.toFixed(2)} hrs`, rate: `$${penRate.toFixed(5)}/hr`, amount: r2(penH * penRate), cls: 'pen-row', date: day.date });
       }
-      if (addLoadingEligible(win.aS, win.aE, day.dow, isPH)) { components.push({ name: 'Special Loading Drvs/Grds', ea: 'Cl. 134.4', code: codes.add_load || '1470', hrs: '1.00 hrs', rate: `$${cfg.add_loading.toFixed(5)}/hr`, amount: r2(cfg.add_loading), cls: 'pen-row', date: day.date }); }
+      if (addLoadingEligible(win.aS, win.aE, day.dow, isPH)) { components.push({ name: 'Special Loading Drvs/Grds', ea: 'Cl. 134.4', code: codes.add_load || '1470', hrs: '1 shift', rate: `$${cfg.add_loading.toFixed(5)} flat`, amount: r2(cfg.add_loading), cls: 'pen-row', date: day.date }); }
     }
 
     // ── Post-midnight (next day rates) ─────────────────────────────
@@ -452,7 +452,7 @@ export function previewDay(
       if (addLoadingEligible(win.aS, win.aE, day.dow, isPH)) {
         components.push({
           name: 'Special Loading Drvs/Grds', ea: 'Cl. 134.4', code: codes.add_load || '1470',
-          hrs: '1.00 hrs', rate: `$${cfg.add_loading.toFixed(5)}/hr`,
+          hrs: '1 shift', rate: `$${cfg.add_loading.toFixed(5)} flat`,
           amount: r2(cfg.add_loading), cls: 'pen-row', date: day.date,
         });
       }
