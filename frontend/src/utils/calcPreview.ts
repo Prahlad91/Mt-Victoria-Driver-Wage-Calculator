@@ -147,23 +147,32 @@ export function previewDay(
 
   // ─── WOBOD (Cl. 140.4 + 140.7) ──────────────────────────────────
   if (day.wobod) {
-    let primaryPct: number, primaryClause: string, primaryName: string, primaryCode: string;
-    if (isSun) { primaryPct = 250; primaryClause = 'Cl. 140.4(d)'; primaryCode = '1110'; primaryName = 'Overtime @ 250%'; }
-    else if (isSat) { primaryPct = 200; primaryClause = 'Cl. 140.4(c)'; primaryCode = '1110'; primaryName = 'Overtime @ 200%'; }
-    else { primaryPct = 150; primaryClause = 'Cl. 140.4(a)'; primaryCode = '1100'; primaryName = 'Overtime @ 150%* (preview, fortnight counter applies)'; }
-    const primaryRate = B * primaryPct / 100;
     const addlRate = B * 0.5;
-    const wh = actualHrs;
-    components.push({
-      name: primaryName, ea: primaryClause, code: primaryCode,
-      hrs: `${wh.toFixed(2)} hrs`, rate: `$${primaryRate.toFixed(5)}/hr`,
-      amount: r2(wh * primaryRate), cls: '', date: day.date,
-    });
-    components.push({
-      name: 'WOBOD — Loading @ 50%', ea: 'Cl. 140.7', code: codes.wobod || '1059',
-      hrs: `${wh.toFixed(2)} hrs`, rate: `$${addlRate.toFixed(5)}/hr`,
-      amount: r2(wh * addlRate), cls: '', date: day.date,
-    });
+    // Cross-midnight: split at midnight, apply next-day DOW rate to post-midnight portion
+    const wobodCm = day.cm && win.aE > 1440;
+    const segments: Array<[number, number, string]> = wobodCm
+      ? [
+          [r2Hrs((1440 - win.aS) / 60), day.dow,              ''],
+          [r2Hrs((win.aE - 1440) / 60), (day.dow + 1) % 7,   ' (post-midnight)'],
+        ]
+      : [[actualHrs, day.dow, '']];
+
+    let primaryPct = 0;
+    for (const [segHrs, segDow, suffix] of segments) {
+      if (segHrs <= 0) continue;
+      let pct: number, clause: string, code: string, name: string;
+      if (segDow === 0)      { pct = 250; clause = 'Cl. 140.4(d)'; code = '1110'; name = 'Overtime @ 250%'; }
+      else if (segDow === 6) { pct = 200; clause = 'Cl. 140.4(c)'; code = '1110'; name = 'Overtime @ 200%'; }
+      else                   { pct = 150; clause = 'Cl. 140.4(a)'; code = '1100'; name = 'Overtime @ 150%* (preview, fortnight counter applies)'; }
+      if (primaryPct === 0) primaryPct = pct;
+      const rate = B * pct / 100;
+      components.push({ name: name + suffix, ea: clause, code,
+        hrs: `${segHrs.toFixed(2)} hrs`, rate: `$${rate.toFixed(5)}/hr`,
+        amount: r2(segHrs * rate), cls: '', date: day.date });
+      components.push({ name: 'WOBOD — Loading @ 50%' + suffix, ea: 'Cl. 140.7', code: codes.wobod || '1059',
+        hrs: `${segHrs.toFixed(2)} hrs`, rate: `$${addlRate.toFixed(5)}/hr`,
+        amount: r2(segHrs * addlRate), cls: '', date: day.date });
+    }
     // 1454 build-up applies to WOBOD days too — Cl. 157.1(b) / Cl. 146.4
     const wChartEntry  = assocChart[day.diagNum || ''];
     const wUnAssocHrs  = wChartEntry ? wChartEntry.unAssocMins   / 60 : 0;

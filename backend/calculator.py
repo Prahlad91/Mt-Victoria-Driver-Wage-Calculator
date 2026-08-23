@@ -854,56 +854,60 @@ def compute_fortnight(req: CalculateRequest) -> CalculateResponse:
         wobod_flag = next((f for f in dr.flags if f.startswith('__WOBOD_PENDING__:')), None)
         if not wobod_flag:
             continue
-        
+
         actual_hrs_str = wobod_flag.split(':')[1]
         wobod_hrs = r2_hrs(float(actual_hrs_str))
         day = days[i]
         dow = day.dow
-        
-        # Determine primary rate per Cl. 140.4. Code mapping per Prahlad's payslip:
-        #   150% → code 1100 (Overtime @ 150%)
-        #   250% → code 1110 (Overtime @ 250%)
-        #   200% → code 1110 (Overtime @ 200%) — same code, different rate label
-        if dow == 0:  # Sunday WOBOD = 250% per Cl. 140.4(d)
-            primary_pct = 250
-            primary_clause = 'Cl. 140.4(d)'
-            primary_code = '1110'
-            primary_name = 'Overtime @ 250%'
-        elif dow == 6:  # Saturday
-            primary_pct = 200
-            primary_clause = 'Cl. 140.4(c)'
-            primary_code = '1110'
-            primary_name = 'Overtime @ 200%'
-        else:  # Weekday
-            weekday_wobod_count += 1
-            if weekday_wobod_count <= 2:
-                primary_pct = 150
-                primary_clause = 'Cl. 140.4(a)'
-                primary_code = '1100'
-                primary_name = f'Overtime @ 150% (wkdy WOBOD #{weekday_wobod_count})'
-            else:
-                primary_pct = 200
-                primary_clause = 'Cl. 140.4(b)'
-                primary_code = '1110'
-                primary_name = f'Overtime @ 200% (wkdy WOBOD #{weekday_wobod_count})'
-        
-        primary_rate = B * primary_pct / 100
         addl_rate = B * 0.5
-        
-        primary_comp = _comp(
-            primary_code, primary_name, primary_clause,
-            f'{wobod_hrs:.2f} hrs', f'${primary_rate:.5f}/hr',
-            wobod_hrs * primary_rate, date=day.date,
-        )
-        addl_comp = _comp(
-            codes.wobod or '1059', 'WOBOD — Loading @ 50%', 'Cl. 140.7',
-            f'{wobod_hrs:.2f} hrs', f'${addl_rate:.5f}/hr',
-            wobod_hrs * addl_rate, date=day.date,
-        )
-        
-        # Replace empty components with the two WOBOD components
-        dr.components = [primary_comp, addl_comp]
-        dr.total_pay = r2(primary_comp.amount + addl_comp.amount)
+
+        # Cross-midnight: split at midnight so each calendar-day portion
+        # is paid at that day's WOBOD rate (e.g. Sat→Sun = 200% then 250%).
+        a_s_w = _to_mins(day.a_start) if day.a_start else None
+        a_e_w = _to_mins(day.a_end)   if day.a_end   else None
+        wobod_cm = day.cm and a_s_w is not None and a_e_w is not None
+        if wobod_cm:
+            segments = [
+                (r2_hrs((1440 - a_s_w) / 60), dow,             ''),
+                (r2_hrs(a_e_w / 60),           (dow + 1) % 7,  ' (post-midnight)'),
+            ]
+        else:
+            segments = [(wobod_hrs, dow, '')]
+
+        new_comps: list[PayComponent] = []
+        total_pay_w = 0.0
+        all_pcts: list[int] = []
+
+        for seg_hrs, seg_dow, suffix in segments:
+            if seg_hrs <= 0:
+                continue
+            if seg_dow == 0:
+                pct, clause, code = 250, 'Cl. 140.4(d)', '1110'
+                name = 'Overtime @ 250%'
+            elif seg_dow == 6:
+                pct, clause, code = 200, 'Cl. 140.4(c)', '1110'
+                name = 'Overtime @ 200%'
+            else:
+                weekday_wobod_count += 1
+                if weekday_wobod_count <= 2:
+                    pct, clause, code = 150, 'Cl. 140.4(a)', '1100'
+                    name = f'Overtime @ 150% (wkdy WOBOD #{weekday_wobod_count})'
+                else:
+                    pct, clause, code = 200, 'Cl. 140.4(b)', '1110'
+                    name = f'Overtime @ 200% (wkdy WOBOD #{weekday_wobod_count})'
+            rate = B * pct / 100
+            new_comps.append(_comp(code, name + suffix, clause,
+                f'{seg_hrs:.2f} hrs', f'${rate:.5f}/hr',
+                seg_hrs * rate, date=day.date))
+            new_comps.append(_comp(codes.wobod or '1059', 'WOBOD — Loading @ 50%' + suffix, 'Cl. 140.7',
+                f'{seg_hrs:.2f} hrs', f'${addl_rate:.5f}/hr',
+                seg_hrs * addl_rate, date=day.date))
+            total_pay_w += seg_hrs * rate + seg_hrs * addl_rate
+            all_pcts.append(pct)
+
+        primary_pct = all_pcts[0] if all_pcts else 0
+        dr.components = new_comps
+        dr.total_pay = r2(total_pay_w)
 
         # Cl. 143.5 / Item 12 Sch.4B — also applies on WOBOD shifts > 10h
         if 10.0 < wobod_hrs <= 16.0:
@@ -944,10 +948,17 @@ def compute_fortnight(req: CalculateRequest) -> CalculateResponse:
             )
         # Replace the sentinel flag with a real description
         dr.flags = [f for f in dr.flags if not f.startswith('__WOBOD_PENDING__')]
-        dr.flags.append(
-            f"WOBOD: {primary_pct}% primary (Cl. 140.4) + 50% Train Crew loading (Cl. 140.7) "
-            f"= {primary_pct + 50}% combined. No OT split, no shift penalties (Cl. 140.4)."
-        )
+        if len(all_pcts) > 1:
+            pct_str = ' / '.join(f'{p}%' for p in all_pcts)
+            dr.flags.append(
+                f"WOBOD (cross-midnight split): {pct_str} primary (Cl. 140.4) + 50% loading (Cl. 140.7). "
+                f"No OT split, no shift penalties (Cl. 140.4)."
+            )
+        else:
+            dr.flags.append(
+                f"WOBOD: {primary_pct}% primary (Cl. 140.4) + 50% Train Crew loading (Cl. 140.7) "
+                f"= {primary_pct + 50}% combined. No OT split, no shift penalties (Cl. 140.4)."
+            )
     
     # ─── Pass 3: pool 'pool_to_ordinary' components into one fortnight 1001 line ───
     fortnight_components: list[PayComponent] = []
