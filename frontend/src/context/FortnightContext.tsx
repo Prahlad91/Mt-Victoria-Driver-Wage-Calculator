@@ -539,15 +539,12 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
       }
       if (rates?.config) {
         setConfigState(prev => ({ ...prev, ...rates.config }))
-        toLS(LS_CFG, rates.config)
       }
       if (rates?.codes) {
         setCodesState(prev => ({ ...prev, ...rates.codes }))
-        toLS(LS_CODES, rates.codes)
       }
       if (rates?.unassocAmt !== undefined) {
         setUnassocAmt(rates.unassocAmt)
-        toLS(LS_UNASSOC, rates.unassocAmt)
       }
       // User fortnight roster (scoped to this browser's session id)
       const fn = await tryFetch<ParsedRosterData>('/api/fortnight-roster/current', { 'X-Session-Id': sid })
