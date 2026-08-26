@@ -147,6 +147,7 @@ export function previewDay(
 
   // ─── WOBOD (Cl. 140.4 + 140.7) ──────────────────────────────────
   if (day.wobod) {
+    const wh = actualHrs;
     const addlRate = B * 0.5;
     // Cross-midnight: split at midnight, apply next-day DOW rate to post-midnight portion
     const wobodCm = day.cm && win.aE > 1440;
