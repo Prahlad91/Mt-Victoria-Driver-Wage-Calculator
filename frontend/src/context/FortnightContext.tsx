@@ -880,7 +880,7 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
         timeSource: 'manual',
         claimLiftupLayback: day.claimLiftupLayback ?? true,
         workedOnOff: true,
-        wobod: orig === 'OFF' || orig === 'ADO' || wasAdo,
+        wobod: orig === 'OFF' || orig === 'ADO' || orig === 'PHNW' || wasAdo || day.ph,
         wasAdo,  // v3.11
       }
       return arr
