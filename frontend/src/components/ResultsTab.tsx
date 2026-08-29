@@ -5,6 +5,31 @@ import type { PayComponent } from '../types'
 
 const API = (import.meta as any).env?.VITE_API_BASE || ''
 
+// Merge consecutive rows that share date+code+rate (e.g. cross-midnight ordinary hours)
+function mergeRows(sorted: PayComponent[]): PayComponent[] {
+  const out: PayComponent[] = []
+  for (const c of sorted) {
+    const prev = out.at(-1)
+    const cHrsStr = String(c.hrs).trim()
+    const prevHrsStr = prev ? String(prev.hrs).trim() : ''
+    if (
+      prev &&
+      prev.date === c.date &&
+      prev.code === c.code &&
+      prev.rate === c.rate &&
+      cHrsStr.endsWith('hrs') &&
+      prevHrsStr.endsWith('hrs')
+    ) {
+      const sumHrs = Math.round((parseFloat(prevHrsStr) + parseFloat(cHrsStr)) * 100) / 100
+      const sumAmt = Math.round((prev.amount + c.amount) * 100) / 100
+      out[out.length - 1] = { ...prev, hrs: `${sumHrs.toFixed(2)} hrs`, amount: sumAmt }
+    } else {
+      out.push(c)
+    }
+  }
+  return out
+}
+
 // Code → chip colour
 function codeStyle(code: string): React.CSSProperties {
   const n = parseInt(code)
@@ -198,14 +223,14 @@ export default function ResultsTab() {
                 </tr>
               </thead>
               <tbody>
-                {[...fnComps]
+                {mergeRows([...fnComps]
                   .sort((a, b) => {
                     // Fortnight-level rows (no date) last
                     if (!a.date && b.date) return 1
                     if (a.date && !b.date) return -1
                     if (a.date !== b.date) return (a.date || '').localeCompare(b.date || '')
                     return (a.code || '').localeCompare(b.code || '', undefined, { numeric: true })
-                  })
+                  }))
                   .map((c: PayComponent, idx: number) => {
                   const dateLabel = c.date
                     ? fmtDateShort(parseDate(c.date))
