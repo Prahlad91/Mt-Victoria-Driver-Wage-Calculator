@@ -844,7 +844,7 @@ def compute_fortnight(req: CalculateRequest) -> CalculateResponse:
         day_results.append(
             compute_day(d, cfg, codes, req.unassoc_amt,
                         next_ph=nd.ph if nd else False,
-                        next_dow=nd.dow if nd else None)
+                        next_dow=nd.dow if nd else ((d.dow + 1) % 7 if d.cm else None))
         )
     
     # ─── Pass 2: WOBOD components (with weekday counter) ─────────────

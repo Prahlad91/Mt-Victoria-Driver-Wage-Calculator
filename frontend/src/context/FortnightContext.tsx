@@ -361,7 +361,7 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
     () => days.map((d, i) => previewDay(
       d, config, codes, unassocAmt, assocChart,
       days[i + 1]?.ph ?? false,
-      days[i + 1]?.dow ?? null,
+      days[i + 1]?.dow ?? (d.cm ? (d.dow + 1) % 7 : null),
     )),
     [days, config, codes, unassocAmt, assocChart],
   )
