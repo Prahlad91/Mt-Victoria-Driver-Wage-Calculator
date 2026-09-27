@@ -24,7 +24,7 @@ export const DEFAULT_CONFIG: RateConfig = {
   ph_wkd: 1.5, ph_wke: 2.5,
   afternoon_rate: 4.84, night_rate: 5.69, early_rate: 4.84,
   add_loading: 5.69,
-  exp_over_10h_rate: 14.55,  // Sch.4B Item 12 / Cl. 143.5
+  exp_over_10h_rate: 15.15,  // Sch.4B Item 12 / Cl. 143.5
   wobod_rate: 2.0, wobod_min: 0,
 };
 
@@ -471,7 +471,7 @@ export function previewDay(
 
   // 1496 Cl. 143.5 / Item 12 Sch.4B — flat $14.55 when actual shift > 10h and ≤ 16h
   if (actualHrs > 10.0 && actualHrs <= 16.0) {
-    const exp10Rate = cfg.exp_over_10h_rate ?? 14.55;
+    const exp10Rate = cfg.exp_over_10h_rate ?? 15.15;
     components.push({
       name: 'Exp More Than 10 Hours',
       ea: 'Cl. 143.5 / Item 12 Sch.4B',

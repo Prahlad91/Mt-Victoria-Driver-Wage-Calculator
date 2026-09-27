@@ -297,7 +297,12 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
   const [rosterSource, setRosterSource] = useState<RosterSource>('builtin')
   const [loadedCrewName, setLoadedCrewName] = useState<string | null>(null)
 
-  const [config, setConfigState] = useState<RateConfig>(() => ({ ...DEFAULT_CONFIG, ...fromLS(LS_CFG, {}) }))
+  const [config, setConfigState] = useState<RateConfig>(() => {
+    const saved = fromLS(LS_CFG, {}) as Partial<RateConfig>
+    // Migrate: bump exp_over_10h_rate from old default 14.55 → 15.15
+    if (saved.exp_over_10h_rate === 14.55) saved.exp_over_10h_rate = 15.15
+    return { ...DEFAULT_CONFIG, ...saved }
+  })
   const [codes,  setCodesState]  = useState<PayrollCodes>(() => ({ ...DEFAULT_CODES, ...fromLS(LS_CODES, {}) }))
   const [unassocAmt, setUnassocAmt] = useState<number>(() => fromLS(LS_UNASSOC, 0))
 
