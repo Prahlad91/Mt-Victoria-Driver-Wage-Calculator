@@ -927,7 +927,9 @@ def compute_fortnight(req: CalculateRequest) -> CalculateResponse:
         assoc_pay_w = day.assoc_payment_hrs or 0.0
         dist_pay_w  = km_credited_w or 0.0
         total_credit_w = un_assoc_w + assoc_pay_w + dist_pay_w
-        sched_hrs_w = day.r_hrs if day.r_hrs > 0 else wobod_hrs
+        # Use the larger of scheduled or actual — KM credit only pays out when it
+        # exceeds what the driver already earned for time worked.
+        sched_hrs_w = max(day.r_hrs if day.r_hrs > 0 else wobod_hrs, wobod_hrs)
         if day.assoc_build_up_hrs > 0:
             build_up_w = r2_hrs(day.assoc_build_up_hrs)
         else:
