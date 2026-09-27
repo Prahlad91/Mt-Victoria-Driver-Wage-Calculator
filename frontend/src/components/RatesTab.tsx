@@ -13,7 +13,8 @@ const RATE_DEFS = [
   {k:'afternoon_rate', label:'Afternoon shift ($/hr)',         ea:'Sch.4B Item 6'},
   {k:'night_rate', label:'Night shift ($/hr)',                 ea:'Sch.4B Item 7'},
   {k:'early_rate', label:'Early morning ($/hr)',               ea:'Sch.4B Item 8'},
-  {k:'add_loading',label:'Additional loading ($/shift flat)',  ea:'Sch.4B Item 9'},
+  {k:'add_loading',    label:'Additional loading ($/shift flat)',  ea:'Sch.4B Item 9'},
+  {k:'exp_over_10h_rate', label:'Exp >10hr shift allowance ($/shift flat)', ea:'Sch.4B Item 12'},
   {k:'wobod_rate', label:'WOBOD rate (x)',                     ea:'Cl. 136'},
   {k:'wobod_min',  label:'WOBOD minimum hours',               ea:'Cl. 136'},
 ] as const
