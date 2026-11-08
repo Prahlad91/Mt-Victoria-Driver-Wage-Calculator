@@ -166,6 +166,7 @@ def parse_roster_zip(file_bytes: bytes, filename: str) -> ParsedRosterResponse:
             line_starts.append((num, m.start()))
 
     lines_data: dict[str, list[RosterDayEntry]] = {}
+    text_warnings: list[str] = []
     for idx, (line_num, start_pos) in enumerate(line_starts):
         end_pos = line_starts[idx + 1][1] if idx + 1 < len(line_starts) else len(text)
         section = text[start_pos:end_pos]
@@ -173,7 +174,12 @@ def parse_roster_zip(file_bytes: bytes, filename: str) -> ParsedRosterResponse:
         if days:
             lines_data[str(line_num)] = days
         if len(days) != 14:
-            warnings.append(f'Line {line_num}: expected 14 days, got {len(days)}.')
+            text_warnings.append(f'Line {line_num}: expected 14 days, got {len(days)}.')
+    # Only surface text-pass warnings when that pass actually produced lines;
+    # printed table PDFs can leave spurious regex matches (and 0-day warnings)
+    # that the table pass below resolves cleanly.
+    if lines_data:
+        warnings.extend(text_warnings)
 
     # ── Approach 2: table-extraction fallback ────────────────────────────────────
     # The real printed "Intercity Drivers Roster" PDF has crew names between the
@@ -372,6 +378,13 @@ _SWINGER_OT_COL_NOCREW      = _SWINGER_OT_COL - 1
 # values are 20 (with crew col) and 19 (without).  Main roster table is 30-31.
 _SWINGER_MAX_NCOLS = 22
 
+# Date header cell in a roster grid, e.g. "4/10/2026".  Used to locate the 14
+# day columns dynamically when the printed grid doesn't match the fixed-anchor
+# layouts above (some print runs drop the leading spacer column and emit
+# variable-width day boxes, so the line number lands in col 0 and table width
+# varies page to page).
+_DATE_CELL_RE = re.compile(r'^\d{1,2}/\d{1,2}/\d{4}$')
+
 # Regex that matches text that looks like a day-slot entry in an anchor row.
 # Used to determine whether col[2] is a crew name or the first day column.
 _DAY_ANCHOR_RE = re.compile(
@@ -500,11 +513,13 @@ def _parse_cell_to_day_entry(cell: object) -> 'RosterDayEntry':
             locs = [t for t in toks[1:]
                     if re.match(r'^[A-Z]{2,5}(/[A-Z]{2,5})*$', t)]
             diag = first + (' ' + locs[0] if locs else '')
+            break  # diagram found — always on the first usable line after the time range
         elif re.match(r'^[A-Z]', first, re.IGNORECASE):
             # Non-numeric diagram: SBY, MSBYD3, AMV01, MY30 … strip annotations like "(LSL )"
             clean = re.sub(r'\(.*$', '', first).strip()
             diag  = clean.upper() if clean else 'SBY'
-        break  # diagram is always on the first non-empty line after the time range
+            break
+        # else: stray separator line (e.g. "-") — keep looking at the next line
 
     return RosterDayEntry(diag=diag, r_start=r_start, r_end=r_end, cm=cm, r_hrs=r_hrs)
 
@@ -519,6 +534,127 @@ def _clean_crew_name(raw: str) -> str:
     # Strip trailing date-annotations e.g. " (AL 18/04/26)"
     s = re.sub(r'\s*\([A-Z]{1,4}\s+\d{1,2}/\d{1,2}/\d{2,4}\)\s*$', '', s).strip()
     return s
+
+
+def _find_day_columns(table: list) -> tuple[list[int], int]:
+    """
+    Locate the date-header row of a roster table (cells like "4/10/2026").
+
+    Returns (day_col_indices, header_row_idx) — the 14 column indices whose
+    header cell is a date — or ([], -1) when the table has no date header
+    (e.g. the small per-shift boxes pdfplumber detects alongside the grid).
+    """
+    for ri, raw_row in enumerate(table):
+        if not raw_row:
+            continue
+        hits = [ci for ci, c in enumerate(raw_row)
+                if _DATE_CELL_RE.match(str(c or '').strip())]
+        if len(hits) >= 14:
+            return hits[:14], ri
+    return [], -1
+
+
+def _process_dynamic_table(
+    tbl_obj: object, table: list, page: object,
+    day_cols: list[int], date_row_idx: int,
+    lines_data: dict, crew_names: dict, warnings: list[str],
+) -> None:
+    """
+    Parse one roster table whose day columns were located dynamically from its
+    date-header row.  Handles print layouts where the leading spacer column is
+    absent (line number in col 0) and day boxes have variable widths, so the
+    fixed _DAY_ANCHORS / swinger layouts don't apply.
+
+    Day i spans columns [day_cols[i], day_cols[i+1]); the last day ends at the
+    first trailing non-empty header cell (e.g. "Legal") or the table edge.
+    """
+    hdr = [str(c or '').strip() for c in (table[date_row_idx] or [])]
+    ot_col = len(hdr)
+    for ci in range(day_cols[-1] + 1, len(hdr)):
+        if hdr[ci]:
+            ot_col = ci
+            break
+
+    struck = (
+        _build_struck_set(tbl_obj, page)
+        if tbl_obj is not None
+        else frozenset()
+    )
+
+    groups: list[dict] = []
+    current: dict | None = None
+    min_day_col = day_cols[0]
+
+    for ri, raw_row in enumerate(table):
+        if not raw_row or ri <= date_row_idx:
+            continue
+        cells = [
+            ('' if (ri, ci) in struck and ci >= min_day_col else str(c or '').strip())
+            for ci, c in enumerate(raw_row)
+        ]
+        while len(cells) <= ot_col:
+            cells.append('')
+
+        # The line number sits in col 0 or col 1 depending on whether the
+        # printed grid has a leading spacer column — scan the first few cells.
+        line_col: int | None = None
+        for ci in range(min(4, len(cells))):
+            if re.match(r'^\d{1,3}$', cells[ci]) and int(cells[ci]) in _VALID_LINES:
+                line_col = ci
+                break
+
+        if line_col is not None:
+            if current is not None:
+                groups.append(current)
+            current = {'line_num': int(cells[line_col]), 'rows': [cells],
+                       'line_col': line_col}
+        elif current is not None:
+            current['rows'].append(cells)   # continuation row
+
+    if current is not None:
+        groups.append(current)
+
+    for grp in groups:
+        line_num = grp['line_num']
+        if str(line_num) in lines_data:
+            continue  # first occurrence wins (PDF may span pages)
+
+        rows = grp['rows']
+
+        # Crew name: the cell right after the line number in the anchor row,
+        # unless that cell itself looks like a day entry (no crew column).
+        crew_col = grp['line_col'] + 1
+        if rows and crew_col < len(rows[0]):
+            cand = rows[0][crew_col]
+            if cand and not _DAY_ANCHOR_RE.search(cand):
+                name = _clean_crew_name(cand)
+                if name:
+                    crew_names[str(line_num)] = name
+
+        entries: list[RosterDayEntry] = []
+        for di, anchor in enumerate(day_cols):
+            next_a = day_cols[di + 1] if di + 1 < len(day_cols) else ot_col
+            col_range = range(anchor, min(next_a, ot_col))
+            parts: list[str] = []
+            for row in rows:
+                row_parts = [
+                    row[col]
+                    for col in col_range
+                    if col < len(row) and row[col]
+                ]
+                if row_parts:
+                    parts.append(' '.join(row_parts))
+            entries.append(_parse_cell_to_day_entry('\n'.join(parts)))
+
+        if len(entries) == 14:
+            lines_data[str(line_num)] = entries
+        elif 0 < len(entries) < 14:
+            off = RosterDayEntry(diag='OFF', r_start=None, r_end=None,
+                                 cm=False, r_hrs=0.0)
+            entries.extend([off] * (14 - len(entries)))
+            lines_data[str(line_num)] = entries
+        else:
+            warnings.append(f'Line {line_num}: no day entries found — skipped.')
 
 
 def _parse_roster_from_pdf_tables(
@@ -584,6 +720,18 @@ def _parse_roster_from_pdf_tables(
 
                 for tbl_obj, table in table_pairs:
                     if not table:
+                        continue
+
+                    # ── Dynamic layout: date-header-driven day columns ────────
+                    # Newer print runs vary the grid (no leading spacer col,
+                    # variable-width day boxes), so locate the 14 day columns
+                    # from the date header row instead of fixed anchors.
+                    day_cols, date_row_idx = _find_day_columns(table)
+                    if day_cols:
+                        _process_dynamic_table(
+                            tbl_obj, table, page, day_cols, date_row_idx,
+                            lines_data, crew_names, warnings,
+                        )
                         continue
 
                     # ── Detect table-width-based layout: main vs swinger ──────
