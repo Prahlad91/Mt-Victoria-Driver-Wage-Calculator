@@ -77,7 +77,12 @@ const DEFAULT_ASSOC_CHART: AssocChart = {
 // chart need to drop it so they pick up the new built-in defaults.
 // v3.41: bumped from 3.24 → 3.41 — 3155 unAssocMins corrected to 0 (was 50).
 // Any cached chart in localStorage will be cleared so users get the updated DEFAULT.
-const CACHE_SCHEMA_VERSION = '3.41'
+// v3.42: bumped from 3.41 → 3.42 — the pre-fix roster parser could not read the
+// new fortnight PDF print layout and stored an EMPTY (0-line) ParsedRosterData.
+// That empty payload sits in LS_FR / LS_MR and is replayed on every load, so the
+// user keeps seeing "0 rows" even after the backend parser fix was deployed.
+// Clearing the caches forces a re-upload that goes through the fixed parser.
+const CACHE_SCHEMA_VERSION = '3.42'
 
 if (typeof window !== 'undefined') {
   try {
@@ -525,7 +530,7 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
         tryFetch<{ config: RateConfig; codes: PayrollCodes; unassocAmt: number }>('/api/rates/current'),
       ])
       if (cancelled) return
-      if (master) {
+      if (master && Object.keys(master.lines ?? {}).length) {
         toLS(LS_MR, master)
         setMR({ status: 'success', result: master, error: null, fromServer: true })
       }
@@ -554,7 +559,11 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
       // User fortnight roster (scoped to this browser's session id)
       const fn = await tryFetch<ParsedRosterData>('/api/fortnight-roster/current', { 'X-Session-Id': sid })
       if (cancelled) return
-      if (fn) {
+      // Only adopt a payload that actually contains roster lines.  A stored
+      // artifact produced by an older/broken parser can have zero lines, and
+      // replaying it into state + localStorage on every mount would clobber a
+      // good local cache and permanently mask a since-deployed parser fix.
+      if (fn && Object.keys(fn.lines ?? {}).length) {
         toLS(LS_FR, fn)
         setFR({ status: 'success', result: fn, error: null, fromServer: true })
       }
@@ -630,11 +639,24 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
 
     let source: RosterSource = 'builtin'
     let rosterEntries: ParsedRosterData['lines'][string] | undefined
-    if (isSwinger(line)) {
-      if (frData?.lines[String(line)])      { source = 'fortnight'; rosterEntries = frData.lines[String(line)] }
-      else if (mrData?.lines[String(line)]) { source = 'master';    rosterEntries = mrData.lines[String(line)] }
-    } else {
-      if (mrData?.lines[String(line)])      { source = 'master';    rosterEntries = mrData.lines[String(line)] }
+
+    // The uploaded fortnight roster is the authoritative source for the
+    // fortnight it covers — for EVERY line, not just swingers.  (Previously
+    // only swinger lines consulted it, so a driver on lines 1-22 could upload
+    // their fortnight roster and have it silently ignored in favour of the
+    // master roster or stale built-in data.)
+    //
+    // It is only safe to use when it actually covers the fortnight being
+    // loaded: its 14 entries are positional, so applying a roster for a
+    // different period would misalign every day.  `fnStart` may be driven by
+    // the master roster's annual cycle, which need not match.
+    const frCoversThisFortnight =
+      !!frData && (!frData.fn_start || frData.fn_start === snapped)
+
+    if (frCoversThisFortnight && frData?.lines[String(line)]) {
+      source = 'fortnight'; rosterEntries = frData.lines[String(line)]
+    } else if (mrData?.lines[String(line)]) {
+      source = 'master';    rosterEntries = mrData.lines[String(line)]
     }
 
     let newDays: DayState[]
@@ -719,7 +741,18 @@ export function FortnightProvider({ children }: { children: ReactNode }) {
     } else {
       source = 'builtin'
       const roster = ROSTER[String(line)]
-      if (!roster) return
+      // Must return an error string, not a bare `return`: callers treat a
+      // falsy result as success and switch to the results view, which would
+      // silently render zero rows with no explanation.
+      if (!roster) {
+        const fnLabel = frData?.fn_start && frData.fn_start !== snapped
+          ? ` The uploaded fortnight roster covers ${frData.fn_start}, not ${snapped}.`
+          : ''
+        return `No roster data found for line ${line} for the fortnight starting ${snapped}. ` +
+               `It isn't in the uploaded fortnight roster, the master roster, or the built-in data.` +
+               fnLabel +
+               ` Upload the fortnight roster covering this period in Step 1, or check the line number.`
+      }
       const isShort = roster.some(e => e[4] === 'ADO')
       newDays = roster.map((entry, i) => {
         const [rS, rE, cmFlag, rHrsBuilt, diagBuilt] = entry
